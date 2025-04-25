@@ -11,6 +11,8 @@ Enhanced PocketBase server with extensive monitoring, logging, and health check 
 │   ├── monitoring/      # System metrics collection (CPU, Memory, Network, etc.)
 │   ├── logging/         # Structured logging and error handling
 │   └── server/          # Core server implementation and health checks
+├── pkg/
+│   └── api/             # Custom API endpoints and utilities
 ```
 
 ## Core Features
@@ -20,6 +22,9 @@ Enhanced PocketBase server with extensive monitoring, logging, and health check 
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
 - **Health Checks**: Built-in health monitoring endpoints
 - **Request Statistics**: Detailed request tracking with timing and error rate metrics
+- **Utility API Endpoints**: Custom example endpoints:
+  - `/api/utils/time`: Server time
+  - `/api/utils/uuid`: UUID generation
 
 ## Quick Start
 
