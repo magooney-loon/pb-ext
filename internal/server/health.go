@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,6 +17,12 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/shirou/gopsutil/v3/host"
+)
+
+// Default credentials - should be overridden via environment variables
+const (
+	defaultAdminUser = "admin"
+	defaultAdminPass = "pbhealth69"
 )
 
 // HealthResponse represents the health check response structure
@@ -195,6 +202,16 @@ var templateFuncs = template.FuncMap{
 
 // RegisterHealthRoute registers the health check endpoint
 func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
+	// Get credentials from environment variables or use defaults
+	adminUser := os.Getenv("PB_HEALTH_USER")
+	if adminUser == "" {
+		adminUser = defaultAdminUser
+	}
+	adminPass := os.Getenv("PB_HEALTH_PASS")
+	if adminPass == "" {
+		adminPass = defaultAdminPass
+	}
+
 	// Determine base path for template files
 	basePath := "."
 	// Check if we're running in development or production mode
@@ -224,6 +241,14 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 	}
 
 	handler := func(c *core.RequestEvent) error {
+		// Basic auth check
+		user, pass, ok := c.Request.BasicAuth()
+		if !ok || subtle.ConstantTimeCompare([]byte(user), []byte(adminUser)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(pass), []byte(adminPass)) != 1 {
+			c.Response.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			return NewHTTPError("unauthorized", "Unauthorized access", http.StatusUnauthorized, nil)
+		}
+
 		// Create a timeout context for stats collection
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -266,6 +291,6 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		return c.HTML(http.StatusOK, buf.String())
 	}
 
-	// Register route without auth
+	// Register route
 	e.Router.GET("/_/_", handler)
 }
