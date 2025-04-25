@@ -23,8 +23,8 @@ Enhanced PocketBase server with extensive monitoring, logging, and health check 
 - **Health Checks**: Built-in health monitoring endpoints
 - **Request Statistics**: Detailed request tracking with timing and error rate metrics
 - **Utility API Endpoints**: Custom example endpoints:
-  - `/api/utils/time`: Server time
-  - `/api/utils/uuid`: UUID generation
+  - `/pkg/api/utils/time`: Server time
+  - `/pkg/api/utils/uuid`: UUID generation
 
 ## Quick Start
 
