@@ -1,0 +1,25 @@
+{{define "scripts"}}
+<script>
+    // Countdown timer
+    function updateCountdown() {
+        const countdownEl = document.getElementById('countdown');
+        let seconds = 60;
+        
+        function tick() {
+            seconds--;
+            countdownEl.textContent = seconds;
+            if (seconds > 0) {
+                setTimeout(tick, 1000);
+            }
+        }
+        
+        tick();
+    }
+
+    // Initialize countdown and fade in content
+    window.onload = () => {
+        document.getElementById('content').style.opacity = '1';
+        updateCountdown();
+    };
+</script>
+{{end}} 

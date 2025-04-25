@@ -195,22 +195,31 @@ var templateFuncs = template.FuncMap{
 
 // RegisterHealthRoute registers the health check endpoint
 func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
-	// Determine base path for template file
+	// Determine base path for template files
 	basePath := "."
 	// Check if we're running in development or production mode
-	if _, err := os.Stat("internal/server/templates/health.tmpl"); err == nil {
+	if _, err := os.Stat("internal/server/templates"); err == nil {
 		basePath = "."
-	} else if _, err := os.Stat("pb_public/templates/health.tmpl"); err == nil {
+	} else if _, err := os.Stat("pb_public/templates"); err == nil {
 		basePath = "pb_public"
 	}
 
-	templatePath := filepath.Join(basePath, "internal/server/templates/health.tmpl")
+	// Define template paths
+	templatePaths := []string{
+		filepath.Join(basePath, "internal/server/templates/health.tmpl"),
+		filepath.Join(basePath, "internal/server/templates/styles/main.tmpl"),
+		filepath.Join(basePath, "internal/server/templates/scripts/main.tmpl"),
+		filepath.Join(basePath, "internal/server/templates/components/header.tmpl"),
+		filepath.Join(basePath, "internal/server/templates/components/critical_metrics.tmpl"),
+		filepath.Join(basePath, "internal/server/templates/components/cpu_details.tmpl"),
+		filepath.Join(basePath, "internal/server/templates/components/memory_details.tmpl"),
+		filepath.Join(basePath, "internal/server/templates/components/network_details.tmpl"),
+	}
 
-	// Parse the template with functions
-	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(templateFuncs).ParseFiles(templatePath)
+	// Parse all templates with functions
+	tmpl, err := template.New("health.tmpl").Funcs(templateFuncs).ParseFiles(templatePaths...)
 	if err != nil {
-		log.Printf("Error parsing health template: %v", err)
-		// Fallback to embedded template for robustness
+		log.Printf("Error parsing health templates: %v", err)
 		return
 	}
 

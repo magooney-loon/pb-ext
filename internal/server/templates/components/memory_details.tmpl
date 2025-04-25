@@ -1,0 +1,83 @@
+{{define "memory_details"}}
+<div class="detail-panel">
+    <div class="section-title">
+        <svg class="section-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3z"></path>
+            <path d="M9 17v-6"></path>
+            <path d="M12 17v-9"></path>
+            <path d="M15 17v-3"></path>
+        </svg>
+        Memory Details
+    </div>
+    
+    <div class="memory-stats">
+        <div class="memory-stat-card">
+            <div class="label">System Memory</div>
+            <div class="value">{{.MemoryUsageStr}}</div>
+            <div class="label">of {{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Total 1073741824)}}</div>
+            <div class="progress-bar" style="margin-top: 8px;">
+                <div class="progress-value {{if gt .SystemStats.MemoryInfo.UsedPercent 90.0}}progress-red{{else if gt .SystemStats.MemoryInfo.UsedPercent 70.0}}progress-yellow{{else}}progress-green{{end}}" 
+                    style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}}"></div>
+            </div>
+            <div class="label" style="margin-top: 4px;">{{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}} used</div>
+        </div>
+        <div class="memory-stat-card">
+            <div class="label">Swap</div>
+            <div class="value">{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.SwapUsed 1073741824)}}</div>
+            <div class="label">of {{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.SwapTotal 1073741824)}}</div>
+            <div class="progress-bar" style="margin-top: 8px;">
+                <div class="progress-value {{if gt .SystemStats.MemoryInfo.SwapPercent 50.0}}progress-yellow{{else}}progress-green{{end}}" 
+                    style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.SwapPercent}}"></div>
+            </div>
+            <div class="label" style="margin-top: 4px;">{{printf "%.1f%%" .SystemStats.MemoryInfo.SwapPercent}} used</div>
+        </div>
+        <div class="memory-stat-card">
+            <div class="label">Process Memory</div>
+            <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.ProcessStats.RSS 1048576)}}</div>
+            <div class="label">RSS</div>
+            <div class="progress-bar" style="margin-top: 8px;">
+                <div class="progress-value progress-blue" 
+                    style="width: {{printf "%.1f%%" .SystemStats.ProcessStats.MemoryPercent}}"></div>
+            </div>
+            <div class="label" style="margin-top: 4px;">{{printf "%.1f%%" .SystemStats.ProcessStats.MemoryPercent}} of system</div>
+        </div>
+        <div class="memory-stat-card">
+            <div class="label">Heap</div>
+            <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.HeapObjects 1048576)}}</div>
+            <div class="label">Objects</div>
+            <div class="label" style="margin-top: 8px;">
+                GC Duration: {{printf "%.2fms" (divideFloat64 (int64 .SystemStats.RuntimeStats.LastGCDuration) 1000000)}}
+            </div>
+            <div class="label">
+                Next GC: {{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.NextGC 1048576)}}
+            </div>
+        </div>
+    </div>
+    
+    <div class="heap-allocations">
+        <div class="label" style="margin-bottom: 6px; font-weight: 500; display: flex; align-items: center;">
+            <svg style="width: 14px; height: 14px; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                <line x1="6" y1="6" x2="6" y2="6"></line>
+                <line x1="6" y1="18" x2="6" y2="18"></line>
+            </svg>
+            Heap Allocations
+        </div>
+        <div class="data-row">
+            <div class="data-col">
+                <div class="label">Current</div>
+                <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.AllocatedBytes 1048576)}}</div>
+            </div>
+            <div class="data-col">
+                <div class="label">Total</div>
+                <div class="value">{{printf "%.1f GB" (divideFloat64 .SystemStats.RuntimeStats.TotalAllocBytes 1073741824)}}</div>
+            </div>
+            <div class="data-col">
+                <div class="label">CGO Calls</div>
+                <div class="value">{{.SystemStats.RuntimeStats.NumCgoCall}}</div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}} 
