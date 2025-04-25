@@ -5,6 +5,7 @@ import (
 
 	"magooney-loon/pb-ext-dash/internal/logging"
 	"magooney-loon/pb-ext-dash/internal/server"
+	"magooney-loon/pb-ext-dash/pkg/api"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -25,6 +26,9 @@ func initApp() {
 		logging.SetupRecovery(srv.App(), e)
 		return e.Next()
 	})
+
+	// Register custom API routes
+	api.RegisterRoutes(srv.App())
 
 	// Start the server
 	if err := srv.Start(); err != nil {
