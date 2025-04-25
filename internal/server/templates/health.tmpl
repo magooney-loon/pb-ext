@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="60">
+    <title>System Health Dashboard</title>
+    <style>
+        /* Basic reset and globals */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #333;
+            background-color:rgba(245, 245, 245, 0.85);
+            line-height: 1.5;
+            padding: 12px;     
+        }
+        
+        /* Colors */
+        :root {
+            --border-color: #ddd;
+            --green-status: #10B981;
+            --yellow-status: #F59E0B;
+            --red-status: #EF4444;
+            --blue-accent: #3B82F6;
+            --text-gray: #666;
+            --light-gray: #f9f9f9;
+            --progress-bg: #eee;
+            --card-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+            --card-highlight: rgba(255, 255, 255, 0.7);
+        }
+        
+        /* Layout containers */
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .panel {
+            background-color: white;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            padding: 15px;
+            box-shadow: var(--card-shadow);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .panel:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(to right, var(--blue-accent), transparent);
+        }
+        
+        /* Header styles */
+        .header {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+        }
+        
+        /* Icon styles */
+        .icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            margin-right: 6px;
+        }
+        
+        .metric-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            margin-right: 8px;
+            background: var(--light-gray);
+            border-radius: 50%;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
+        }
+        
+        .system-info {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .system-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        
+        .system-meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+            font-size: 12px;
+            color: var(--text-gray);
+        }
+        
+        .stats-summary {
+            display: flex;
+            align-items: center;
+            margin-top: 8px;
+        }
+        
+        /* Section title */
+        .section-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 14px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+        }
+        
+        .section-title-icon {
+            width: 18px;
+            height: 18px;
+            margin-right: 8px;
+            color: var(--blue-accent);
+        }
+        
+        /* Card grids */
+        .metrics-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        
+        .metric-card {
+            flex: 1;
+            min-width: 180px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px;
+            background: linear-gradient(to bottom, #ffffff, #fafafa);
+            transition: all 0.15s ease;
+            box-shadow: var(--card-shadow);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .metric-card:after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, rgba(255,255,255,0.8), rgba(255,255,255,0));
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .card-title {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+        
+        /* Progress bar */
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background-color: var(--progress-bg);
+            border-radius: 3px;
+            margin: 10px 0;
+            overflow: hidden;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .progress-value {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.1), rgba(255,255,255,0.2));
+        }
+        
+        .progress-green {
+            background-color: var(--green-status);
+        }
+        
+        .progress-yellow {
+            background-color: var(--yellow-status);
+        }
+        
+        .progress-red {
+            background-color: var(--red-status);
+        }
+        
+        .progress-blue {
+            background-color: var(--blue-accent);
+        }
+        
+        /* Data layouts */
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .data-col {
+            flex: 1;
+            min-width: 80px;
+        }
+        
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+        
+        .cpu-core-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+        }
+        
+        .network-interfaces {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+        }
+        
+        /* Memory and heap specific styles */
+        .memory-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 10px;
+            margin: 0 0 12px 0;
+        }
+        
+        .memory-stat-card {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            background: linear-gradient(to bottom, #ffffff, #fafafa);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .memory-stat-card:after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, rgba(255,255,255,0.8), rgba(255,255,255,0));
+        }
+        
+        .heap-allocations {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 12px;
+            background: linear-gradient(to bottom, #ffffff, #fafafa);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        
+        /* Status elements */
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            position: relative;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.05), inset 0 1px 1px rgba(255,255,255,0.8);
+        }
+        
+        .status-healthy {
+            background: radial-gradient(circle at 30% 30%, #2DCE89, #10B981);
+        }
+        
+        .status-unhealthy {
+            background: radial-gradient(circle at 30% 30%, #F87171, #EF4444);
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            margin-left: 4px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        
+        .status-badge-healthy {
+            background: linear-gradient(to bottom, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+            color: var(--green-status);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+        
+        .status-badge-unhealthy {
+            background: linear-gradient(to bottom, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+            color: var(--red-status);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+        
+        /* Typography */
+        .hostname {
+            font-size: 18px;
+            font-weight: 500;
+        }
+        
+        .divider {
+            width: 1px;
+            height: 30px;
+            background-color: var(--border-color);
+            margin: 0 15px;
+        }
+        
+        .unit {
+            font-size: 12px;
+            color: var(--text-gray);
+        }
+        
+        .label {
+            font-size: 12px;
+            color: var(--text-gray);
+            margin-bottom: 2px;
+        }
+        
+        .value {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .main-value {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .stats-summary {
+                margin-top: 12px;
+            }
+            .divider {
+                display: none;
+            }
+            .detail-panel {
+                flex-basis: 100%;
+            }
+        }
+        
+        .detail-panel {
+            flex: 1;
+            min-width: 300px;
+            background-color: white;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: var(--card-shadow);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .detail-panel:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(to right, var(--card-highlight), transparent);
+        }
+        
+        .three-panel-grid {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        
+        @media (max-width: 1000px) {
+            .three-panel-grid {
+                flex-direction: column;
+            }
+        }
+        
+        .gauge {
+            position: relative;
+            width: 60px;
+            height: 30px;
+            margin: 8px auto;
+            overflow: hidden;
+        }
+        
+        .gauge-background {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 4px solid #eee;
+            border-top-color: transparent;
+            border-left-color: transparent;
+            border-right-color: transparent;
+            box-sizing: border-box;
+        }
+        
+        .gauge-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            clip-path: polygon(30px 30px, 30px 0, 60px 0, 60px 30px);
+            transform-origin: center;
+            background-color: var(--blue-accent);
+        }
+        
+        .gauge-cover {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: white;
+            clip-path: polygon(26px 26px, 26px 0, 52px 0, 52px 52px, 0 52px, 0 26px);
+        }
+        
+        .gauge-value {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard" id="content">
+        <!-- Header with System Info -->
+        <div class="panel header">
+            <div class="system-info">
+                <div class="system-title">
+                    <span class="status-indicator {{if eq .Status "Healthy"}}status-healthy{{else}}status-unhealthy{{end}}"></span>
+                    <span class="hostname">{{.SystemStats.Hostname}}</span>
+                    <span class="status-badge {{if eq .Status "Healthy"}}status-badge-healthy{{else}}status-badge-unhealthy{{end}}">{{.Status}}</span>
+                </div>
+                <div class="system-meta">
+                    <span>{{.SystemStats.Platform}} {{.SystemStats.OS}} {{.SystemStats.KernelVersion}}</span>
+                    <span>•</span>
+                    <span>Up: {{.UptimeDuration}}</span>
+                    <span>•</span>
+                    <span>Last update: {{.LastCheckTime.Format "15:04:05"}}</span>
+                    <span>•</span>
+                    <span>Next refresh: <span id="countdown" style="font-family: monospace;">60</span>s</span>
+                </div>
+            </div>
+            
+            <div class="stats-summary">
+                <div style="text-align: right;">
+                    <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+                        <div class="value">{{printf "%.1f/s" .RequestRate}}</div>
+                        <div class="unit">Requests</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+                        <div class="value" style="color: {{if gt .ServerStats.TotalErrors.Load 0}}var(--red-status){{else}}var(--green-status){{end}}">
+                            {{printf "%.2f%%" (errorRate .ServerStats.TotalErrors.Load .ServerStats.TotalRequests.Load)}}
+                        </div>
+                        <div class="unit">Errors</div>
+                    </div>
+                </div>
+                <div class="divider"></div>
+                <div style="text-align: right;">
+                    <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+                        <div class="value">{{printf "%.1f ms" .AvgRequestTimeMs}}</div>
+                        <div class="unit">Avg Response</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+                        <div class="value">{{.ServerStats.ActiveConnections.Load}}</div>
+                        <div class="unit">Active</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Critical System Metrics -->
+        <div class="panel">
+            <div class="section-title">Critical System Metrics</div>
+            
+            <div class="metrics-grid">
+                <!-- CPU -->
+                <div class="metric-card">
+                    <div class="card-title">
+                        <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v10M3.05 11A9 9 0 0 0 21 11M3.05 11A9 9 0 0 1 21 11"></path>
+                            <rect x="7" y="7" width="10" height="10" rx="2"></rect>
+                        </svg>
+                        CPU Load
+                    </div>
+                    <div style="display: flex; align-items: baseline; gap: 5px;">
+                        <span class="main-value">{{printf "%.1f%%" (avgCPUUsage .SystemStats.CPUInfo)}}</span>
+                        <span class="unit">usage</span>
+                    </div>
+                    
+                    <div class="progress-bar">
+                        <div class="progress-value progress-blue" style="width: {{printf "%.1f%%" (avgCPUUsage .SystemStats.CPUInfo)}}"></div>
+                    </div>
+                    
+                    <div class="data-row">
+                        <div class="data-col">
+                            <div class="label">Cores</div>
+                            <div class="value">{{len .SystemStats.CPUInfo}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Temp</div>
+                            <div class="value">
+                                {{if gt (index .SystemStats.CPUInfo 0).Temperature 0.0}}
+                                    {{printf "%.1f°C" (index .SystemStats.CPUInfo 0).Temperature}}
+                                {{else}}
+                                    {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
+                                {{end}}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Memory -->
+                <div class="metric-card">
+                    <div class="card-title">
+                        <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3z"></path>
+                            <path d="M9 17v-6"></path>
+                            <path d="M12 17v-9"></path>
+                            <path d="M15 17v-3"></path>
+                        </svg>
+                        Memory
+                    </div>
+                    <div style="display: flex; align-items: baseline; gap: 5px;">
+                        <span class="main-value">{{.MemoryUsageStr}}</span>
+                        <span class="unit">used</span>
+                    </div>
+                    
+                    <div class="progress-bar">
+                        <div class="progress-value {{if gt .SystemStats.MemoryInfo.UsedPercent 90.0}}progress-red{{else if gt .SystemStats.MemoryInfo.UsedPercent 70.0}}progress-yellow{{else}}progress-green{{end}}" 
+                            style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}}"></div>
+                    </div>
+                    
+                    <div class="data-row">
+                        <div class="data-col">
+                            <div class="label">Total</div>
+                            <div class="value">{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Total 1073741824)}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Free</div>
+                            <div class="value">{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Free 1073741824)}}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Disk -->
+                <div class="metric-card">
+                    <div class="card-title">
+                        <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        Disk
+                    </div>
+                    <div style="display: flex; align-items: baseline; gap: 5px;">
+                        <span class="main-value">{{.DiskUsageStr}}</span>
+                        <span class="unit">used</span>
+                    </div>
+                    
+                    <div class="progress-bar">
+                        <div class="progress-value {{if gt (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 0.9}}progress-red{{else if gt (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 0.7}}progress-yellow{{else}}progress-green{{end}}" 
+                            style="width: {{printf "%.1f%%" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}"></div>
+                    </div>
+                    
+                    <div class="data-row">
+                        <div class="data-col">
+                            <div class="label">Free</div>
+                            <div class="value">{{printf "%.1f GB" (divideFloat64 .SystemStats.DiskFree 1073741824)}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Files</div>
+                            <div class="value">{{.SystemStats.ProcessStats.OpenFiles}}</div>
+                        </div>
+                        {{if hasDiskTemps .SystemStats}}
+                        <div class="data-col">
+                            <div class="label">Temp</div>
+                            <div class="value">{{printf "%.1f°C" (getDiskTemp .SystemStats)}}</div>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+                
+                <!-- Network -->
+                <div class="metric-card">
+                    <div class="card-title">
+                        <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 2 L15 8 L15 22 L9 22 L9 2 Z"></path>
+                            <path d="M19 6 L21 6 L21 10 L19 10 L19 6 Z"></path>
+                            <path d="M3 10 L5 10 L5 14 L3 14 L3 10 Z"></path>
+                            <path d="M19 14 L21 14 L21 18 L19 18 L19 14 Z"></path>
+                            <path d="M3 18 L5 18 L5 22 L3 22 L3 18 Z"></path>
+                        </svg>
+                        Network
+                    </div>
+                    <div style="display: flex; align-items: baseline; gap: 5px;">
+                        <span class="main-value">{{len .SystemStats.NetworkInterfaces}}</span>
+                        <span class="unit">interfaces</span>
+                    </div>
+                    
+                    <div style="margin-top: 6px;">
+                        <div class="data-row">
+                            <div class="data-col">
+                                <div class="label">Connections</div>
+                                <div class="value">{{.SystemStats.NetworkConnections}}</div>
+                            </div>
+                            <div class="data-col">
+                                <div class="label">Received</div>
+                                <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.NetworkBytesRecv 1048576)}}</div>
+                            </div>
+                            <div class="data-col">
+                                <div class="label">Sent</div>
+                                <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.NetworkBytesSent 1048576)}}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Process -->
+                <div class="metric-card">
+                    <div class="card-title">
+                        <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                            <path d="M6 8h.01M6 12h.01M6 16h.01M10 8h8M10 12h8M10 16h8"></path>
+                        </svg>
+                        Process
+                    </div>
+                    <div style="display: flex; align-items: baseline; gap: 5px;">
+                        <span class="main-value">{{printf "%.1f%%" .SystemStats.ProcessStats.CPUPercent}}</span>
+                        <span class="unit">CPU</span>
+                    </div>
+                    
+                    <div class="progress-bar">
+                        <div class="progress-value progress-blue" style="width: {{printf "%.1f%%" .SystemStats.ProcessStats.CPUPercent}}"></div>
+                    </div>
+                    
+                    <div class="data-row">
+                        <div class="data-col">
+                            <div class="label">PID</div>
+                            <div class="value">{{.SystemStats.ProcessStats.PID}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Threads</div>
+                            <div class="value">{{.SystemStats.ProcessStats.NumThreads}}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="data-row">
+                        <div class="data-col">
+                            <div class="label">Memory</div>
+                            <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.ProcessStats.RSS 1048576)}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Virtual</div>
+                            <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.ProcessStats.VMS 1048576)}}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Runtime -->
+                <div class="metric-card">
+                    <div class="card-title">
+                        <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                            <path d="M2 17l10 5 10-5"></path>
+                            <path d="M2 12l10 5 10-5"></path>
+                        </svg>
+                        Runtime
+                    </div>
+                    <div style="display: flex; align-items: baseline; gap: 5px;">
+                        <span class="main-value">{{.SystemStats.RuntimeStats.NumGoroutines}}</span>
+                        <span class="unit">goroutines</span>
+                    </div>
+                    
+                    <div style="margin-top: 6px;">
+                        <div class="data-row">
+                            <div class="data-col">
+                                <div class="label">GC Count</div>
+                                <div class="value">{{.SystemStats.RuntimeStats.NumGC}}</div>
+                            </div>
+                            <div class="data-col">
+                                <div class="label">Last GC</div>
+                                <div class="value">{{.SystemStats.RuntimeStats.LastGCTime.Format "15:04:05"}}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="data-row">
+                            <div class="data-col">
+                                <div class="label">GC Pause</div>
+                                <div class="value">{{printf "%.2fms" (divideFloat64 .SystemStats.RuntimeStats.GCPauseTotal 1000000)}}</div>
+                            </div>
+                            <div class="data-col">
+                                <div class="label">Memory</div>
+                                <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.AllocatedBytes 1048576)}}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Detail panels in a row -->
+        <div class="three-panel-grid">
+            <!-- CPU Details -->
+            <div class="detail-panel">
+                <div class="section-title">
+                    <svg class="section-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v10M3.05 11A9 9 0 0 0 21 11M3.05 11A9 9 0 0 1 21 11"></path>
+                        <rect x="7" y="7" width="10" height="10" rx="2"></rect>
+                    </svg>
+                    CPU Details
+                </div>
+                
+                <div>
+                    {{$firstCPU := index .SystemStats.CPUInfo 0}}
+                    <div style="display: flex; flex-wrap: wrap; margin-bottom: 16px;">
+                        <div style="flex: 2; min-width: 200px; margin-bottom: 10px; margin-right: 20px;">
+                            <div class="value">{{$firstCPU.ModelName}}</div>
+                            <div class="label" style="margin-top: 4px;">
+                                {{len .SystemStats.CPUInfo}} Cores @ {{printf "%.1f" $firstCPU.Frequency}} MHz
+                            </div>
+                        </div>
+                        <div style="flex: 1; min-width: 90px; margin-right: 16px;">
+                            <div class="label">Temperature</div>
+                            <div class="value">
+                                {{if gt $firstCPU.Temperature 0.0}}
+                                    {{printf "%.1f°C" $firstCPU.Temperature}}
+                                {{else}}
+                                    {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
+                                {{end}}
+                            </div>
+                        </div>
+                        <div style="flex: 1; min-width: 90px;">
+                            <div class="label">System Temp</div>
+                            <div class="value">{{printf "%.1f°C" (getSystemTemp .SystemStats)}}</div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; margin-bottom: 16px;">
+                        <div style="flex: 1; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; text-align: center; margin-right: 8px;">
+                            <div class="label" style="margin-bottom: 4px;">Avg Usage</div>
+                            <div class="main-value" style="color: {{if gt (avgCPUUsage .SystemStats.CPUInfo) 90.0}}var(--red-status){{else if gt (avgCPUUsage .SystemStats.CPUInfo) 70.0}}var(--yellow-status){{else}}var(--green-status){{end}}">
+                                {{printf "%.1f%%" (avgCPUUsage .SystemStats.CPUInfo)}}
+                            </div>
+                        </div>
+                        <div style="flex: 1; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; text-align: center; margin-right: 8px;">
+                            <div class="label" style="margin-bottom: 4px;">Physical</div>
+                            <div class="main-value">{{$firstCPU.Cores}}</div>
+                        </div>
+                        <div style="flex: 1; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; text-align: center;">
+                            <div class="label" style="margin-bottom: 4px;">Logical</div>
+                            <div class="main-value">{{len .SystemStats.CPUInfo}}</div>
+                        </div>
+                    </div>
+
+                    <div class="cpu-core-grid">
+                        {{range $index, $cpu := .SystemStats.CPUInfo}}
+                        <div>
+                            <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                                <span style="color: var(--text-gray);">Core {{$index}}</span>
+                                <span style="font-weight: 500; color: {{if gt $cpu.Usage 90.0}}var(--red-status){{else if gt $cpu.Usage 70.0}}var(--yellow-status){{else}}var(--green-status){{end}}">
+                                    {{printf "%.1f%%" $cpu.Usage}}
+                                </span>
+                            </div>
+                            <div class="progress-bar" style="margin-top: 4px;">
+                                <div class="progress-value {{if gt $cpu.Usage 90.0}}progress-red{{else if gt $cpu.Usage 70.0}}progress-yellow{{else}}progress-blue{{end}}" 
+                                    style="width: {{printf "%.1f%%" $cpu.Usage}}"></div>
+                            </div>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Memory Details -->
+            <div class="detail-panel">
+                <div class="section-title">
+                    <svg class="section-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3z"></path>
+                        <path d="M9 17v-6"></path>
+                        <path d="M12 17v-9"></path>
+                        <path d="M15 17v-3"></path>
+                    </svg>
+                    Memory Details
+                </div>
+                
+                <div class="memory-stats">
+                    <div class="memory-stat-card">
+                        <div class="label">System Memory</div>
+                        <div class="value">{{.MemoryUsageStr}}</div>
+                        <div class="label">of {{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Total 1073741824)}}</div>
+                        <div class="progress-bar" style="margin-top: 8px;">
+                            <div class="progress-value {{if gt .SystemStats.MemoryInfo.UsedPercent 90.0}}progress-red{{else if gt .SystemStats.MemoryInfo.UsedPercent 70.0}}progress-yellow{{else}}progress-green{{end}}" 
+                                style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}}"></div>
+                        </div>
+                        <div class="label" style="margin-top: 4px;">{{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}} used</div>
+                    </div>
+                    <div class="memory-stat-card">
+                        <div class="label">Swap</div>
+                        <div class="value">{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.SwapUsed 1073741824)}}</div>
+                        <div class="label">of {{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.SwapTotal 1073741824)}}</div>
+                        <div class="progress-bar" style="margin-top: 8px;">
+                            <div class="progress-value {{if gt .SystemStats.MemoryInfo.SwapPercent 50.0}}progress-yellow{{else}}progress-green{{end}}" 
+                                style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.SwapPercent}}"></div>
+                        </div>
+                        <div class="label" style="margin-top: 4px;">{{printf "%.1f%%" .SystemStats.MemoryInfo.SwapPercent}} used</div>
+                    </div>
+                    <div class="memory-stat-card">
+                        <div class="label">Process Memory</div>
+                        <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.ProcessStats.RSS 1048576)}}</div>
+                        <div class="label">RSS</div>
+                        <div class="progress-bar" style="margin-top: 8px;">
+                            <div class="progress-value progress-blue" 
+                                style="width: {{printf "%.1f%%" .SystemStats.ProcessStats.MemoryPercent}}"></div>
+                        </div>
+                        <div class="label" style="margin-top: 4px;">{{printf "%.1f%%" .SystemStats.ProcessStats.MemoryPercent}} of system</div>
+                    </div>
+                    <div class="memory-stat-card">
+                        <div class="label">Heap</div>
+                        <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.HeapObjects 1048576)}}</div>
+                        <div class="label">Objects</div>
+                        <div class="label" style="margin-top: 8px;">
+                            GC Duration: {{printf "%.2fms" (divideFloat64 (int64 .SystemStats.RuntimeStats.LastGCDuration) 1000000)}}
+                        </div>
+                        <div class="label">
+                            Next GC: {{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.NextGC 1048576)}}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="heap-allocations">
+                    <div class="label" style="margin-bottom: 6px; font-weight: 500; display: flex; align-items: center;">
+                        <svg style="width: 14px; height: 14px; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                            <line x1="6" y1="6" x2="6" y2="6"></line>
+                            <line x1="6" y1="18" x2="6" y2="18"></line>
+                        </svg>
+                        Heap Allocations
+                    </div>
+                    <div class="data-row">
+                        <div class="data-col">
+                            <div class="label">Current</div>
+                            <div class="value">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.AllocatedBytes 1048576)}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Total</div>
+                            <div class="value">{{printf "%.1f GB" (divideFloat64 .SystemStats.RuntimeStats.TotalAllocBytes 1073741824)}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">CGO Calls</div>
+                            <div class="value">{{.SystemStats.RuntimeStats.NumCgoCall}}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Network Interfaces -->
+            <div class="detail-panel">
+                <div class="section-title">
+                    <svg class="section-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 2 L15 8 L15 22 L9 22 L9 2 Z"></path>
+                        <path d="M19 6 L21 6 L21 10 L19 10 L19 6 Z"></path>
+                        <path d="M3 10 L5 10 L5 14 L3 14 L3 10 Z"></path>
+                        <path d="M19 14 L21 14 L21 18 L19 18 L19 14 Z"></path>
+                        <path d="M3 18 L5 18 L5 22 L3 22 L3 18 Z"></path>
+                    </svg>
+                    Network Interfaces
+                </div>
+                
+                <div class="metric-card" style="margin-bottom: 16px;">
+                    <div class="card-title">
+                        <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="2" width="20" height="8" rx="2"></rect>
+                            <rect x="2" y="14" width="20" height="8" rx="2"></rect>
+                            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                        </svg>
+                        Network Summary
+                    </div>
+                    <div class="data-row">
+                        <div class="data-col">
+                            <div class="label">Interfaces</div>
+                            <div class="value">{{len .SystemStats.NetworkInterfaces}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Connections</div>
+                            <div class="value">{{.SystemStats.NetworkConnections}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Total Received</div>
+                            <div class="value">{{formatBytes .SystemStats.NetworkBytesRecv}}</div>
+                        </div>
+                        <div class="data-col">
+                            <div class="label">Total Sent</div>
+                            <div class="value">{{formatBytes .SystemStats.NetworkBytesSent}}</div>
+                        </div>
+                    </div>
+                </div>
+            
+                <div class="network-interfaces">
+                    {{range .SystemStats.NetworkInterfaces}}
+                    <div class="metric-card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span class="value" style="display: flex; align-items: center;">
+                                <svg style="width: 14px; height: 14px; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M5 12s2.545-5 7-5c4.454 0 7 5 7 5s-2.546 5-7 5c-4.455 0-7-5-7-5z"></path>
+                                    <path d="M12 9v6"></path>
+                                    <path d="M9 12h6"></path>
+                                </svg>
+                                {{.Name}}
+                            </span>
+                            <span class="label">{{.IPAddress}}</span>
+                        </div>
+                        <div class="data-row">
+                            <div class="data-col">
+                                <div class="label">Received</div>
+                                <div class="value">{{formatBytes .BytesRecv}}</div>
+                                <div class="label">{{.PacketsRecv}} packets</div>
+                            </div>
+                            <div class="data-col">
+                                <div class="label">Sent</div>
+                                <div class="value">{{formatBytes .BytesSent}}</div>
+                                <div class="label">{{.PacketsSent}} packets</div>
+                            </div>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Countdown timer
+        function updateCountdown() {
+            const countdownEl = document.getElementById('countdown');
+            let seconds = 60;
+            
+            function tick() {
+                seconds--;
+                countdownEl.textContent = seconds;
+                if (seconds > 0) {
+                    setTimeout(tick, 1000);
+                }
+            }
+            
+            tick();
+        }
+
+        // Initialize countdown and fade in content
+        window.onload = () => {
+            document.getElementById('content').style.opacity = '1';
+            updateCountdown();
+        };
+    </script>
+</body>
+</html>
