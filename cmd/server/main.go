@@ -3,9 +3,9 @@ package main
 import (
 	"log"
 
-	"magooney-loon/pb-ext-dash/internal/logging"
-	"magooney-loon/pb-ext-dash/internal/server"
-	"magooney-loon/pb-ext-dash/pkg/api"
+	"magooney-loon/pb-ext/internal/logging"
+	"magooney-loon/pb-ext/internal/server"
+	"magooney-loon/pb-ext/pkg/api"
 
 	"github.com/pocketbase/pocketbase/core"
 )

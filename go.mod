@@ -1,4 +1,4 @@
-module magooney-loon/pb-ext-dash
+module magooney-loon/pb-ext
 
 go 1.24.2
 

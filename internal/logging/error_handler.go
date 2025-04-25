@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"magooney-loon/pb-ext-dash/internal/monitoring"
-	"magooney-loon/pb-ext-dash/internal/server"
+	"magooney-loon/pb-ext/internal/monitoring"
+	"magooney-loon/pb-ext/internal/server"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
