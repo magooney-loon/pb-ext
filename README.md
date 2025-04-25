@@ -1,23 +1,22 @@
 # pb-ext
 
-Enhanced PocketBase server with extensive monitoring, logging, and health check capabilities.
+Enhanced PocketBase server with extensive monitoring & logging.
 
 ## Architecture
 
 ```
 ├── cmd/
-│   └── server/          # Server entrypoint and initialization
+│   └── server/          # Server initialization
 ├── internal/
-│   ├── monitoring/      # System metrics collection (CPU, Memory, Network, etc.)
-│   ├── logging/         # Structured logging and error handling
-│   └── server/          # Core server implementation and health checks
+│   ├── monitoring/      # System metrics collection 
+│   ├── logging/         # Logging and error handling
+│   └── server/          # Core server implementation
 ├── pkg/
-│   └── api/             # Custom API endpoints and utilities
+│   └── api/             # Custom API endpoints
 ```
 
 ## Core Features
 
-- **Enhanced PocketBase Server**: Extended PocketBase implementation with robust monitoring
 - **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and runtime stats
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
 - **Utility API Endpoints**: Custom example endpoints:
