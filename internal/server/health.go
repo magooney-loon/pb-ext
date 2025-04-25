@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,8 +23,10 @@ import (
 
 // Default credentials - should be overridden via environment variables
 const (
-	defaultAdminUser = "admin"
-	defaultAdminPass = "pbhealth69"
+	defaultAdminUser  = "admin"
+	defaultAdminPass  = "pbhealth69"
+	sessionCookieName = "pb_health_session"
+	sessionDuration   = 24 * time.Hour
 )
 
 // HealthResponse represents the health check response structure
@@ -224,6 +228,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 	// Define template paths
 	templatePaths := []string{
 		filepath.Join(basePath, "internal/server/templates/health.tmpl"),
+		filepath.Join(basePath, "internal/server/templates/login.tmpl"),
 		filepath.Join(basePath, "internal/server/templates/styles/main.tmpl"),
 		filepath.Join(basePath, "internal/server/templates/scripts/main.tmpl"),
 		filepath.Join(basePath, "internal/server/templates/components/header.tmpl"),
@@ -240,13 +245,18 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		return
 	}
 
-	handler := func(c *core.RequestEvent) error {
-		// Basic auth check
-		user, pass, ok := c.Request.BasicAuth()
-		if !ok || subtle.ConstantTimeCompare([]byte(user), []byte(adminUser)) != 1 ||
-			subtle.ConstantTimeCompare([]byte(pass), []byte(adminPass)) != 1 {
-			c.Response.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
-			return NewHTTPError("unauthorized", "Unauthorized access", http.StatusUnauthorized, nil)
+	// Health check endpoint handler
+	healthHandler := func(c *core.RequestEvent) error {
+		// Session-based authentication check
+		cookie, err := c.Request.Cookie(sessionCookieName)
+		if err != nil {
+			// No cookie found, redirect to login page
+			return serveLoginPage(c, tmpl, "")
+		}
+
+		// Validate session
+		if !isValidSession(cookie.Value) {
+			return serveLoginPage(c, tmpl, "Session expired. Please login again.")
 		}
 
 		// Create a timeout context for stats collection
@@ -291,6 +301,91 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		return c.HTML(http.StatusOK, buf.String())
 	}
 
-	// Register route
-	e.Router.GET("/_/_", handler)
+	// Login form submission handler
+	loginHandler := func(c *core.RequestEvent) error {
+		if err := c.Request.ParseForm(); err != nil {
+			return serveLoginPage(c, tmpl, "Failed to parse form data")
+		}
+
+		username := c.Request.Form.Get("username")
+		password := c.Request.Form.Get("password")
+
+		// Validate credentials
+		if subtle.ConstantTimeCompare([]byte(username), []byte(adminUser)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(password), []byte(adminPass)) != 1 {
+			return serveLoginPage(c, tmpl, "Invalid username or password")
+		}
+
+		// Create and set session cookie
+		sessionID := generateSessionID()
+		http.SetCookie(c.Response, &http.Cookie{
+			Name:     sessionCookieName,
+			Value:    sessionID,
+			Path:     "/_/_",
+			HttpOnly: true,
+			Secure:   c.Request.TLS != nil,
+			MaxAge:   int(sessionDuration.Seconds()),
+			SameSite: http.SameSiteStrictMode,
+		})
+
+		// Store session
+		storeSession(sessionID)
+
+		// Redirect to health dashboard
+		c.Response.Header().Set("Location", "/_/_")
+		c.Response.WriteHeader(http.StatusSeeOther)
+		return nil
+	}
+
+	// Register routes
+	e.Router.GET("/_/_", healthHandler)
+	e.Router.POST("/_/_/login", loginHandler)
+}
+
+// Session management functions
+var activeSessions = make(map[string]time.Time)
+
+func generateSessionID() string {
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fall back to timestamp if crypto random fails
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func storeSession(sessionID string) {
+	activeSessions[sessionID] = time.Now().Add(sessionDuration)
+}
+
+func isValidSession(sessionID string) bool {
+	expiryTime, exists := activeSessions[sessionID]
+	if !exists {
+		return false
+	}
+
+	// Check if session has expired
+	if time.Now().After(expiryTime) {
+		delete(activeSessions, sessionID)
+		return false
+	}
+
+	return true
+}
+
+// Serve login page with optional error message
+func serveLoginPage(c *core.RequestEvent, tmpl *template.Template, errorMsg string) error {
+	data := struct {
+		ErrorMessage string
+	}{
+		ErrorMessage: errorMsg,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "login.tmpl", data); err != nil {
+		return NewTemplateError("login_template_execution", "Failed to execute template", err)
+	}
+
+	return c.HTML(http.StatusOK, buf.String())
 }

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PocketBase Health - Login</title>
+    {{template "styles" .}}
+    <style>
+        /* Login-specific styles */
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            padding: 0;
+        }
+        
+        .login-container {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 2rem;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: var(--card-shadow);
+            position: relative;
+        }
+        
+        .login-container:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(to right, var(--blue-accent), transparent);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        
+        .login-header h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin: 0;
+            color: #f4f4f5;
+        }
+        
+        .login-header p {
+            color: var(--text-gray);
+            margin-top: 0.5rem;
+        }
+        
+        .login-form .form-group {
+            margin-bottom: 1.25rem;
+        }
+        
+        .login-form label {
+            display: block;
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            color: #e4e4e7;
+        }
+        
+        .login-form input {
+            width: 100%;
+            padding: 0.75rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background-color: var(--card-bg);
+            font-size: 1rem;
+            box-sizing: border-box;
+            color: #e4e4e7;
+        }
+        
+        .login-form input:focus {
+            outline: none;
+            border-color: var(--blue-accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        
+        .login-form button {
+            background-color: var(--blue-accent);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            font-weight: 500;
+            width: 100%;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .login-form button:hover {
+            filter: brightness(110%);
+        }
+        
+        .error-message {
+            background-color: rgba(239, 68, 68, 0.1);
+            border-left: 4px solid var(--red-status);
+            color: var(--red-status);
+            padding: 0.75rem;
+            margin-bottom: 1.25rem;
+            border-radius: 0 4px 4px 0;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>PocketBase Health Dashboard</h1>
+            <p>Please log in to access the system health monitor</p>
+        </div>
+        
+        {{if .ErrorMessage}}
+        <div class="error-message">
+            {{.ErrorMessage}}
+        </div>
+        {{end}}
+        
+        <form class="login-form" action="/_/_/login" method="POST">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            
+            <button type="submit">Log In</button>
+        </form>
+    </div>
+</body>
+</html> 
