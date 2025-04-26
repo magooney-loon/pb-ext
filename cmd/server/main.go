@@ -36,6 +36,8 @@ func initApp() {
 			"error", err,
 			"uptime", srv.Stats().StartTime,
 			"total_requests", srv.Stats().TotalRequests.Load(),
+			"active_connections", srv.Stats().ActiveConnections.Load(),
+			"last_request_time", srv.Stats().LastRequestTime.Load(),
 		)
 		log.Fatal(err)
 	}
