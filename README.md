@@ -2,6 +2,8 @@
 
 Enhanced PocketBase server with extensive monitoring & logging.
 
+![image](https://github.com/user-attachments/assets/4466de28-d885-4112-95a9-84dde7f67dc7)
+
 ## Architecture
 
 ```
