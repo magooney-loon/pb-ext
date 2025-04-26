@@ -27,15 +27,15 @@
                 <div class="value">{{len .SystemStats.NetworkInterfaces}}</div>
             </div>
             <div class="data-col">
-                <div class="label">Connections</div>
+                <div class="label">Connected</div>
                 <div class="value">{{.SystemStats.NetworkConnections}}</div>
             </div>
             <div class="data-col">
-                <div class="label">Total Received</div>
+                <div class="label">Received</div>
                 <div class="value">{{formatBytes .SystemStats.NetworkBytesRecv}}</div>
             </div>
             <div class="data-col">
-                <div class="label">Total Sent</div>
+                <div class="label">Sent</div>
                 <div class="value">{{formatBytes .SystemStats.NetworkBytesSent}}</div>
             </div>
         </div>
