@@ -7,23 +7,20 @@
             <span class="status-badge {{if eq .Status "Healthy"}}status-badge-healthy{{else}}status-badge-unhealthy{{end}}">{{.Status}}</span>
         </div>
         <div class="system-meta">
-            <span>{{.SystemStats.Platform}} {{.SystemStats.OS}} {{.SystemStats.KernelVersion}}</span>
-            <span>•</span>
-            <span>Up: {{.UptimeDuration}}</span>
-            <span>•</span>
-            <span>Last update: {{.LastCheckTime.Format "15:04:05"}}</span>
-            <span>•</span>
-            <span>Next refresh: <span id="countdown" style="font-family: monospace;">60</span>s</span>
+            <div class="meta-item">{{.SystemStats.Platform}} {{.SystemStats.OS}} {{.SystemStats.KernelVersion}}</div>
+            <div class="meta-item">Up: {{.UptimeDuration}}</div>
+            <div class="meta-item">Last update: {{.LastCheckTime.Format "15:04:05"}}</div>
+            <div class="meta-item">Next refresh: <span id="countdown" style="font-family: monospace;">60</span>s</div>
         </div>
     </div>
     
     <div class="stats-summary">
-        <div style="text-align: right;">
-            <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+        <div class="stats-group">
+            <div class="stats-row">
                 <div class="value">{{printf "%.1f/s" .RequestRate}}</div>
                 <div class="unit">Requests</div>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+            <div class="stats-row">
                 <div class="value" style="color: {{if gt .ServerStats.TotalErrors.Load 0}}var(--red-status){{else}}var(--green-status){{end}}">
                     {{printf "%.2f%%" (errorRate .ServerStats.TotalErrors.Load .ServerStats.TotalRequests.Load)}}
                 </div>
@@ -31,12 +28,12 @@
             </div>
         </div>
         <div class="divider"></div>
-        <div style="text-align: right;">
-            <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+        <div class="stats-group">
+            <div class="stats-row">
                 <div class="value">{{printf "%.1f ms" .AvgRequestTimeMs}}</div>
                 <div class="unit">Avg Response</div>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+            <div class="stats-row">
                 <div class="value">{{.ServerStats.ActiveConnections.Load}}</div>
                 <div class="unit">Active</div>
             </div>
