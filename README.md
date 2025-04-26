@@ -32,5 +32,5 @@ go run cmd/server/main.go serve
 
 ## Webmaster Panel
 
-Admin panel `127.0.0.1:8090/_`
-Server panel `127.0.0.1:8090/_/_`
+- Admin panel `127.0.0.1:8090/_`
+- Server panel `127.0.0.1:8090/_/_`
