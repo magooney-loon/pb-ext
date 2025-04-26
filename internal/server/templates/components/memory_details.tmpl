@@ -13,7 +13,7 @@
     <div class="memory-stats">
         <div class="memory-stat-card">
             <div class="label">System Memory</div>
-            <div class="value">{{.MemoryUsageStr}}</div>
+            <div class="value">{{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Used 1073741824)}}</div>
             <div class="label">of {{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Total 1073741824)}}</div>
             <div class="progress-bar" style="margin-top: 8px;">
                 <div class="progress-value {{if gt .SystemStats.MemoryInfo.UsedPercent 90.0}}progress-red{{else if gt .SystemStats.MemoryInfo.UsedPercent 70.0}}progress-yellow{{else}}progress-green{{end}}" 
