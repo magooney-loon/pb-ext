@@ -19,9 +19,8 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 - **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and runtime stats
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
-- **Utility API Endpoints**: Custom example endpoints:
+- **API Group Endpoints**: Custom example endpoints:
   - `/api/utils/time`: Server time
-  - `/api/utils/uuid`: UUID generation
 
 ## Quick Start
 
