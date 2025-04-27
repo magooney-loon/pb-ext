@@ -1,6 +1,8 @@
 package logging
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,6 +27,7 @@ const (
 	Error LogLevel = 8  // Error level
 
 	TraceIDHeader = "X-Trace-ID"
+	RequestIDKey  = "request_id" // Key for storing request IDs in context
 )
 
 // String converts log level to string
@@ -53,6 +56,72 @@ type LogContext struct {
 	Duration   time.Duration
 	UserAgent  string
 	IP         string
+}
+
+// InfoWithContext logs an info message with context data
+func InfoWithContext(ctx context.Context, message string, data map[string]interface{}) {
+	requestID := ""
+	if ctx != nil {
+		if id, ok := ctx.Value(RequestIDKey).(string); ok {
+			requestID = id
+		}
+	}
+
+	// Prepare log data
+	logData := map[string]interface{}{
+		"level":   Info.String(),
+		"message": message,
+	}
+
+	if requestID != "" {
+		logData["request_id"] = requestID
+	}
+
+	// Add all data fields to the log
+	for key, value := range data {
+		logData[key] = value
+	}
+
+	// Marshal to JSON and print
+	logJSON, _ := json.Marshal(logData)
+	fmt.Println(string(logJSON))
+}
+
+// ErrorWithContext logs an error message with context data
+func ErrorWithContext(ctx context.Context, message string, err error, data map[string]interface{}) {
+	requestID := ""
+	if ctx != nil {
+		if id, ok := ctx.Value(RequestIDKey).(string); ok {
+			requestID = id
+		}
+	}
+
+	// Prepare log data
+	logData := map[string]interface{}{
+		"level":   Error.String(),
+		"message": message,
+	}
+
+	if err != nil {
+		logData["error"] = map[string]interface{}{
+			"message": err.Error(),
+		}
+	}
+
+	if requestID != "" {
+		logData["request_id"] = requestID
+	}
+
+	// Add all data fields to the log
+	if data != nil {
+		for key, value := range data {
+			logData[key] = value
+		}
+	}
+
+	// Marshal to JSON and print
+	logJSON, _ := json.Marshal(logData)
+	fmt.Println(string(logJSON))
 }
 
 // SetupLogging configures logging
