@@ -29,24 +29,6 @@ Run unit tests only (skip integration tests):
 go test ./... -v -short
 ```
 
-### Test Dependencies
-
-Before running tests, you'll need to install the test dependencies:
-
-```bash
-go get github.com/stretchr/testify
-```
-
-### Linter Issues
-
-Some tests may show linter errors since they require mocking PocketBase functionality. These issues typically include:
-
-- Missing imports for test-only code
-- References to undefined functions from the main application
-- Mock implementations of interfaces
-
-In most cases, these can be safely ignored as they're part of the test infrastructure and don't affect the actual application code.
-
 ## Usage
 
 Start the server with:
