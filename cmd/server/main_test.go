@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"net/http"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -14,12 +17,21 @@ import (
 var serverStarted sync.Once
 var serverCtx context.Context
 var serverCancel context.CancelFunc
+var testPort int
 
 func TestInitApp(t *testing.T) {
 	// Skip in short mode as it starts a server
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
+
+	// Generate a random port for testing to avoid conflicts
+	testPort = 9000 + rand.Intn(1000)
+	testAddr := fmt.Sprintf("127.0.0.1:%d", testPort)
+	t.Logf("Using test port: %d", testPort)
+
+	// Set the server address through environment variable
+	os.Setenv("PB_SERVER_ADDR", testAddr)
 
 	// Initialize the context for server cancellation
 	serverCtx, serverCancel = context.WithCancel(context.Background())
@@ -49,13 +61,18 @@ func TestInitApp(t *testing.T) {
 	var resp *http.Response
 	var err error
 
+	healthURL := fmt.Sprintf("http://localhost:%d/api/health", testPort)
+	t.Logf("Testing health endpoint at: %s", healthURL)
+
 	// Try a few times as server might take time to start
-	for i := 0; i < 3; i++ {
-		resp, err = client.Get("http://localhost:8090/api/health")
+	for i := 0; i < 5; i++ { // Increased retries
+		t.Logf("Connection attempt %d/5", i+1)
+		resp, err = client.Get(healthURL)
 		if err == nil {
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		t.Logf("Connection failed: %v", err)
+		time.Sleep(1000 * time.Millisecond) // Increased wait time
 	}
 
 	if err != nil {

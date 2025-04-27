@@ -115,6 +115,12 @@ func (s *Server) Start() error {
 		return e.Next()
 	})
 
+	// We don't need to set the args here as they should be set by the caller
+	// before calling Start()
+
+	// Log the command line args for debugging
+	app.Logger().Debug("Starting server with args", "args", app.RootCmd.Flags().Args())
+
 	if err := app.Start(); err != nil {
 		return NewInternalError("server_start", "Failed to start server", err)
 	}

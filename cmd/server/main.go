@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"magooney-loon/pb-ext/internal/logging"
 	"magooney-loon/pb-ext/internal/server"
@@ -29,6 +30,14 @@ func initApp() {
 
 	// Register custom API routes
 	api.RegisterRoutes(srv.App())
+
+	// Set server address from environment if specified
+	// This is useful for tests to avoid port conflicts
+	if addr := os.Getenv("PB_SERVER_ADDR"); addr != "" {
+		srv.App().RootCmd.SetArgs([]string{"serve", "--http=" + addr})
+	} else {
+		srv.App().RootCmd.SetArgs([]string{"serve"})
+	}
 
 	// Start the server
 	if err := srv.Start(); err != nil {

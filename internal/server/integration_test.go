@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -19,20 +20,37 @@ func TestHealthEndpointIntegration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// Start the server
+	// Start the server with proper initialization
+	t.Log("Starting test server for health endpoint integration test")
 	server := setupTestServer(t)
 	app := server.App()
 	defer app.ResetBootstrapState()
+
+	healthURL := fmt.Sprintf("http://localhost:%d/api/health", testPort)
+	t.Logf("Testing health endpoint at: %s", healthURL)
 
 	t.Logf("Initial server state - TotalRequests: %d", server.Stats().TotalRequests.Load())
 
 	// Check initial request count
 	initialReqs := server.Stats().TotalRequests.Load()
 
-	// Make request to health endpoint
-	client := &http.Client{}
-	resp, err := client.Get("http://localhost:8090/api/health")
-	require.NoError(t, err, "Health request should not error")
+	// Make request to health endpoint with retry logic
+	client := &http.Client{Timeout: 5 * time.Second}
+	var resp *http.Response
+	var err error
+
+	// Retry logic for connection
+	for i := 0; i < 5; i++ {
+		t.Logf("Health check attempt %d/5", i+1)
+		resp, err = client.Get(healthURL)
+		if err == nil {
+			break
+		}
+		t.Logf("Health check attempt failed: %v", err)
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	require.NoError(t, err, "Health request should not error after retries")
 	defer resp.Body.Close()
 
 	// Check status code
@@ -91,7 +109,8 @@ func TestComponentIntegration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// Setup test server
+	// Setup test server with proper initialization
+	t.Log("Starting test server for component integration test")
 	s := setupTestServer(t)
 
 	// Verify tracking is working
@@ -104,13 +123,33 @@ func TestComponentIntegration(t *testing.T) {
 	assert.NotNil(t, app, "PocketBase app should be initialized")
 	assert.NotEmpty(t, app.DataDir(), "App data directory should be set")
 
-	// Make a series of requests
+	// Make a series of requests with retry logic
 	initialRequests := s.Stats().TotalRequests.Load()
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	healthURL := fmt.Sprintf("http://localhost:%d/api/health", testPort)
+	t.Logf("Testing health endpoint at: %s", healthURL)
+
 	for i := 0; i < 3; i++ {
-		resp, err := testClient.Get("http://localhost:8090/api/health")
+		t.Logf("Making request %d/3", i+1)
+
+		// Retry logic for connection
+		var resp *http.Response
+		var err error
+
+		for j := 0; j < 3; j++ {
+			t.Logf("  Attempt %d/3", j+1)
+			resp, err = client.Get(healthURL)
+			if err == nil {
+				break
+			}
+			t.Logf("  Request failed: %v", err)
+			time.Sleep(300 * time.Millisecond)
+		}
+
 		require.NoError(t, err, "Health endpoint should be reachable")
 		resp.Body.Close()
-		time.Sleep(200 * time.Millisecond) // Longer wait between requests
+		time.Sleep(300 * time.Millisecond) // Longer wait between requests
 	}
 
 	// Wait longer with retry logic for request counter update
