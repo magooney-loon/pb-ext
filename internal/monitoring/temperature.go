@@ -16,19 +16,16 @@ type TemperatureInfo struct {
 	HasTempData bool    `json:"has_temp_data"`
 }
 
-// CollectTemperatureInfoWithContext gathers temperature data from sensors with context support
+// CollectTemperatureInfoWithContext gathers temperature data with context
 func CollectTemperatureInfoWithContext(ctx context.Context) (TemperatureInfo, error) {
-	// Check context
 	select {
 	case <-ctx.Done():
 		return TemperatureInfo{}, ctx.Err()
 	default:
-		// Continue collection
 	}
 
 	result := TemperatureInfo{}
 
-	// Get temperature readings
 	temps, err := host.SensorsTemperaturesWithContext(ctx)
 	if err != nil {
 		return result, err
@@ -37,7 +34,6 @@ func CollectTemperatureInfoWithContext(ctx context.Context) (TemperatureInfo, er
 	if len(temps) > 0 {
 		result.HasTempData = true
 
-		// Process each sensor
 		for _, temp := range temps {
 			sensorKey := strings.ToLower(temp.SensorKey)
 
@@ -57,8 +53,7 @@ func CollectTemperatureInfoWithContext(ctx context.Context) (TemperatureInfo, er
 	return result, nil
 }
 
-// CollectTemperatureInfo gathers temperature data from sensors
-// Legacy function that uses a background context
+// CollectTemperatureInfo uses background context
 func CollectTemperatureInfo() (TemperatureInfo, error) {
 	return CollectTemperatureInfoWithContext(context.Background())
 }

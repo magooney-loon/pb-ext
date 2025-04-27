@@ -19,20 +19,15 @@ import (
 type LogLevel int
 
 const (
-	// Debug level for detailed information
-	Debug LogLevel = -4
-	// Info level for general information
-	Info LogLevel = 0
-	// Warn level for warning messages
-	Warn LogLevel = 4
-	// Error level for error messages
-	Error LogLevel = 8
+	Debug LogLevel = -4 // Debug level
+	Info  LogLevel = 0  // Info level
+	Warn  LogLevel = 4  // Warning level
+	Error LogLevel = 8  // Error level
 
-	// TraceIDHeader is the header key for trace ID
 	TraceIDHeader = "X-Trace-ID"
 )
 
-// String converts the log level to a string
+// String converts log level to string
 func (l LogLevel) String() string {
 	switch l {
 	case Debug:
@@ -60,19 +55,17 @@ type LogContext struct {
 	IP         string
 }
 
-// SetupLogging configures logging for the application
+// SetupLogging configures logging
 func SetupLogging(srv *server.Server) {
 	app := srv.App()
 	requestStats := monitoring.NewRequestStats()
 
-	// Log application startup with structured fields
 	app.Logger().Info("Application starting up",
 		"event", "app_startup",
 		"time", time.Now().Format(time.RFC3339),
 		"pid", os.Getpid(),
 	)
 
-	// Handle graceful shutdown
 	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
 		app.Logger().Info("Application shutting down",
 			"event", "app_shutdown",
@@ -85,34 +78,27 @@ func SetupLogging(srv *server.Server) {
 		return e.Next()
 	})
 
-	// Add request logging middleware
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Setup global error handler first
 		SetupErrorHandler(app, e)
 
 		e.Router.BindFunc(func(c *core.RequestEvent) error {
-			// Setup panic recovery
 			defer func() {
 				RecoverFromPanic(app, c)
 			}()
 
-			// Generate trace ID
 			traceID := uuid.New().String()
 			c.Request.Header.Set(TraceIDHeader, traceID)
 			c.Response.Header().Set(TraceIDHeader, traceID)
 
 			start := time.Now()
 
-			// Update active connections
 			srv.Stats().ActiveConnections.Add(1)
 			defer srv.Stats().ActiveConnections.Add(-1)
 
-			// Execute the next handler
 			err := c.Next()
 
 			duration := time.Since(start)
 
-			// Get status code
 			statusCode := http.StatusOK
 			if status := c.Response.Header().Get("Status"); status != "" {
 				if code, err := strconv.Atoi(status); err == nil {
@@ -120,7 +106,6 @@ func SetupLogging(srv *server.Server) {
 				}
 			}
 
-			// Create log context
 			logCtx := LogContext{
 				TraceID:    traceID,
 				StartTime:  start,
@@ -132,7 +117,6 @@ func SetupLogging(srv *server.Server) {
 				IP:         c.Request.RemoteAddr,
 			}
 
-			// Update server stats
 			stats := srv.Stats()
 			stats.TotalRequests.Add(1)
 			stats.LastRequestTime.Store(time.Now().Unix())
@@ -140,7 +124,6 @@ func SetupLogging(srv *server.Server) {
 				stats.TotalErrors.Add(1)
 			}
 
-			// Update average request time
 			currentAvg := float64(stats.AverageRequestTime.Load())
 			totalReqs := stats.TotalRequests.Load()
 			if totalReqs > 1 {
@@ -150,7 +133,6 @@ func SetupLogging(srv *server.Server) {
 				stats.AverageRequestTime.Store(int64(duration.Seconds() * 1000))
 			}
 
-			// Track request metrics
 			metrics := monitoring.RequestMetrics{
 				Path:          logCtx.Path,
 				Method:        logCtx.Method,
@@ -163,13 +145,10 @@ func SetupLogging(srv *server.Server) {
 			}
 			requestStats.TrackRequest(metrics)
 
-			// Log the error with structure if present
 			if err != nil {
-				// Note: Error handling is done in SetupErrorHandler
 				return err
 			}
 
-			// Log request with structured fields
 			app.Logger().Debug("Request processed",
 				"event", "http_request",
 				"trace_id", logCtx.TraceID,
@@ -189,7 +168,7 @@ func SetupLogging(srv *server.Server) {
 	})
 }
 
-// SetupRecovery configures panic recovery for the application
+// SetupRecovery configures panic recovery
 func SetupRecovery(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	app.Logger().Info("Server recovery starting",
 		"event", "recovery_setup",

@@ -17,19 +17,16 @@ type CPUInfo struct {
 	Temperature float64 `json:"temperature"`
 }
 
-// CollectCPUInfoWithContext gathers CPU information and usage statistics with context support
+// CollectCPUInfoWithContext gathers CPU information with context support
 func CollectCPUInfoWithContext(ctx context.Context) ([]CPUInfo, error) {
 	const op = "CollectCPUInfo"
 
-	// Check context
 	select {
 	case <-ctx.Done():
 		return nil, NewTimeoutError(op, "context deadline exceeded")
 	default:
-		// Continue collection
 	}
 
-	// Get CPU information
 	cpuInfos, err := cpu.InfoWithContext(ctx)
 	if err != nil {
 		return nil, NewSystemError(op, "failed to get CPU info", err)
@@ -44,15 +41,12 @@ func CollectCPUInfoWithContext(ctx context.Context) ([]CPUInfo, error) {
 		}
 	}
 
-	// Check context again before collecting usage
 	select {
 	case <-ctx.Done():
 		return nil, NewTimeoutError(op, "context deadline exceeded during CPU usage collection")
 	default:
-		// Continue collection
 	}
 
-	// Get CPU usage with context
 	if percents, err := cpu.PercentWithContext(ctx, 0, false); err == nil {
 		for i := range result {
 			if i < len(percents) {
@@ -60,25 +54,20 @@ func CollectCPUInfoWithContext(ctx context.Context) ([]CPUInfo, error) {
 			}
 		}
 	} else {
-		// Log the error but continue
-		// We don't return here to allow partial data collection
+		// Continue with partial data
 		return result, NewSystemError(op, "failed to get CPU usage percentages", err)
 	}
 
-	// Check context again before temperature collection
 	select {
 	case <-ctx.Done():
 		return nil, NewTimeoutError(op, "context deadline exceeded during temperature collection")
 	default:
-		// Continue collection
 	}
 
-	// Try to get temperature readings
 	if temps, err := host.SensorsTemperaturesWithContext(ctx); err == nil {
 		for _, temp := range temps {
 			if IsCPUTemp(temp.SensorKey) {
-				// Apply temperature to all cores as a simplification
-				// In a more detailed implementation, we might map specific sensors to specific cores
+				// Apply temperature to all cores
 				for i := range result {
 					result[i].Temperature = temp.Temperature
 				}
@@ -86,15 +75,14 @@ func CollectCPUInfoWithContext(ctx context.Context) ([]CPUInfo, error) {
 			}
 		}
 	} else {
-		// Temperature collection is optional, so just return what we have
+		// Temperature collection is optional
 		return result, NewSensorError(op, "failed to get temperature data", err)
 	}
 
 	return result, nil
 }
 
-// CollectCPUInfo gathers CPU information and usage statistics
-// Legacy function that uses a background context
+// CollectCPUInfo gathers CPU information with background context
 func CollectCPUInfo() ([]CPUInfo, error) {
 	return CollectCPUInfoWithContext(context.Background())
 }

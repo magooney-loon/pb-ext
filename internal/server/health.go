@@ -21,7 +21,7 @@ import (
 	"github.com/shirou/gopsutil/v3/host"
 )
 
-// Default credentials - should be overridden via environment variables
+// Default credentials and settings
 const (
 	defaultAdminUser  = "admin"
 	defaultAdminPass  = "pbhealth69"
@@ -29,7 +29,7 @@ const (
 	sessionDuration   = 24 * time.Hour
 )
 
-// HealthResponse represents the health check response structure
+// HealthResponse represents health check response data
 type HealthResponse struct {
 	Status        string       `json:"status"`
 	ServerStats   *ServerStats `json:"server_stats"`
@@ -136,7 +136,6 @@ var templateFuncs = template.FuncMap{
 			return 0
 		}
 
-		// Get temperatures and find disk temperature
 		temps, err := host.SensorsTemperatures()
 		if err != nil {
 			return 0
@@ -154,7 +153,6 @@ var templateFuncs = template.FuncMap{
 			return 0
 		}
 
-		// Get temperatures and find system temperature
 		temps, err := host.SensorsTemperatures()
 		if err != nil {
 			return 0
@@ -172,7 +170,6 @@ var templateFuncs = template.FuncMap{
 			return 0
 		}
 
-		// Get temperatures and find ambient temperature
 		temps, err := host.SensorsTemperatures()
 		if err != nil {
 			return 0
@@ -206,7 +203,6 @@ var templateFuncs = template.FuncMap{
 
 // RegisterHealthRoute registers the health check endpoint
 func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
-	// Get credentials from environment variables or use defaults
 	adminUser := os.Getenv("PB_HEALTH_USER")
 	if adminUser == "" {
 		adminUser = defaultAdminUser
@@ -216,16 +212,13 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		adminPass = defaultAdminPass
 	}
 
-	// Determine base path for template files
 	basePath := "."
-	// Check if we're running in development or production mode
 	if _, err := os.Stat("internal/server/templates"); err == nil {
 		basePath = "."
 	} else if _, err := os.Stat("pb_public/templates"); err == nil {
 		basePath = "pb_public"
 	}
 
-	// Define template paths
 	templatePaths := []string{
 		filepath.Join(basePath, "internal/server/templates/health.tmpl"),
 		filepath.Join(basePath, "internal/server/templates/login.tmpl"),
@@ -238,7 +231,6 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		filepath.Join(basePath, "internal/server/templates/components/network_details.tmpl"),
 	}
 
-	// Parse all templates with functions
 	tmpl, err := template.New("health.tmpl").Funcs(templateFuncs).ParseFiles(templatePaths...)
 	if err != nil {
 		log.Printf("Error parsing health templates: %v", err)

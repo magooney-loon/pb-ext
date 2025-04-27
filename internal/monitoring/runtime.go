@@ -20,7 +20,7 @@ type RuntimeStats struct {
 	LastGCDuration  time.Duration `json:"last_gc_duration"`
 }
 
-// CollectRuntimeStats gathers Go runtime statistics
+// CollectRuntimeStats gathers Go runtime metrics
 func CollectRuntimeStats() RuntimeStats {
 	var rtStats runtime.MemStats
 	runtime.ReadMemStats(&rtStats)

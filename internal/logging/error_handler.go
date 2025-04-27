@@ -13,7 +13,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// ErrorResponse represents a standardized error response structure
+// ErrorResponse defines standardized error response
 type ErrorResponse struct {
 	Status     string `json:"status"`
 	Message    string `json:"message"`
@@ -23,7 +23,7 @@ type ErrorResponse struct {
 	TraceID    string `json:"trace_id"`
 }
 
-// SetupErrorHandler configures global error handling for the application
+// SetupErrorHandler configures global error handling
 func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	e.Router.BindFunc(func(c *core.RequestEvent) error {
 		err := c.Next()
@@ -31,16 +31,13 @@ func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
 			return nil
 		}
 
-		// Get trace ID
 		traceID := c.Request.Header.Get(TraceIDHeader)
 
-		// Determine error type and status code
 		statusCode := http.StatusInternalServerError
 		errorType := "internal_error"
 		operation := "unknown"
 		message := err.Error()
 
-		// Handle server errors
 		var srvErr *server.ServerError
 		if errors.As(err, &srvErr) {
 			errorType = srvErr.Type
@@ -51,7 +48,6 @@ func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
 			}
 		}
 
-		// Handle monitoring errors
 		var monErr *monitoring.MonitoringError
 		if errors.As(err, &monErr) {
 			errorType = monErr.Type
@@ -59,7 +55,6 @@ func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
 			message = monErr.Message
 		}
 
-		// Log error with all available context
 		app.Logger().Error("Request error",
 			"trace_id", traceID,
 			"error_type", errorType,
@@ -70,7 +65,6 @@ func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
 			"method", c.Request.Method,
 		)
 
-		// Prepare standardized error response
 		response := ErrorResponse{
 			Status:     "error",
 			Message:    message,
@@ -80,18 +74,16 @@ func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
 			TraceID:    traceID,
 		}
 
-		// Return JSON error response
 		return c.JSON(statusCode, response)
 	})
 }
 
-// HandleContextErrors is a utility function to handle context-related errors
+// HandleContextErrors handles context-related errors
 func HandleContextErrors(ctx context.Context, err error, op string) error {
 	if err == nil {
 		return nil
 	}
 
-	// Handle context cancellation or timeout
 	if ctx.Err() != nil {
 		switch ctx.Err() {
 		case context.DeadlineExceeded:
@@ -101,7 +93,6 @@ func HandleContextErrors(ctx context.Context, err error, op string) error {
 		}
 	}
 
-	// If it's already a structured error, return it as is
 	var monErr *monitoring.MonitoringError
 	if errors.As(err, &monErr) {
 		return err
@@ -112,16 +103,14 @@ func HandleContextErrors(ctx context.Context, err error, op string) error {
 		return err
 	}
 
-	// Default to system error
 	return monitoring.NewSystemError(op, "unexpected error occurred", err)
 }
 
-// RecoverFromPanic is a utility function to recover from panics
+// RecoverFromPanic recovers from panics and returns a 500 response
 func RecoverFromPanic(app *pocketbase.PocketBase, c *core.RequestEvent) {
 	if r := recover(); r != nil {
 		traceID := c.Request.Header.Get(TraceIDHeader)
 
-		// Log the panic
 		app.Logger().Error("Panic recovered",
 			"event", "panic",
 			"trace_id", traceID,
@@ -131,7 +120,6 @@ func RecoverFromPanic(app *pocketbase.PocketBase, c *core.RequestEvent) {
 			"stack", string(debug.Stack()),
 		)
 
-		// Return a 500 response
 		_ = c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Status:     "error",
 			Message:    "Internal server error",

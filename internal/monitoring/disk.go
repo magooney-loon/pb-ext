@@ -8,7 +8,7 @@ import (
 	"github.com/shirou/gopsutil/v3/host"
 )
 
-// DiskInfo holds detailed disk information
+// DiskInfo holds disk information
 type DiskInfo struct {
 	Total uint64  `json:"total"`
 	Used  uint64  `json:"used"`
@@ -17,21 +17,18 @@ type DiskInfo struct {
 	Path  string  `json:"path"`
 }
 
-// CollectDiskInfoWithContext gathers disk usage information for the root filesystem with context support
+// CollectDiskInfoWithContext gathers root filesystem info with context
 func CollectDiskInfoWithContext(ctx context.Context) (DiskInfo, error) {
-	// Check context
 	select {
 	case <-ctx.Done():
 		return DiskInfo{}, ctx.Err()
 	default:
-		// Continue collection
 	}
 
 	result := DiskInfo{
 		Path: "/",
 	}
 
-	// Get disk usage stats
 	if diskInfo, err := disk.UsageWithContext(ctx, "/"); err == nil {
 		result.Total = diskInfo.Total
 		result.Used = diskInfo.Used
@@ -44,20 +41,17 @@ func CollectDiskInfoWithContext(ctx context.Context) (DiskInfo, error) {
 	return result, nil
 }
 
-// CollectDiskInfo gathers disk usage information for the root filesystem
-// Legacy function that uses a background context
+// CollectDiskInfo uses background context
 func CollectDiskInfo() (DiskInfo, error) {
 	return CollectDiskInfoWithContext(context.Background())
 }
 
-// GetDiskTemperatureWithContext tries to retrieve disk temperature if available with context support
+// GetDiskTemperatureWithContext retrieves disk temperature with context
 func GetDiskTemperatureWithContext(ctx context.Context) (float64, bool) {
-	// Check context
 	select {
 	case <-ctx.Done():
 		return 0, false
 	default:
-		// Continue collection
 	}
 
 	temps, err := host.SensorsTemperaturesWithContext(ctx)
@@ -74,8 +68,7 @@ func GetDiskTemperatureWithContext(ctx context.Context) (float64, bool) {
 	return 0, false
 }
 
-// GetDiskTemperature tries to retrieve disk temperature if available
-// Legacy function that uses a background context
+// GetDiskTemperature uses background context
 func GetDiskTemperature() (float64, bool) {
 	return GetDiskTemperatureWithContext(context.Background())
 }

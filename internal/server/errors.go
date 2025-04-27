@@ -16,16 +16,16 @@ const (
 	ErrTypeInternal   = "internal_error"
 )
 
-// ServerError represents a structured error from server operations
+// ServerError represents a structured error
 type ServerError struct {
 	Type       string // Error type category
-	Message    string // Human-readable error message
-	Op         string // Operation that caused the error
-	StatusCode int    // HTTP status code if applicable
-	Err        error  // Original error if any
+	Message    string // Human-readable message
+	Op         string // Operation name
+	StatusCode int    // HTTP status code
+	Err        error  // Original error
 }
 
-// Error implements the error interface
+// Error implements error interface
 func (e *ServerError) Error() string {
 	if e.Err != nil {
 		return fmt.Sprintf("%s: %s failed: %v", e.Type, e.Op, e.Err)
@@ -38,7 +38,7 @@ func (e *ServerError) Unwrap() error {
 	return e.Err
 }
 
-// NewHTTPError creates a new error for HTTP-related issues
+// NewHTTPError creates an HTTP error
 func NewHTTPError(op string, message string, statusCode int, err error) *ServerError {
 	return &ServerError{
 		Type:       ErrTypeHTTP,
@@ -49,7 +49,7 @@ func NewHTTPError(op string, message string, statusCode int, err error) *ServerE
 	}
 }
 
-// NewRoutingError creates a new error for routing issues
+// NewRoutingError creates a routing error
 func NewRoutingError(op string, message string, err error) *ServerError {
 	return &ServerError{
 		Type:    ErrTypeRouting,
@@ -59,7 +59,7 @@ func NewRoutingError(op string, message string, err error) *ServerError {
 	}
 }
 
-// NewAuthError creates a new error for authentication issues
+// NewAuthError creates an authentication error
 func NewAuthError(op string, message string, err error) *ServerError {
 	return &ServerError{
 		Type:       ErrTypeAuth,
@@ -70,7 +70,7 @@ func NewAuthError(op string, message string, err error) *ServerError {
 	}
 }
 
-// NewTemplateError creates a new error for template processing issues
+// NewTemplateError creates a template error
 func NewTemplateError(op string, message string, err error) *ServerError {
 	return &ServerError{
 		Type:    ErrTypeTemplate,
@@ -80,7 +80,7 @@ func NewTemplateError(op string, message string, err error) *ServerError {
 	}
 }
 
-// NewConfigError creates a new error for configuration issues
+// NewConfigError creates a configuration error
 func NewConfigError(op string, message string, err error) *ServerError {
 	return &ServerError{
 		Type:    ErrTypeConfig,
@@ -90,7 +90,7 @@ func NewConfigError(op string, message string, err error) *ServerError {
 	}
 }
 
-// NewDatabaseError creates a new error for database issues
+// NewDatabaseError creates a database error
 func NewDatabaseError(op string, message string, err error) *ServerError {
 	return &ServerError{
 		Type:    ErrTypeDatabase,
@@ -100,7 +100,7 @@ func NewDatabaseError(op string, message string, err error) *ServerError {
 	}
 }
 
-// NewInternalError creates a new error for internal server issues
+// NewInternalError creates an internal server error
 func NewInternalError(op string, message string, err error) *ServerError {
 	return &ServerError{
 		Type:       ErrTypeInternal,
@@ -111,7 +111,7 @@ func NewInternalError(op string, message string, err error) *ServerError {
 	}
 }
 
-// IsErrorType checks if an error is of a specific server error type
+// IsErrorType checks if error is of a specific type
 func IsErrorType(err error, errorType string) bool {
 	if err == nil {
 		return false
@@ -123,37 +123,37 @@ func IsErrorType(err error, errorType string) bool {
 	return false
 }
 
-// IsHTTPError checks if an error is an HTTP error
+// IsHTTPError checks if error is an HTTP error
 func IsHTTPError(err error) bool {
 	return IsErrorType(err, ErrTypeHTTP)
 }
 
-// IsRoutingError checks if an error is a routing error
+// IsRoutingError checks if error is a routing error
 func IsRoutingError(err error) bool {
 	return IsErrorType(err, ErrTypeRouting)
 }
 
-// IsAuthError checks if an error is an authentication error
+// IsAuthError checks if error is an auth error
 func IsAuthError(err error) bool {
 	return IsErrorType(err, ErrTypeAuth)
 }
 
-// IsTemplateError checks if an error is a template error
+// IsTemplateError checks if error is a template error
 func IsTemplateError(err error) bool {
 	return IsErrorType(err, ErrTypeTemplate)
 }
 
-// IsConfigError checks if an error is a configuration error
+// IsConfigError checks if error is a config error
 func IsConfigError(err error) bool {
 	return IsErrorType(err, ErrTypeConfig)
 }
 
-// IsDatabaseError checks if an error is a database error
+// IsDatabaseError checks if error is a database error
 func IsDatabaseError(err error) bool {
 	return IsErrorType(err, ErrTypeDatabase)
 }
 
-// IsInternalError checks if an error is an internal server error
+// IsInternalError checks if error is an internal error
 func IsInternalError(err error) bool {
 	return IsErrorType(err, ErrTypeInternal)
 }

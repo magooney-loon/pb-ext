@@ -15,7 +15,7 @@ type CircularBuffer struct {
 	count  int
 }
 
-// NewCircularBuffer creates a new circular buffer with given size
+// NewCircularBuffer creates a buffer with given size
 func NewCircularBuffer(size int) *CircularBuffer {
 	return &CircularBuffer{
 		buffer: make([]RequestMetrics, size),
@@ -23,7 +23,7 @@ func NewCircularBuffer(size int) *CircularBuffer {
 	}
 }
 
-// Add adds an item to the circular buffer
+// Add adds an item to the buffer
 func (c *CircularBuffer) Add(item RequestMetrics) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -48,7 +48,7 @@ func (c *CircularBuffer) GetAll() []RequestMetrics {
 	return result
 }
 
-// RequestMetrics holds detailed request tracking information
+// RequestMetrics holds request tracking information
 type RequestMetrics struct {
 	Path          string
 	Method        string
@@ -93,7 +93,6 @@ func (rs *RequestStats) TrackRequest(metrics RequestMetrics) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	// Update path stats
 	pathStat, exists := rs.pathStats[metrics.Path]
 	if !exists {
 		pathStat = &PathStats{
@@ -109,7 +108,7 @@ func (rs *RequestStats) TrackRequest(metrics RequestMetrics) {
 	pathStat.StatusCodeCount[metrics.StatusCode]++
 	pathStat.LastAccessTime = metrics.Timestamp
 
-	// Update average time using exponential moving average
+	// Update average using exponential moving average
 	if pathStat.TotalRequests == 1 {
 		pathStat.AverageTime = metrics.Duration
 	} else {
@@ -117,10 +116,8 @@ func (rs *RequestStats) TrackRequest(metrics RequestMetrics) {
 		pathStat.AverageTime = time.Duration(float64(pathStat.AverageTime)*(1-alpha) + float64(metrics.Duration)*alpha)
 	}
 
-	// Add to circular buffer
 	rs.recentRequests.Add(metrics)
 
-	// Update request rate
 	rs.requestCount++
 	elapsed := time.Since(rs.lastRateCalc).Seconds()
 	if elapsed >= 5 { // Update rate every 5 seconds

@@ -43,14 +43,12 @@ type statsCollector struct {
 
 var collector = &statsCollector{}
 
-// CollectSystemStats gathers current system statistics with context support
+// CollectSystemStats gathers system statistics with context support
 func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats, error) {
-	// Check if context is done
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-		// Continue with collection
 	}
 
 	collector.mu.RLock()
@@ -72,15 +70,12 @@ func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats,
 		UptimeSecs: int64(time.Since(startTime).Seconds()),
 	}
 
-	// Check context after potential wait time
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-		// Continue with collection
 	}
 
-	// Get host info
 	if hostInfo, err := host.InfoWithContext(ctx); err == nil {
 		stats.Hostname = hostInfo.Hostname
 		stats.Platform = hostInfo.Platform
@@ -88,27 +83,22 @@ func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats,
 		stats.KernelVersion = hostInfo.KernelVersion
 	}
 
-	// Collect CPU info
 	cpuInfo, err := CollectCPUInfoWithContext(ctx)
 	if err == nil {
 		stats.CPUInfo = cpuInfo
 	}
 
-	// Collect memory info
 	memInfo, err := CollectMemoryInfoWithContext(ctx)
 	if err == nil {
 		stats.MemoryInfo = memInfo
 	}
 
-	// Check context again
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-		// Continue with collection
 	}
 
-	// Collect disk info
 	diskInfo, err := CollectDiskInfoWithContext(ctx)
 	if err == nil {
 		stats.DiskTotal = diskInfo.Total
@@ -116,30 +106,24 @@ func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats,
 		stats.DiskFree = diskInfo.Free
 	}
 
-	// Collect temperature info
 	tempInfo, err := CollectTemperatureInfoWithContext(ctx)
 	if err == nil {
 		stats.HasTempData = tempInfo.HasTempData
 	}
 
-	// Collect process info
 	procInfo, err := CollectProcessInfoWithContext(ctx)
 	if err == nil {
 		stats.ProcessStats = procInfo
 	}
 
-	// Collect runtime stats
 	stats.RuntimeStats = CollectRuntimeStats()
 
-	// Final context check before network collection
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-		// Continue with collection
 	}
 
-	// Collect network info
 	netInfo, err := CollectNetworkInfoWithContext(ctx)
 	if err == nil {
 		stats.NetworkInterfaces = netInfo.Interfaces
@@ -154,8 +138,7 @@ func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats,
 	return stats, nil
 }
 
-// CollectSystemStatsWithoutContext is a backward compatibility wrapper
-// that uses a background context
+// CollectSystemStatsWithoutContext uses a background context
 func CollectSystemStatsWithoutContext(startTime time.Time) (*SystemStats, error) {
 	return CollectSystemStats(context.Background(), startTime)
 }
