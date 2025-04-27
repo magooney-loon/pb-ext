@@ -81,5 +81,5 @@ If tests fail with connection errors:
 Start the server with:
 
 ```bash
-go run main.go serve
+go run main.go
 ``` 
