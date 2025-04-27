@@ -28,7 +28,7 @@ Enhanced PocketBase server with extensive monitoring & logging.
 ## Quick Start
 
 ```bash
-go run cmd/server/main.go serve
+go run cmd/server/main.go
 ```
 
 ## Webmaster Panel
