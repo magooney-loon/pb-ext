@@ -71,6 +71,13 @@ func (s *Server) Start() error {
 			s.stats.ActiveConnections.Add(1)
 			s.stats.TotalRequests.Add(1)
 
+			// Debug log the counter increment
+			app.Logger().Debug("Request counter incremented",
+				"path", c.Request.URL.Path,
+				"method", c.Request.Method,
+				"total_requests", s.stats.TotalRequests.Load(),
+			)
+
 			err := c.Next()
 
 			s.stats.ActiveConnections.Add(-1)

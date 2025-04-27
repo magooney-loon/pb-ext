@@ -1,11 +1,13 @@
 package monitoring
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ServerStats represents server usage statistics
@@ -43,6 +45,7 @@ func (s *ServerStats) UpdateLastRequestTime() {
 	s.LastRequestTime.Store(time.Now().UnixNano())
 }
 
+// TestNewServerStats tests the ServerStats creation and initial state
 func TestNewServerStats(t *testing.T) {
 	// Create a new stats collector
 	stats := NewServerStats()
@@ -112,4 +115,34 @@ func TestSystemStats(t *testing.T) {
 
 	// Verify basic stats structure
 	assert.NotEmpty(t, stats.OS, "OS info should be populated")
+
+	// Test with context
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	statsWithCtx, err := CollectSystemStats(ctx, time.Now())
+	assert.NoError(t, err, "Should collect system stats with context without error")
+	assert.NotNil(t, statsWithCtx, "Stats with context should not be nil")
+}
+
+// TestSystemStatsIntegration tests that system stats integration works properly
+func TestSystemStatsIntegration(t *testing.T) {
+	// Create a stats object
+	startTime := time.Now()
+	stats, err := CollectSystemStatsWithoutContext(startTime)
+	require.NoError(t, err, "Should collect stats without error")
+
+	// Verify uptime calculation is working properly
+	assert.WithinDuration(t, startTime, stats.StartTime, 500*time.Millisecond,
+		"Start time should be set correctly within a reasonable margin")
+
+	// Check that CPU info is populated
+	assert.NotEmpty(t, stats.CPUInfo, "CPU info should be populated")
+
+	// Verify memory info is collected
+	assert.NotZero(t, stats.MemoryInfo.Total, "Memory total should be non-zero")
+
+	// Verify disk info
+	assert.True(t, stats.DiskTotal > 0, "Disk total should be positive")
+	assert.True(t, stats.DiskUsed <= stats.DiskTotal, "Disk used should be less than or equal to total")
 }

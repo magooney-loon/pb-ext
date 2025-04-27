@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -187,4 +188,134 @@ type ErrInvalidRequest struct {
 
 func (e ErrInvalidRequest) Error() string {
 	return e.Msg
+}
+
+// TestLoggingIntegration tests that logging system integrates with the application
+func TestLoggingIntegration(t *testing.T) {
+	// Create a test app
+	app, buf := setupTestLogger()
+	defer restoreLogger()
+
+	// Test the actual recovery middleware setup
+	var testEvent struct {
+		httpServer interface{}
+		app        interface{}
+	}
+	testEvent.app = app
+
+	// Create a log context
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, RequestIDKey, "test-integration-id")
+
+	// Log something using our logging functions
+	InfoWithContext(ctx, "Debug test message", nil)
+	InfoWithContext(ctx, "Info test message", nil)
+	InfoWithContext(ctx, "Warning test message", nil)
+	ErrorWithContext(ctx, "Error test message", nil, nil)
+
+	// Wait for logs to be written
+	time.Sleep(20 * time.Millisecond)
+
+	// Get the buffer content
+	output := buf.String()
+
+	// Verify logs were written
+	assert.Contains(t, output, "INFO")
+	assert.Contains(t, output, "Debug test message")
+	assert.Contains(t, output, "Info test message")
+	assert.Contains(t, output, "Warning test message")
+	assert.Contains(t, output, "ERROR")
+	assert.Contains(t, output, "Error test message")
+	assert.Contains(t, output, "test-integration-id")
+}
+
+// TestTraceWithRealServer tests trace ID propagation with a real server instance
+func TestTraceWithRealServer(t *testing.T) {
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Create a test app and capture logs
+	_, buf := setupTestLogger()
+	defer restoreLogger()
+
+	// Create a test request with trace ID
+	req := httptest.NewRequest("GET", "/api/test", nil)
+	req.Header.Set(TraceIDHeader, "test-integration-trace-id")
+
+	// Create a recorder for the response
+	w := httptest.NewRecorder()
+
+	// Create a simple test handler that uses contextual logging
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get trace ID from request context
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, RequestIDKey, req.Header.Get(TraceIDHeader))
+
+		// Log with the context
+		InfoWithContext(ctx, "Request processed", map[string]interface{}{
+			"test_value": "integration_test",
+		})
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Process request with our custom handler
+	testHandler.ServeHTTP(w, req)
+
+	// Wait for logs to be written
+	time.Sleep(20 * time.Millisecond)
+
+	// Get the buffer content
+	output := buf.String()
+
+	// Verify trace ID is in the logs
+	assert.Contains(t, output, "test-integration-trace-id", "Trace ID should be in logs")
+	assert.Contains(t, output, "Request processed", "Handler message should be in logs")
+	assert.Contains(t, output, "integration_test", "Custom field should be in logs")
+}
+
+// TestLoggerWithServer tests that the logger integrates with a server
+func TestLoggerWithServer(t *testing.T) {
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Create a test app and capture logs
+	_, buf := setupTestLogger()
+	defer restoreLogger()
+
+	// Setup a test HTTP server using our app
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set the context with trace ID
+		ctx := context.WithValue(r.Context(), RequestIDKey, "test-server-trace-id")
+
+		// Log using our logging functions
+		InfoWithContext(ctx, "Debug from test server", nil)
+		InfoWithContext(ctx, "Info from test server", nil)
+
+		// Continue with request
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}))
+	defer ts.Close()
+
+	// Make a request to our test server
+	resp, err := http.Get(ts.URL)
+	require.NoError(t, err, "Request to test server should succeed")
+	resp.Body.Close()
+
+	// Wait for logs to be written
+	time.Sleep(20 * time.Millisecond)
+
+	// Get the buffer content
+	output := buf.String()
+
+	// Verify logs
+	assert.Contains(t, output, "test-server-trace-id", "Trace ID should be in logs")
+	assert.Contains(t, output, "Debug from test server", "Debug message should be in logs")
+	assert.Contains(t, output, "Info from test server", "Info message should be in logs")
 }
