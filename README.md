@@ -10,8 +10,8 @@ Enhanced PocketBase server with extensive monitoring & logging.
 ├── cmd/
 │   └── server/          # Server initialization
 ├── internal/
-│   ├── monitoring/      # System metrics collection 
 │   ├── logging/         # Logging and error handling
+│   ├── monitoring/      # System metrics collection 
 │   └── server/          # Core server implementation
 ├── pkg/
 │   └── api/             # Custom API endpoints
