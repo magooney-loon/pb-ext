@@ -23,6 +23,7 @@ Enhanced PocketBase server with extensive monitoring & logging.
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
 - **API Group Endpoints**: Custom example endpoints:
   - `/api/utils/time`: Server time
+- [Internal Overview](internal/README.md) - Core implementation modules
 
 ## Quick Start
 
