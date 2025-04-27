@@ -40,3 +40,4 @@ coverage/
 # Misc
 .cache/
 .temp/
+llm/
