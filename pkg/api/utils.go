@@ -7,7 +7,6 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// registerUtilRoutes adds utility endpoints that don't require auth
 func registerUtilRoutes(e *core.ServeEvent) {
 	// Group routes under /api/utils prefix
 	utilGroup := e.Router.Group("/api/utils")
@@ -16,7 +15,6 @@ func registerUtilRoutes(e *core.ServeEvent) {
 	utilGroup.GET("/time", handleGetTime)
 }
 
-// handleGetTime returns server time in various formats
 func handleGetTime(c *core.RequestEvent) error {
 	now := time.Now()
 
