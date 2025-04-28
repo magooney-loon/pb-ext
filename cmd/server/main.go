@@ -2,11 +2,12 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/magooney-loon/pb-ext/core/logging"
 	"github.com/magooney-loon/pb-ext/core/server"
-	"github.com/magooney-loon/pb-ext/pkg/api"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -29,7 +30,7 @@ func initApp() {
 	})
 
 	// Register custom API routes
-	api.RegisterRoutes(srv.App())
+	RegisterRoutes(srv.App())
 
 	// Set domain name from environment if specified
 	if domain := os.Getenv("PB_SERVER_DOMAIN"); domain != "" {
@@ -49,4 +50,28 @@ func initApp() {
 		)
 		log.Fatal(err)
 	}
+}
+
+// RegisterRoutes sets up all custom API routes
+func RegisterRoutes(app core.App) {
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		// Example utility route
+		e.Router.GET("/api/utils/time", func(c *core.RequestEvent) error {
+			now := time.Now()
+			return c.JSON(http.StatusOK, map[string]interface{}{
+				"timestamp": now.Unix(),
+				"iso8601":   now.Format(time.RFC3339),
+				"rfc822":    now.Format(time.RFC822),
+				"date":      now.Format("2006-01-02"),
+				"time":      now.Format("15:04:05"),
+			})
+		})
+
+		// Add your custom routes here
+		// Example:
+		// e.Router.GET("/api/your-endpoint", yourHandler)
+		// e.Router.POST("/api/another-endpoint", anotherHandler)
+
+		return e.Next()
+	})
 }
