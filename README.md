@@ -24,6 +24,8 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 ## Quick Start
 
+- Set up Your .env file, check env.txt
+
 ```go
 package main
 
