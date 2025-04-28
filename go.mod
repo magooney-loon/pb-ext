@@ -1,4 +1,4 @@
-module magooney-loon/pb-ext
+module github.com/magooney-loon/pb-ext
 
 go 1.24.2
 

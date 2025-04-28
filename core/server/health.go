@@ -15,7 +15,7 @@ import (
 	"text/template"
 	"time"
 
-	"magooney-loon/pb-ext/internal/monitoring"
+	"github.com/magooney-loon/pb-ext/core/monitoring"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/shirou/gopsutil/v3/host"

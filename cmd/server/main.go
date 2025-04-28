@@ -4,9 +4,9 @@ import (
 	"log"
 	"os"
 
-	"magooney-loon/pb-ext/core/logging"
-	"magooney-loon/pb-ext/core/server"
-	"magooney-loon/pb-ext/pkg/api"
+	"github.com/magooney-loon/pb-ext/core/logging"
+	"github.com/magooney-loon/pb-ext/core/server"
+	"github.com/magooney-loon/pb-ext/pkg/api"
 
 	"github.com/pocketbase/pocketbase/core"
 )

@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"magooney-loon/pb-ext/internal/monitoring"
-	"magooney-loon/pb-ext/internal/server"
+	"github.com/magooney-loon/pb-ext/core/monitoring"
+	"github.com/magooney-loon/pb-ext/core/server"
 
 	"github.com/google/uuid"
 	"github.com/pocketbase/pocketbase"
