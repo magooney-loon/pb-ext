@@ -55,20 +55,15 @@ func initApp() {
 // registerRoutes sets up all custom API routes
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Example utility route
-		e.Router.GET("/api/utils/time", func(c *core.RequestEvent) error {
-			now := time.Now()
-			return c.JSON(http.StatusOK, map[string]interface{}{
-				"timestamp": now.Unix(),
-				"iso8601":   now.Format(time.RFC3339),
-				"rfc822":    now.Format(time.RFC822),
-				"date":      now.Format("2006-01-02"),
-				"time":      now.Format("15:04:05"),
+		// Index route, served from ./pb_public, visitor stats
+		e.Router.GET("/", func(c *core.RequestEvent) error {
+			return c.JSON(http.StatusOK, map[string]any{
+				"message": "Welcome to the API",
+				"version": "1.0.0",
+				"time":    time.Now().Format(time.RFC3339),
 			})
 		})
 
-		// Add your custom routes here
-		// Example:
 		// e.Router.POST("/api/another-endpoint", anotherHandler)
 
 		return e.Next()
