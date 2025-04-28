@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"magooney-loon/pb-ext/internal/logging"
-	"magooney-loon/pb-ext/internal/server"
+	"magooney-loon/pb-ext/core/logging"
+	"magooney-loon/pb-ext/core/server"
 	"magooney-loon/pb-ext/pkg/api"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -31,10 +31,9 @@ func initApp() {
 	// Register custom API routes
 	api.RegisterRoutes(srv.App())
 
-	// Set server address from environment if specified
-	// This is useful for tests to avoid port conflicts
-	if addr := os.Getenv("PB_SERVER_ADDR"); addr != "" {
-		srv.App().RootCmd.SetArgs([]string{"serve", "--http=" + addr})
+	// Set domain name from environment if specified
+	if domain := os.Getenv("PB_SERVER_DOMAIN"); domain != "" {
+		srv.App().RootCmd.SetArgs([]string{"serve", "--domain", domain})
 	} else {
 		srv.App().RootCmd.SetArgs([]string{"serve"})
 	}
