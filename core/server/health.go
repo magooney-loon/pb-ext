@@ -220,7 +220,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 	}
 
 	templatePaths := []string{
-		filepath.Join(basePath, "core/server/templates/health.tmpl"),
+		filepath.Join(basePath, "core/server/templates/index.tmpl"),
 		filepath.Join(basePath, "core/server/templates/login.tmpl"),
 		filepath.Join(basePath, "core/server/templates/styles/main.tmpl"),
 		filepath.Join(basePath, "core/server/templates/scripts/main.tmpl"),
@@ -231,7 +231,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		filepath.Join(basePath, "core/server/templates/components/network_details.tmpl"),
 	}
 
-	tmpl, err := template.New("health.tmpl").Funcs(templateFuncs).ParseFiles(templatePaths...)
+	tmpl, err := template.New("index.tmpl").Funcs(templateFuncs).ParseFiles(templatePaths...)
 	if err != nil {
 		log.Printf("Error parsing health templates: %v", err)
 		return
