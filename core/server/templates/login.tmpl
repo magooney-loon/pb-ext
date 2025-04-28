@@ -124,7 +124,7 @@
         </div>
         {{end}}
         
-        <form class="login-form" action="/_/_/login" method="POST">
+        <form class="login-form" id="loginForm">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" required autofocus>
@@ -138,5 +138,47 @@
             <button type="submit">Log In</button>
         </form>
     </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await fetch('/_/_/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                if (response.ok) {
+                    window.location.href = '/_/_';
+                } else {
+                    const data = await response.json();
+                    if (data.message) {
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'error-message';
+                        errorDiv.textContent = data.message;
+                        
+                        const existingError = document.querySelector('.error-message');
+                        if (existingError) {
+                            existingError.remove();
+                        }
+                        
+                        document.querySelector('.login-container').insertBefore(
+                            errorDiv,
+                            document.querySelector('.login-form')
+                        );
+                    }
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+            }
+        });
+    </script>
 </body>
 </html> 

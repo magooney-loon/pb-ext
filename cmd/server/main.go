@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/magooney-loon/pb-ext/core/logging"
@@ -55,16 +56,27 @@ func initApp() {
 // registerRoutes sets up all custom API routes
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Index route, served from ./pb_public, visitor tracking
-		e.Router.GET("/", func(c *core.RequestEvent) error {
+		// Time utility route
+		e.Router.GET("/api/time", func(c *core.RequestEvent) error {
+			now := time.Now()
 			return c.JSON(http.StatusOK, map[string]any{
-				"message": "Welcome to the API",
-				"version": "1.0.0",
-				"time":    time.Now().Format(time.RFC3339),
+				"time": map[string]string{
+					"iso":       now.Format(time.RFC3339),
+					"unix":      strconv.FormatInt(now.Unix(), 10),
+					"unix_nano": strconv.FormatInt(now.UnixNano(), 10),
+					"utc":       now.UTC().Format(time.RFC3339),
+				},
+				"timezone": map[string]string{
+					"name":   now.Location().String(),
+					"offset": now.Format("-07:00"),
+				},
+				"formats": map[string]string{
+					"date":     now.Format("2006-01-02"),
+					"time":     now.Format("15:04:05"),
+					"datetime": now.Format("2006-01-02 15:04:05"),
+				},
 			})
 		})
-
-		// e.Router.POST("/api/another-endpoint", anotherHandler)
 
 		return e.Next()
 	})
