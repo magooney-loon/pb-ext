@@ -30,7 +30,7 @@ func initApp() {
 	})
 
 	// Register custom API routes
-	RegisterRoutes(srv.App())
+	registerRoutes(srv.App())
 
 	// Set domain name from environment if specified
 	if domain := os.Getenv("PB_SERVER_DOMAIN"); domain != "" {
@@ -52,8 +52,8 @@ func initApp() {
 	}
 }
 
-// RegisterRoutes sets up all custom API routes
-func RegisterRoutes(app core.App) {
+// registerRoutes sets up all custom API routes
+func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		// Example utility route
 		e.Router.GET("/api/utils/time", func(c *core.RequestEvent) error {
