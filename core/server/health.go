@@ -213,22 +213,22 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 	}
 
 	basePath := "."
-	if _, err := os.Stat("internal/server/templates"); err == nil {
+	if _, err := os.Stat("core/server/templates"); err == nil {
 		basePath = "."
 	} else if _, err := os.Stat("pb_public/templates"); err == nil {
 		basePath = "pb_public"
 	}
 
 	templatePaths := []string{
-		filepath.Join(basePath, "internal/server/templates/health.tmpl"),
-		filepath.Join(basePath, "internal/server/templates/login.tmpl"),
-		filepath.Join(basePath, "internal/server/templates/styles/main.tmpl"),
-		filepath.Join(basePath, "internal/server/templates/scripts/main.tmpl"),
-		filepath.Join(basePath, "internal/server/templates/components/header.tmpl"),
-		filepath.Join(basePath, "internal/server/templates/components/critical_metrics.tmpl"),
-		filepath.Join(basePath, "internal/server/templates/components/cpu_details.tmpl"),
-		filepath.Join(basePath, "internal/server/templates/components/memory_details.tmpl"),
-		filepath.Join(basePath, "internal/server/templates/components/network_details.tmpl"),
+		filepath.Join(basePath, "core/server/templates/health.tmpl"),
+		filepath.Join(basePath, "core/server/templates/login.tmpl"),
+		filepath.Join(basePath, "core/server/templates/styles/main.tmpl"),
+		filepath.Join(basePath, "core/server/templates/scripts/main.tmpl"),
+		filepath.Join(basePath, "core/server/templates/components/header.tmpl"),
+		filepath.Join(basePath, "core/server/templates/components/critical_metrics.tmpl"),
+		filepath.Join(basePath, "core/server/templates/components/cpu_details.tmpl"),
+		filepath.Join(basePath, "core/server/templates/components/memory_details.tmpl"),
+		filepath.Join(basePath, "core/server/templates/components/network_details.tmpl"),
 	}
 
 	tmpl, err := template.New("health.tmpl").Funcs(templateFuncs).ParseFiles(templatePaths...)
