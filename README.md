@@ -9,7 +9,7 @@ Enhanced PocketBase server with extensive monitoring & logging.
 ```
 ├── cmd/
 │   └── server/          # Server initialization
-├── internal/
+├── core/
 │   ├── logging/         # Logging and error handling
 │   ├── monitoring/      # System metrics collection 
 │   └── server/          # Core server implementation
@@ -23,7 +23,7 @@ Enhanced PocketBase server with extensive monitoring & logging.
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
 - **API Group Endpoints**: Custom example endpoints:
   - `/api/utils/time`: Server time
-- [Internal Overview](internal/README.md) - Core implementation modules
+- [Core Overview](core/README.md) - Core implementation modules
 
 ## Quick Start
 
