@@ -20,14 +20,6 @@ import (
 	"github.com/shirou/gopsutil/v3/host"
 )
 
-// Default credentials and settings
-const (
-	defaultAdminUser  = "admin"
-	defaultAdminPass  = "pbhealth69"
-	sessionCookieName = "pb_health_session"
-	sessionDuration   = 24 * time.Hour
-)
-
 // HealthResponse represents health check response data
 type HealthResponse struct {
 	Status        string       `json:"status"`
@@ -202,13 +194,14 @@ var templateFuncs = template.FuncMap{
 
 // RegisterHealthRoute registers the health check endpoint
 func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
-	adminUser := os.Getenv("PB_HEALTH_USER")
-	if adminUser == "" {
-		adminUser = defaultAdminUser
-	}
-	adminPass := os.Getenv("PB_HEALTH_PASS")
-	if adminPass == "" {
-		adminPass = defaultAdminPass
+	// Get health dashboard credentials from environment
+	healthUser := os.Getenv("PB_HEALTH_USER")
+	healthPass := os.Getenv("PB_HEALTH_PASS")
+	sessionTimeout := 24 * time.Hour // Default timeout
+	if timeoutStr := os.Getenv("PB_SESSION_TIMEOUT"); timeoutStr != "" {
+		if timeout, err := time.ParseDuration(timeoutStr); err == nil {
+			sessionTimeout = timeout
+		}
 	}
 
 	// Parse templates from embedded filesystem
@@ -231,7 +224,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 	// Health check endpoint handler
 	healthHandler := func(c *core.RequestEvent) error {
 		// Session-based authentication check
-		cookie, err := c.Request.Cookie(sessionCookieName)
+		cookie, err := c.Request.Cookie("pb_health_session")
 		if err != nil {
 			// No cookie found, redirect to login page
 			return serveLoginPage(c, tmpl, "")
@@ -294,25 +287,25 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		password := c.Request.Form.Get("password")
 
 		// Validate credentials
-		if subtle.ConstantTimeCompare([]byte(username), []byte(adminUser)) != 1 ||
-			subtle.ConstantTimeCompare([]byte(password), []byte(adminPass)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(username), []byte(healthUser)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(password), []byte(healthPass)) != 1 {
 			return serveLoginPage(c, tmpl, "Invalid username or password")
 		}
 
 		// Create and set session cookie
 		sessionID := generateSessionID()
 		http.SetCookie(c.Response, &http.Cookie{
-			Name:     sessionCookieName,
+			Name:     "pb_health_session",
 			Value:    sessionID,
 			Path:     "/_/_",
 			HttpOnly: true,
 			Secure:   c.Request.TLS != nil,
-			MaxAge:   int(sessionDuration.Seconds()),
+			MaxAge:   int(sessionTimeout.Seconds()),
 			SameSite: http.SameSiteStrictMode,
 		})
 
 		// Store session
-		storeSession(sessionID)
+		storeSession(sessionID, sessionTimeout)
 
 		// Redirect to health dashboard
 		c.Response.Header().Set("Location", "/_/_")
@@ -338,8 +331,8 @@ func generateSessionID() string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-func storeSession(sessionID string) {
-	activeSessions[sessionID] = time.Now().Add(sessionDuration)
+func storeSession(sessionID string, timeout time.Duration) {
+	activeSessions[sessionID] = time.Now().Add(timeout)
 }
 
 func isValidSession(sessionID string) bool {

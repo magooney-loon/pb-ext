@@ -33,11 +33,11 @@ func initApp() {
 	registerRoutes(srv.App())
 
 	// Set domain name from environment if specified
+	args := []string{"serve"}
 	if domain := os.Getenv("PB_SERVER_DOMAIN"); domain != "" {
-		srv.App().RootCmd.SetArgs([]string{"serve", "--domain", domain})
-	} else {
-		srv.App().RootCmd.SetArgs([]string{"serve"})
+		args = append(args, domain)
 	}
+	srv.App().RootCmd.SetArgs(args)
 
 	// Start the server
 	if err := srv.Start(); err != nil {
@@ -55,7 +55,7 @@ func initApp() {
 // registerRoutes sets up all custom API routes
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Index route, served from ./pb_public, visitor stats
+		// Index route, served from ./pb_public, visitor tracking
 		e.Router.GET("/", func(c *core.RequestEvent) error {
 			return c.JSON(http.StatusOK, map[string]any{
 				"message": "Welcome to the API",
