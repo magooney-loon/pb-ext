@@ -96,7 +96,6 @@ func registerRoutes(app core.App) {
 
 		// Add your custom routes here
 		// Example:
-		// e.Router.GET("/api/your-endpoint", yourHandler)
 		// e.Router.POST("/api/another-endpoint", anotherHandler)
 
 		return e.Next()
