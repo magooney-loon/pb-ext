@@ -31,6 +31,10 @@ Enhanced PocketBase server with extensive monitoring & logging.
 go run cmd/server/main.go
 ```
 
+```bash
+go test ./... -v
+```
+
 ## Webmaster Panel
 
 - Admin panel `127.0.0.1:8090/_`
