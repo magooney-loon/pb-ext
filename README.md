@@ -81,7 +81,7 @@ func initApp() {
 	}
 }
 
-// registerRoutes sets up all custom API routes
+// Custom API routes
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		// Index route, served from ./pb_public, visitor tracking
