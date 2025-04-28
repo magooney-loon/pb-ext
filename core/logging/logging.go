@@ -26,7 +26,7 @@ const (
 	Error LogLevel = 8  // Error level
 
 	TraceIDHeader = "X-Trace-ID"
-	RequestIDKey  = "request_id" // Key for storing request IDs in context
+	RequestIDKey  = "request_id"
 )
 
 // String converts log level to string
