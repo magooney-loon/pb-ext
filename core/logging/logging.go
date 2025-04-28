@@ -93,10 +93,8 @@ func ErrorWithContext(ctx context.Context, app *pocketbase.PocketBase, message s
 	}
 
 	// Add all data fields
-	if data != nil {
-		for key, value := range data {
-			logger = logger.With(key, value)
-		}
+	for key, value := range data {
+		logger = logger.With(key, value)
 	}
 
 	logger.Error(message)
