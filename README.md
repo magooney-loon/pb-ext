@@ -20,7 +20,6 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 - **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and runtime stats
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
-- [Core Overview](core/README.md) - Core implementation modules
 
 ## Quick Start
 
@@ -115,10 +114,6 @@ func registerRoutes(app core.App) {
 
 ```bash
 go run cmd/server/main.go
-```
-
-```bash
-go test ./... -v
 ```
 
 ## Webmaster Panel
