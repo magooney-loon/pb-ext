@@ -11,9 +11,9 @@ import (
 	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/magooney-loon/pb-ext/core/server"
 
-	"github.com/google/uuid"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/security"
 )
 
 // LogLevel represents different log levels
@@ -134,7 +134,7 @@ func SetupLogging(srv *server.Server) {
 				RecoverFromPanic(app, c)
 			}()
 
-			traceID := uuid.New().String()
+			traceID := security.RandomString(18)
 			c.Request.Header.Set(TraceIDHeader, traceID)
 			c.Response.Header().Set(TraceIDHeader, traceID)
 

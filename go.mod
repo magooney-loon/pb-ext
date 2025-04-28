@@ -3,7 +3,6 @@ module github.com/magooney-loon/pb-ext
 go 1.24.2
 
 require (
-	github.com/google/uuid v1.6.0
 	github.com/pocketbase/pocketbase v0.27.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 )
@@ -19,6 +18,7 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect

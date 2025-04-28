@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -32,13 +31,6 @@ func initApp() {
 
 	// Register custom API routes
 	registerRoutes(srv.App())
-
-	// Set domain name from environment if specified
-	args := []string{"serve"}
-	if domain := os.Getenv("PB_SERVER_DOMAIN"); domain != "" {
-		args = append(args, domain)
-	}
-	srv.App().RootCmd.SetArgs(args)
 
 	// Start the server
 	if err := srv.Start(); err != nil {
