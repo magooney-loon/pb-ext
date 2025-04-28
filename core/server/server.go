@@ -72,11 +72,11 @@ func (s *Server) Start() error {
 			s.stats.TotalRequests.Add(1)
 
 			// Debug log the counter increment
-			app.Logger().Debug("Request counter incremented",
+			/* app.Logger().Debug("Request counter incremented",
 				"path", c.Request.URL.Path,
 				"method", c.Request.Method,
 				"total_requests", s.stats.TotalRequests.Load(),
-			)
+			) */
 
 			err := c.Next()
 
@@ -97,13 +97,13 @@ func (s *Server) Start() error {
 				s.stats.TotalErrors.Add(1)
 			}
 
-			app.Logger().Debug("Request completed",
+			/* app.Logger().Debug("Request completed",
 				"path", c.Request.URL.Path,
 				"method", c.Request.Method,
 				"error", err,
 				"duration_ms", duration/1e6,
 				"active_connections", s.stats.ActiveConnections.Load(),
-			)
+			) */
 
 			return err
 		})
