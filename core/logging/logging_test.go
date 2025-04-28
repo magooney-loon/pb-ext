@@ -115,8 +115,9 @@ func TestContextualLogging(t *testing.T) {
 	// Capture log output
 	var buf bytes.Buffer
 
-	// Create a test logger that writes to our buffer
-	SetupTestLogger(&buf)
+	// Create a test app and logger
+	app, _ := setupTestLogger()
+	defer restoreLogger()
 
 	// Create a request with context
 	req := httptest.NewRequest("GET", "/api/test", nil)
@@ -127,7 +128,7 @@ func TestContextualLogging(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	// Log with context
-	InfoWithContext(ctx, "contextual message", map[string]interface{}{
+	InfoWithContext(ctx, app, "contextual message", map[string]interface{}{
 		"extra_field": "test_value",
 	})
 
@@ -153,12 +154,13 @@ func TestErrorHandling(t *testing.T) {
 	// Capture log output
 	var buf bytes.Buffer
 
-	// Create a test logger that writes to our buffer
-	SetupTestLogger(&buf)
+	// Create a test app and logger
+	app, _ := setupTestLogger()
+	defer restoreLogger()
 
 	// Log an error
 	testErr := ErrInvalidRequest{Msg: "test error"}
-	ErrorWithContext(context.Background(), "test error occurred", testErr, nil)
+	ErrorWithContext(context.Background(), app, "test error occurred", testErr, nil)
 
 	// Wait for the log to be written
 	time.Sleep(10 * time.Millisecond)
@@ -208,10 +210,10 @@ func TestLoggingIntegration(t *testing.T) {
 	ctx = context.WithValue(ctx, RequestIDKey, "test-integration-id")
 
 	// Log something using our logging functions
-	InfoWithContext(ctx, "Debug test message", nil)
-	InfoWithContext(ctx, "Info test message", nil)
-	InfoWithContext(ctx, "Warning test message", nil)
-	ErrorWithContext(ctx, "Error test message", nil, nil)
+	InfoWithContext(ctx, app, "Debug test message", nil)
+	InfoWithContext(ctx, app, "Info test message", nil)
+	InfoWithContext(ctx, app, "Warning test message", nil)
+	ErrorWithContext(ctx, app, "Error test message", nil, nil)
 
 	// Wait for logs to be written
 	time.Sleep(20 * time.Millisecond)
@@ -237,7 +239,7 @@ func TestTraceWithRealServer(t *testing.T) {
 	}
 
 	// Create a test app and capture logs
-	_, buf := setupTestLogger()
+	app, buf := setupTestLogger()
 	defer restoreLogger()
 
 	// Create a test request with trace ID
@@ -254,7 +256,7 @@ func TestTraceWithRealServer(t *testing.T) {
 		ctx = context.WithValue(ctx, RequestIDKey, req.Header.Get(TraceIDHeader))
 
 		// Log with the context
-		InfoWithContext(ctx, "Request processed", map[string]interface{}{
+		InfoWithContext(ctx, app, "Request processed", map[string]interface{}{
 			"test_value": "integration_test",
 		})
 
@@ -285,7 +287,7 @@ func TestLoggerWithServer(t *testing.T) {
 	}
 
 	// Create a test app and capture logs
-	_, buf := setupTestLogger()
+	app, buf := setupTestLogger()
 	defer restoreLogger()
 
 	// Setup a test HTTP server using our app
@@ -294,8 +296,8 @@ func TestLoggerWithServer(t *testing.T) {
 		ctx := context.WithValue(r.Context(), RequestIDKey, "test-server-trace-id")
 
 		// Log using our logging functions
-		InfoWithContext(ctx, "Debug from test server", nil)
-		InfoWithContext(ctx, "Info from test server", nil)
+		InfoWithContext(ctx, app, "Debug from test server", nil)
+		InfoWithContext(ctx, app, "Info from test server", nil)
 
 		// Continue with request
 		w.WriteHeader(http.StatusOK)

@@ -2,7 +2,6 @@ package logging
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -58,87 +57,69 @@ type LogContext struct {
 	IP         string
 }
 
-// InfoWithContext logs an info message with context data
-func InfoWithContext(ctx context.Context, message string, data map[string]interface{}) {
-	requestID := ""
+// InfoWithContext logs an info message with context data using PocketBase's logger
+func InfoWithContext(ctx context.Context, app *pocketbase.PocketBase, message string, data map[string]interface{}) {
+	logger := app.Logger()
+
+	// Add request ID if available
 	if ctx != nil {
 		if id, ok := ctx.Value(RequestIDKey).(string); ok {
-			requestID = id
+			logger = logger.With("request_id", id)
 		}
 	}
 
-	// Prepare log data
-	logData := map[string]interface{}{
-		"level":   Info.String(),
-		"message": message,
-	}
-
-	if requestID != "" {
-		logData["request_id"] = requestID
-	}
-
-	// Add all data fields to the log
+	// Create a new logger with all the data fields
 	for key, value := range data {
-		logData[key] = value
+		logger = logger.With(key, value)
 	}
 
-	// Marshal to JSON and print
-	logJSON, _ := json.Marshal(logData)
-	fmt.Println(string(logJSON))
+	logger.Info(message)
 }
 
-// ErrorWithContext logs an error message with context data
-func ErrorWithContext(ctx context.Context, message string, err error, data map[string]interface{}) {
-	requestID := ""
+// ErrorWithContext logs an error message with context data using PocketBase's logger
+func ErrorWithContext(ctx context.Context, app *pocketbase.PocketBase, message string, err error, data map[string]interface{}) {
+	logger := app.Logger()
+
+	// Add request ID if available
 	if ctx != nil {
 		if id, ok := ctx.Value(RequestIDKey).(string); ok {
-			requestID = id
+			logger = logger.With("request_id", id)
 		}
 	}
 
-	// Prepare log data
-	logData := map[string]interface{}{
-		"level":   Error.String(),
-		"message": message,
-	}
-
+	// Add error information
 	if err != nil {
-		logData["error"] = map[string]interface{}{
-			"message": err.Error(),
-		}
+		logger = logger.With("error", err.Error())
 	}
 
-	if requestID != "" {
-		logData["request_id"] = requestID
-	}
-
-	// Add all data fields to the log
+	// Add all data fields
 	if data != nil {
 		for key, value := range data {
-			logData[key] = value
+			logger = logger.With(key, value)
 		}
 	}
 
-	// Marshal to JSON and print
-	logJSON, _ := json.Marshal(logData)
-	fmt.Println(string(logJSON))
+	logger.Error(message)
 }
 
-// SetupLogging configures logging
+// SetupLogging configures logging using PocketBase's logger
 func SetupLogging(srv *server.Server) {
 	app := srv.App()
 	requestStats := monitoring.NewRequestStats()
 
-	app.Logger().Info("Application starting up",
-		"event", "app_startup",
-		"time", time.Now().Format(time.RFC3339),
+	// Create a logger with common application fields
+	appLogger := app.Logger().With(
 		"pid", os.Getpid(),
+		"start_time", time.Now().Format(time.RFC3339),
+	)
+
+	appLogger.Info("Application starting up",
+		"event", "app_startup",
 	)
 
 	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
-		app.Logger().Info("Application shutting down",
+		appLogger.Info("Application shutting down",
 			"event", "app_shutdown",
-			"time", time.Now().Format(time.RFC3339),
 			"is_restart", e.IsRestart,
 			"uptime", time.Since(srv.Stats().StartTime).Round(time.Second).String(),
 			"total_requests", srv.Stats().TotalRequests.Load(),
@@ -218,8 +199,8 @@ func SetupLogging(srv *server.Server) {
 				return err
 			}
 
-			app.Logger().Debug("Request processed",
-				"event", "http_request",
+			// Create a request-specific logger with all request context
+			requestLogger := app.Logger().WithGroup("request").With(
 				"trace_id", logCtx.TraceID,
 				"method", logCtx.Method,
 				"path", logCtx.Path,
@@ -229,6 +210,10 @@ func SetupLogging(srv *server.Server) {
 				"user_agent", logCtx.UserAgent,
 				"content_length", c.Request.ContentLength,
 				"request_rate", requestStats.GetRequestRate(),
+			)
+
+			requestLogger.Debug("Request processed",
+				"event", "http_request",
 			)
 
 			return nil
