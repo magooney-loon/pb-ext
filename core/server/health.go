@@ -190,6 +190,12 @@ var templateFuncs = template.FuncMap{
 		}
 		return false
 	},
+	"formatTime": func(t time.Time) string {
+		return t.Format("15:04:05")
+	},
+	"inc": func(i int) int {
+		return i + 1
+	},
 }
 
 // RegisterHealthRoute registers the health check endpoint
@@ -215,6 +221,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		"templates/components/cpu_details.tmpl",
 		"templates/components/memory_details.tmpl",
 		"templates/components/network_details.tmpl",
+		"templates/components/visitor_analytics.tmpl",
 	)
 	if err != nil {
 		log.Printf("Error parsing health templates: %v", err)
@@ -245,6 +252,14 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 			return NewHTTPError("health_check", "Failed to collect system stats", http.StatusInternalServerError, err)
 		}
 
+		// Get analytics data if available
+		var analyticsData *AnalyticsData
+		if s.analytics != nil {
+			analyticsData, _ = s.analytics.GetAnalyticsData()
+		} else {
+			analyticsData = defaultAnalyticsData()
+		}
+
 		// Prepare template data
 		data := struct {
 			Status           string
@@ -256,6 +271,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 			DiskUsageStr     string
 			LastCheckTime    time.Time
 			RequestRate      float64
+			AnalyticsData    *AnalyticsData
 		}{
 			Status:           "Healthy",
 			UptimeDuration:   time.Since(s.stats.StartTime).Round(time.Second).String(),
@@ -266,6 +282,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 			DiskUsageStr:     fmt.Sprintf("%.2f/%.2f GB", float64(sysStats.DiskUsed)/1024/1024/1024, float64(sysStats.DiskTotal)/1024/1024/1024),
 			LastCheckTime:    time.Now(),
 			RequestRate:      float64(s.stats.TotalRequests.Load()) / time.Since(s.stats.StartTime).Seconds(),
+			AnalyticsData:    analyticsData,
 		}
 
 		// Execute template

@@ -912,5 +912,161 @@
             flex-basis: 100%;
         }
     }
+
+/* Visitor Analytics Specific Styles */
+
+/* Browser breakdown styles */
+.browser-breakdown {
+    margin-top: 10px;
+}
+
+.browser-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+    font-size: 12px;
+}
+
+.browser-name {
+    width: 70px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.browser-bar-container {
+    flex-grow: 1;
+    height: 4px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    margin: 0 5px;
+}
+
+.browser-bar {
+    height: 100%;
+    background-color: #00BFFF;
+    border-radius: 2px;
+}
+
+.browser-percent {
+    width: 30px;
+    text-align: right;
+}
+
+/* Top pages styles */
+.top-pages {
+    margin-top: 10px;
+    max-height: 125px;
+    overflow-y: auto;
+}
+
+.page-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+    font-size: 12px;
+}
+
+.page-rank {
+    width: 20px;
+    text-align: center;
+    color: #00BFFF;
+    font-weight: bold;
+}
+
+.page-path {
+    flex-grow: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 5px;
+}
+
+.page-views {
+    width: 40px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Recent activity styles */
+.recent-activity {
+    margin-top: 10px;
+    max-height: 125px;
+    overflow-y: auto;
+}
+
+.activity-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+    font-size: 12px;
+}
+
+.activity-time {
+    width: 60px;
+    color: #888;
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-path {
+    flex-grow: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 5px;
+}
+
+.activity-device {
+    width: 20px;
+    text-align: center;
+    color: #888;
+}
+
+/* Icon colors */
+.visitors-icon {
+    color: #3498db;
+}
+
+.pageviews-icon {
+    color: #2ecc71;
+}
+
+.devices-icon {
+    color: #e74c3c;
+}
+
+.browser-icon {
+    color: #f39c12;
+}
+
+.pages-icon {
+    color: #9b59b6;
+}
+
+.activity-icon {
+    color: #1abc9c;
+}
+
+/* Scrollbar styles for small panels */
+.top-pages::-webkit-scrollbar,
+.recent-activity::-webkit-scrollbar {
+    width: 4px;
+}
+
+.top-pages::-webkit-scrollbar-track,
+.recent-activity::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.top-pages::-webkit-scrollbar-thumb,
+.recent-activity::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.top-pages::-webkit-scrollbar-thumb:hover,
+.recent-activity::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
 </style>
 {{end}} 
