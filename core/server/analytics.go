@@ -214,9 +214,9 @@ func (a *Analytics) flushBuffer() {
 
 	// Process in a transaction
 	err := a.app.RunInTransaction(func(txApp core.App) error {
-		collection, err := txApp.FindCollectionByNameOrId("pageviews")
+		collection, err := txApp.FindCollectionByNameOrId("_analytics")
 		if err != nil {
-			a.app.Logger().Error("Failed to find pageviews collection", "error", err)
+			a.app.Logger().Error("Failed to find _analytics collection", "error", err)
 			return err
 		}
 
@@ -261,115 +261,115 @@ func (a *Analytics) flushBuffer() {
 
 // SetupAnalyticsCollections creates the necessary collections if they don't exist
 func SetupAnalyticsCollections(app *pocketbase.PocketBase) error {
-	// Check if pageviews collection exists
-	pageviewsCol, err := app.FindCollectionByNameOrId("pageviews")
+	// Check if _analytics collection exists
+	analyticsCol, err := app.FindCollectionByNameOrId("_analytics")
 	if err != nil {
 		// Create the collection
-		app.Logger().Debug("Creating pageviews collection")
-		pageviewsCol = core.NewBaseCollection("pageviews")
-		pageviewsCol.System = true
+		app.Logger().Debug("Creating _analytics collection")
+		analyticsCol = core.NewBaseCollection("_analytics")
+		analyticsCol.System = true
 
 		// Add base fields
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "path",
 			Required: true,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "method",
 			Required: true,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "ip",
 			Required: true,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "user_agent",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "referrer",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.NumberField{
+		analyticsCol.Fields.Add(&core.NumberField{
 			Name:     "duration_ms",
 			Required: true,
 		})
-		pageviewsCol.Fields.Add(&core.DateField{
+		analyticsCol.Fields.Add(&core.DateField{
 			Name:     "timestamp",
 			Required: true,
 		})
 
 		// Add enhanced fields
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "visitor_id",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "device_type",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "browser",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "os",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "country",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "utm_source",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "utm_medium",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "utm_campaign",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.BoolField{
+		analyticsCol.Fields.Add(&core.BoolField{
 			Name:     "is_new_visit",
 			Required: false,
 		})
-		pageviewsCol.Fields.Add(&core.TextField{
+		analyticsCol.Fields.Add(&core.TextField{
 			Name:     "query_params",
 			Required: false,
 		})
 
-		pageviewsCol.Fields.Add(&core.AutodateField{
+		analyticsCol.Fields.Add(&core.AutodateField{
 			Name:     "created",
 			OnCreate: true,
 		})
-		pageviewsCol.Fields.Add(&core.AutodateField{
+		analyticsCol.Fields.Add(&core.AutodateField{
 			Name:     "updated",
 			OnCreate: true,
 			OnUpdate: true,
 		})
 
 		// Add indexes for better query performance
-		pageviewsCol.AddIndex("idx_pageviews_timestamp", false, "timestamp", "")
-		pageviewsCol.AddIndex("idx_pageviews_path", false, "path", "")
-		pageviewsCol.AddIndex("idx_pageviews_ip", false, "ip", "")
-		pageviewsCol.AddIndex("idx_pageviews_visitor_id", false, "visitor_id", "")
-		pageviewsCol.AddIndex("idx_pageviews_device_type", false, "device_type", "")
-		pageviewsCol.AddIndex("idx_pageviews_utm_source", false, "utm_source", "")
+		analyticsCol.AddIndex("idx_analytics_timestamp", false, "timestamp", "")
+		analyticsCol.AddIndex("idx_analytics_path", false, "path", "")
+		analyticsCol.AddIndex("idx_analytics_ip", false, "ip", "")
+		analyticsCol.AddIndex("idx_analytics_visitor_id", false, "visitor_id", "")
+		analyticsCol.AddIndex("idx_analytics_device_type", false, "device_type", "")
+		analyticsCol.AddIndex("idx_analytics_utm_source", false, "utm_source", "")
 
 		// Save the collection
-		if err := app.SaveNoValidate(pageviewsCol); err != nil {
-			app.Logger().Error("Failed to create pageviews collection", "error", err)
+		if err := app.SaveNoValidate(analyticsCol); err != nil {
+			app.Logger().Error("Failed to create _analytics collection", "error", err)
 			return err
 		}
 
-		app.Logger().Info("Created pageviews collection")
+		app.Logger().Info("Created _analytics collection")
 	} else {
-		app.Logger().Debug("pageviews collection already exists",
-			"id", pageviewsCol.Id,
-			"name", pageviewsCol.Name)
+		app.Logger().Debug("_analytics collection already exists",
+			"id", analyticsCol.Id,
+			"name", analyticsCol.Name)
 	}
 
 	return nil
@@ -664,10 +664,10 @@ func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 		RecentVisits:     make([]RecentVisit, 0),
 	}
 
-	// Get the pageviews collection
-	collection, err := a.app.FindCollectionByNameOrId("pageviews")
+	// Get the _analytics collection
+	collection, err := a.app.FindCollectionByNameOrId("_analytics")
 	if err != nil {
-		a.app.Logger().Error("Failed to find pageviews collection", "error", err)
+		a.app.Logger().Error("Failed to find _analytics collection", "error", err)
 		return defaultAnalyticsData(), nil
 	}
 
@@ -681,7 +681,7 @@ func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 		OrderBy("timestamp DESC").
 		Limit(1000).
 		All(&records); err != nil {
-		a.app.Logger().Error("Failed to query pageviews", "error", err)
+		a.app.Logger().Error("Failed to query _analytics collection", "error", err)
 		return defaultAnalyticsData(), nil
 	}
 
