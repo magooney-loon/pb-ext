@@ -86,7 +86,7 @@ func registerRoutes(app core.App) {
 ```
 
 ```bash
-go run cmd/server/main.go
+go run cmd/server/main.go serve
 ```
 
 ## Webmaster Panel
