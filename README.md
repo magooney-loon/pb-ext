@@ -34,9 +34,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/magooney-loon/pb-ext/core/logging"
-	"github.com/magooney-loon/pb-ext/core/server"
-
+	app "github.com/magooney-loon/pb-ext/core"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -45,22 +43,17 @@ func main() {
 }
 
 func initApp() {
-	// Create new server instance
-	srv := server.New()
+	srv := app.New()
 
-	// Setup logging
-	logging.SetupLogging(srv)
+	app.SetupLogging(srv)
 
-	// Setup recovery middleware
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
-		logging.SetupRecovery(srv.App(), e)
+		app.SetupRecovery(srv.App(), e)
 		return e.Next()
 	})
 
-	// Register custom API routes
 	registerRoutes(srv.App())
 
-	// Start the server
 	if err := srv.Start(); err != nil {
 		srv.App().Logger().Error("Fatal application error",
 			"error", err,
@@ -75,7 +68,6 @@ func initApp() {
 
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Server time route
 		e.Router.GET("/api/time", func(c *core.RequestEvent) error {
 			now := time.Now()
 			return c.JSON(http.StatusOK, map[string]any{

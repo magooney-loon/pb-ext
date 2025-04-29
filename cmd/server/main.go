@@ -15,22 +15,17 @@ func main() {
 }
 
 func initApp() {
-	// Create new server instance
 	srv := app.New()
 
-	// Setup logging
 	app.SetupLogging(srv)
 
-	// Setup recovery middleware
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.SetupRecovery(srv.App(), e)
 		return e.Next()
 	})
 
-	// Register custom API routes
 	registerRoutes(srv.App())
 
-	// Start the server
 	if err := srv.Start(); err != nil {
 		srv.App().Logger().Error("Fatal application error",
 			"error", err,
@@ -45,7 +40,6 @@ func initApp() {
 
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Server time route
 		e.Router.GET("/api/time", func(c *core.RequestEvent) error {
 			now := time.Now()
 			return c.JSON(http.StatusOK, map[string]any{
