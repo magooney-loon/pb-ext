@@ -6,9 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/magooney-loon/pb-ext/core/logging"
-	"github.com/magooney-loon/pb-ext/core/server"
-
+	app "github.com/magooney-loon/pb-ext/core"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -18,14 +16,14 @@ func main() {
 
 func initApp() {
 	// Create new server instance
-	srv := server.New()
+	srv := app.New()
 
 	// Setup logging
-	logging.SetupLogging(srv)
+	app.SetupLogging(srv)
 
 	// Setup recovery middleware
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
-		logging.SetupRecovery(srv.App(), e)
+		app.SetupRecovery(srv.App(), e)
 		return e.Next()
 	})
 
