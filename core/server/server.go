@@ -12,8 +12,9 @@ import (
 
 // Server wraps PocketBase with additional stats
 type Server struct {
-	app   *pocketbase.PocketBase
-	stats *ServerStats
+	app       *pocketbase.PocketBase
+	stats     *ServerStats
+	analytics *Analytics
 }
 
 // ServerStats tracks server metrics
@@ -109,6 +110,16 @@ func (s *Server) Start() error {
 		})
 
 		s.RegisterHealthRoute(e)
+
+		// Initialize analytics system
+		analytics, err := InitializeAnalytics(app)
+		if err != nil {
+			app.Logger().Error("Failed to initialize analytics", "error", err)
+		} else {
+			s.analytics = analytics
+			analytics.RegisterRoutes(e)
+			app.Logger().Info("✅ Analytics system initialized")
+		}
 
 		e.Router.GET("/{path...}", apis.Static(os.DirFS("./pb_public"), false))
 
