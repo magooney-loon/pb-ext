@@ -20,7 +20,7 @@ func initApp() {
 	// Create new server instance
 	srv := server.New()
 
-	// Setup logging and recovery
+	// Setup logging
 	logging.SetupLogging(srv)
 
 	// Setup recovery middleware
@@ -45,7 +45,6 @@ func initApp() {
 	}
 }
 
-// registerRoutes sets up all custom API routes
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		// Server time route
