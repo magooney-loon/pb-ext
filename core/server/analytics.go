@@ -823,13 +823,36 @@ func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 		maxCount := 0
 		topBrowser := "unknown"
 
-		for browser, count := range browserCounts {
-			percent := float64(count) / float64(totalBrowsers) * 100
-			data.BrowserBreakdown[browser] = percent
+		// Create a slice of browser counts for sorting
+		type browserStat struct {
+			name  string
+			count int
+		}
 
-			if count > maxCount {
-				maxCount = count
-				topBrowser = browser
+		browserStats := make([]browserStat, 0, len(browserCounts))
+		for browser, count := range browserCounts {
+			browserStats = append(browserStats, browserStat{browser, count})
+		}
+
+		// Sort browsers by count in descending order
+		sort.Slice(browserStats, func(i, j int) bool {
+			return browserStats[i].count > browserStats[j].count
+		})
+
+		// Take only top 5 browsers
+		topBrowsers := browserStats
+		if len(topBrowsers) > 5 {
+			topBrowsers = topBrowsers[:5]
+		}
+
+		// Calculate percentages for top 5 browsers only with whole numbers (rounded)
+		for _, bs := range topBrowsers {
+			roundedPercent := math.Round(float64(bs.count) / float64(totalBrowsers) * 100)
+			data.BrowserBreakdown[bs.name] = roundedPercent
+
+			if bs.count > maxCount {
+				maxCount = bs.count
+				topBrowser = bs.name
 			}
 		}
 
