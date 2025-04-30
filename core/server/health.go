@@ -199,7 +199,6 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 	// Parse templates from embedded filesystem
 	tmpl, err := template.New("index.tmpl").Funcs(templateFuncs).ParseFS(templateFS,
 		"templates/index.tmpl",
-		"templates/styles/main.tmpl",
 		"templates/scripts/main.tmpl",
 		"templates/components/header.tmpl",
 		"templates/components/critical_metrics.tmpl",
@@ -207,6 +206,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		"templates/components/memory_details.tmpl",
 		"templates/components/network_details.tmpl",
 		"templates/components/visitor_analytics.tmpl",
+		"templates/components/pb_integration.tmpl",
 	)
 	if err != nil {
 		log.Printf("Error parsing health templates: %v", err)
@@ -437,6 +437,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 			LastCheckTime    time.Time
 			RequestRate      float64
 			AnalyticsData    *AnalyticsData
+			PBAdminURL       string
 		}{
 			Status:           "Healthy",
 			UptimeDuration:   time.Since(s.stats.StartTime).Round(time.Second).String(),
@@ -448,6 +449,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 			LastCheckTime:    time.Now(),
 			RequestRate:      float64(s.stats.TotalRequests.Load()) / time.Since(s.stats.StartTime).Seconds(),
 			AnalyticsData:    analyticsData,
+			PBAdminURL:       "/_/",
 		}
 
 		// Execute template

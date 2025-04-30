@@ -15,9 +15,38 @@
         tick();
     }
 
+    function showPocketBaseElements() {
+        // Show elements that should only appear when PocketBase styles are loaded
+        document.querySelectorAll('.pb-piggybacked-only').forEach(el => {
+            el.style.display = 'inline-flex';
+        });
+    }
+
     window.onload = () => {
+        // Show content once loaded
         document.getElementById('content').style.opacity = '1';
+        
+        // Start countdown timer
         updateCountdown();
+        
+        // If body has the pb-piggybacked class, enable PocketBase-specific elements
+        if (document.body.classList.contains('pb-piggybacked')) {
+            showPocketBaseElements();
+        }
+        
+        // Also set up a MutationObserver to detect if the class is added later
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    if (document.body.classList.contains('pb-piggybacked')) {
+                        showPocketBaseElements();
+                        observer.disconnect(); // No need to observe anymore
+                    }
+                }
+            });
+        });
+        
+        observer.observe(document.body, { attributes: true });
     };
 </script>
 {{end}} 

@@ -1,70 +1,65 @@
 {{define "network_details"}}
-<div class="detail-panel">
-    <div class="section-title">
-        <svg class="section-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 2 L15 8 L15 22 L9 22 L9 2 Z"></path>
-            <path d="M19 6 L21 6 L21 10 L19 10 L19 6 Z"></path>
-            <path d="M3 10 L5 10 L5 14 L3 14 L3 10 Z"></path>
-            <path d="M19 14 L21 14 L21 18 L19 18 L19 14 Z"></path>
-            <path d="M3 18 L5 18 L5 22 L3 22 L3 18 Z"></path>
-        </svg>
+<div class="panel">
+    <h5 class="section-title">
+        <i class="ri-router-line"></i>
         Network Interfaces
-    </div>
+    </h5>
     
-    <div class="metric-card" style="margin-bottom: 16px;">
-        <div class="card-title">
-            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="2" y="2" width="20" height="8" rx="2"></rect>
-                <rect x="2" y="14" width="20" height="8" rx="2"></rect>
-                <line x1="6" y1="6" x2="6.01" y2="6"></line>
-                <line x1="6" y1="18" x2="6.01" y2="18"></line>
-            </svg>
-            Network Summary
-        </div>
-        <div class="data-row">
-            <div class="data-col">
-                <div class="label">Interfaces</div>
-                <div class="value">{{len .SystemStats.NetworkInterfaces}}</div>
+    <div class="card m-b-15">
+        <div class="card-body">
+            <div class="flex align-center m-b-10">
+                <i class="ri-server-line txt-lg txt-hint m-r-5"></i>
+                <h6 class="m-0">Network Summary</h6>
             </div>
-            <div class="data-col">
-                <div class="label">Connected</div>
-                <div class="value">{{.SystemStats.NetworkConnections}}</div>
-            </div>
-            <div class="data-col">
-                <div class="label">Received</div>
-                <div class="value">{{formatBytes .SystemStats.NetworkBytesRecv}}</div>
-            </div>
-            <div class="data-col">
-                <div class="label">Sent</div>
-                <div class="value">{{formatBytes .SystemStats.NetworkBytesSent}}</div>
+            
+            <div class="grid grid-4 grid-sm-4">
+                <div class="txt-center">
+                    <div class="txt-hint txt-sm">Interfaces</div>
+                    <div class="txt-lg">{{len .SystemStats.NetworkInterfaces}}</div>
+                </div>
+                <div class="txt-center">
+                    <div class="txt-hint txt-sm">Connected</div>
+                    <div class="txt-lg">{{.SystemStats.NetworkConnections}}</div>
+                </div>
+                <div class="txt-center">
+                    <div class="txt-hint txt-sm">Received</div>
+                    <div class="txt-lg">{{formatBytes .SystemStats.NetworkBytesRecv}}</div>
+                </div>
+                <div class="txt-center">
+                    <div class="txt-hint txt-sm">Sent</div>
+                    <div class="txt-lg">{{formatBytes .SystemStats.NetworkBytesSent}}</div>
+                </div>
             </div>
         </div>
     </div>
 
-    <div class="network-interfaces">
+    <div class="grid grid-sm-2 gap-10">
         {{range .SystemStats.NetworkInterfaces}}
-        <div class="metric-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span class="value" style="display: flex; align-items: center;">
-                    <svg style="width: 14px; height: 14px; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M5 12s2.545-5 7-5c4.454 0 7 5 7 5s-2.546 5-7 5c-4.455 0-7-5-7-5z"></path>
-                        <path d="M12 9v6"></path>
-                        <path d="M9 12h6"></path>
-                    </svg>
-                    {{.Name}}
-                </span>
-                <span class="label">{{.IPAddress}}</span>
-            </div>
-            <div class="data-row">
-                <div class="data-col">
-                    <div class="label">Received</div>
-                    <div class="value">{{formatBytes .BytesRecv}}</div>
-                    <div class="label">{{.PacketsRecv}} packets</div>
+        <div class="card">
+            <div class="card-body">
+                <div class="flex justify-between align-center m-b-10">
+                    <div class="flex align-center">
+                        <i class="ri-ethernet-line m-r-5"></i>
+                        <h6 class="m-0">{{.Name}}</h6>
+                    </div>
+                    <span class="label label-sm label-info">{{.IPAddress}}</span>
                 </div>
-                <div class="data-col">
-                    <div class="label">Sent</div>
-                    <div class="value">{{formatBytes .BytesSent}}</div>
-                    <div class="label">{{.PacketsSent}} packets</div>
+                
+                <div class="grid grid-2 grid-sm-2 gap-5">
+                    <div class="card card-sm">
+                        <div class="card-body txt-center">
+                            <div class="txt-hint txt-sm">Received</div>
+                            <div class="txt-lg">{{formatBytes .BytesRecv}}</div>
+                            <div class="txt-hint txt-xs">{{.PacketsRecv}} packets</div>
+                        </div>
+                    </div>
+                    <div class="card card-sm">
+                        <div class="card-body txt-center">
+                            <div class="txt-hint txt-sm">Sent</div>
+                            <div class="txt-lg">{{formatBytes .BytesSent}}</div>
+                            <div class="txt-hint txt-xs">{{.PacketsSent}} packets</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

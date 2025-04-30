@@ -6,26 +6,82 @@
     <meta http-equiv="refresh" content="60">
     <title>System Health Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2346b6ff'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z'/></svg>" type="image/svg+xml">
-    {{template "styles"}}
+    <!-- Include PocketBase integration styles -->
+    {{template "pb_integration"}}
 </head>
 <body>
-    <div class="dashboard" id="content">
-        {{template "header" .}}
-        
-        <!-- Visitor Analytics -->
-        {{template "visitor_analytics" .}}
-        
-        <!-- Critical System Metrics -->
-        {{template "critical_metrics" .}}
-        
-        <!-- Detail panels in a row -->
-        <div class="three-panel-grid">
-            {{template "cpu_details" .}}
-            {{template "memory_details" .}}
-            {{template "network_details" .}}
-        </div>
+    <div class="app-body" id="content" style="opacity: 0;">
+        <main class="page-content">
+            <div class="dashboard-wrapper">
+                {{template "header" .}}
+                
+                <!-- Visitor Analytics -->
+                {{template "visitor_analytics" .}}
+                
+                <!-- Critical System Metrics -->
+                {{template "critical_metrics" .}}
+                
+                <!-- Detail panels in a row -->
+                <div class="panels-grid">
+                    {{template "cpu_details" .}}
+                    {{template "memory_details" .}}
+                    {{template "network_details" .}}
+                </div>
+            </div>
+        </main>
+        <footer class="page-footer">
+            <div class="flex-fill"></div>
+            <a href="{{.PBAdminURL}}" class="txt">
+                <i class="ri-arrow-left-line"></i>
+                Back to Admin
+            </a>
+        </footer>
     </div>
 
     {{template "scripts"}}
+    <script>
+        // Piggyback PocketBase CSS
+        (async function() {
+            try {
+                // Try to fetch PocketBase admin UI styles
+                const response = await fetch('{{.PBAdminURL}}');
+                if (response.ok) {
+                    const text = await response.text();
+                    const parser = new DOMParser();
+                    const pbDOM = parser.parseFromString(text, 'text/html');
+                    
+                    // Get all CSS links from PocketBase admin UI
+                    const cssLinks = pbDOM.querySelectorAll('link[rel="stylesheet"]');
+                    if (cssLinks.length > 0) {
+                        // Add PocketBase CSS to our page
+                        for (let link of cssLinks) {
+                            const clonedLink = document.createElement('link');
+                            clonedLink.rel = 'stylesheet';
+                            clonedLink.href = link.href;
+                            document.head.appendChild(clonedLink);
+                        }
+                        
+                        // Add a class to body to apply PocketBase styled versions
+                        document.body.classList.add('pb-styled');
+                        
+                        console.log('Successfully piggybacked PocketBase CSS');
+                    }
+                    
+                    // Also get Remix icons if available
+                    const remixLinks = pbDOM.querySelectorAll('link[href*="remixicon"]');
+                    if (remixLinks.length > 0) {
+                        for (let link of remixLinks) {
+                            const clonedLink = document.createElement('link');
+                            clonedLink.rel = 'stylesheet';
+                            clonedLink.href = link.href;
+                            document.head.appendChild(clonedLink);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to piggyback PocketBase CSS:', error);
+            }
+        })();
+    </script>
 </body>
 </html>

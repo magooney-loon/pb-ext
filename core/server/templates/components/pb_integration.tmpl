@@ -1,0 +1,125 @@
+{{define "pb_integration"}}
+<style>
+    /* Base styles to ensure page doesn't look broken before PB styles load */
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f8f9fa;
+        color: #333;
+    }
+
+    #content {
+        transition: opacity 0.3s ease-in-out;
+    }
+
+    /* Dashboard layout */
+    .dashboard-wrapper {
+        padding: 20px;
+    }
+
+    .panels-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+    }
+
+    /* PocketBase theme integration */
+    body.pb-styled {
+        background: var(--baseColor);
+        color: var(--txtPrimaryColor);
+    }
+
+    /* Panel styling */
+    .panel {
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 8px;
+        background: white;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    body.pb-styled .panel {
+        background: var(--bodyColor);
+        border-radius: var(--baseRadius);
+        border: 1px solid var(--baseAlt2Color);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    /* Header styling */
+    .status-healthy {
+        color: #22c55e;
+    }
+
+    body.pb-styled .status-healthy {
+        color: var(--successColor);
+    }
+
+    .status-danger {
+        color: #ef4444;
+    }
+
+    body.pb-styled .status-danger {
+        color: var(--dangerColor);
+    }
+
+    .status-warning {
+        color: #f59e0b;
+    }
+
+    body.pb-styled .status-warning {
+        color: var(--warningColor);
+    }
+
+    /* Progress bars */
+    .progress-bar {
+        height: 8px;
+        border-radius: 4px;
+        background: #e5e7eb;
+        overflow: hidden;
+    }
+
+    body.pb-styled .progress-bar {
+        background: var(--baseAlt1Color);
+        border-radius: var(--baseRadius);
+    }
+
+    .progress-bar-filled {
+        height: 100%;
+        background: #3b82f6;
+    }
+
+    body.pb-styled .progress-bar-filled {
+        background: var(--primaryColor);
+    }
+
+    .progress-bar-filled.warning {
+        background: #f59e0b;
+    }
+
+    body.pb-styled .progress-bar-filled.warning {
+        background: var(--warningColor);
+    }
+
+    .progress-bar-filled.danger {
+        background: #ef4444;
+    }
+
+    body.pb-styled .progress-bar-filled.danger {
+        background: var(--dangerColor);
+    }
+
+    /* Loading state */
+    @keyframes pulse {
+        0% { opacity: 0.6; }
+        50% { opacity: 0.8; }
+        100% { opacity: 0.6; }
+    }
+
+    .loading {
+        animation: pulse 1.5s infinite;
+        pointer-events: none;
+    }
+</style>
+{{end}} 
