@@ -1,69 +1,86 @@
 {{define "network_details"}}
-<div class="panel">
-    <h5 class="section-title">
-        <i class="ri-router-line"></i>
-        Network Interfaces
-    </h5>
+<div class="section m-t-base">
+    <header class="section-header">
+        <h4 class="section-title">
+            <i class="ri-router-line"></i>
+            Network Interfaces
+        </h4>
+    </header>
     
-    <div class="card m-b-15">
+    <div class="card">
         <div class="card-body">
-            <div class="flex align-center m-b-10">
+            <div class="flex align-center m-b-15">
                 <i class="ri-server-line txt-lg txt-hint m-r-5"></i>
-                <h6 class="m-0">Network Summary</h6>
+                <h5 class="m-0">Network Summary</h5>
             </div>
             
-            <div class="grid grid-4 grid-sm-4">
-                <div class="txt-center">
-                    <div class="txt-hint txt-sm">Interfaces</div>
-                    <div class="txt-lg">{{len .SystemStats.NetworkInterfaces}}</div>
+            <div class="grid grid-4 grid-sm-4 gap-small">
+                <div class="card view-card">
+                    <div class="card-body txt-center">
+                        <div class="txt-hint txt-sm">Interfaces</div>
+                        <div class="txt-lg">{{len .SystemStats.NetworkInterfaces}}</div>
+                    </div>
                 </div>
-                <div class="txt-center">
-                    <div class="txt-hint txt-sm">Connected</div>
-                    <div class="txt-lg">{{.SystemStats.NetworkConnections}}</div>
+                <div class="card view-card">
+                    <div class="card-body txt-center">
+                        <div class="txt-hint txt-sm">Connected</div>
+                        <div class="txt-lg">{{.SystemStats.NetworkConnections}}</div>
+                    </div>
                 </div>
-                <div class="txt-center">
-                    <div class="txt-hint txt-sm">Received</div>
-                    <div class="txt-lg">{{formatBytes .SystemStats.NetworkBytesRecv}}</div>
+                <div class="card view-card">
+                    <div class="card-body txt-center">
+                        <div class="txt-hint txt-sm">Received</div>
+                        <div class="txt-lg">{{formatBytes .SystemStats.NetworkBytesRecv}}</div>
+                    </div>
                 </div>
-                <div class="txt-center">
-                    <div class="txt-hint txt-sm">Sent</div>
-                    <div class="txt-lg">{{formatBytes .SystemStats.NetworkBytesSent}}</div>
+                <div class="card view-card">
+                    <div class="card-body txt-center">
+                        <div class="txt-hint txt-sm">Sent</div>
+                        <div class="txt-lg">{{formatBytes .SystemStats.NetworkBytesSent}}</div>
+                    </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <div class="grid grid-sm-2 gap-10">
-        {{range .SystemStats.NetworkInterfaces}}
-        <div class="card">
-            <div class="card-body">
-                <div class="flex justify-between align-center m-b-10">
-                    <div class="flex align-center">
-                        <i class="ri-ethernet-line m-r-5"></i>
-                        <h6 class="m-0">{{.Name}}</h6>
-                    </div>
-                    <span class="label label-sm label-info">{{.IPAddress}}</span>
+            <div class="m-t-base">
+                <div class="flex align-center m-b-15">
+                    <i class="ri-ethernet-line txt-lg txt-hint m-r-5"></i>
+                    <h5 class="m-0">Interface Details</h5>
                 </div>
                 
-                <div class="grid grid-2 grid-sm-2 gap-5">
-                    <div class="card card-sm">
-                        <div class="card-body txt-center">
-                            <div class="txt-hint txt-sm">Received</div>
-                            <div class="txt-lg">{{formatBytes .BytesRecv}}</div>
-                            <div class="txt-hint txt-xs">{{.PacketsRecv}} packets</div>
+                <div class="grid grid-sm-2 gap-base">
+                    {{range .SystemStats.NetworkInterfaces}}
+                    <div class="card view-card">
+                        <div class="card-body">
+                            <div class="flex justify-between align-center m-b-10">
+                                <div class="flex align-center">
+                                    <i class="ri-ethernet-line m-r-5 txt-hint"></i>
+                                    <h6 class="m-0">{{.Name}}</h6>
+                                </div>
+                                <span class="badge badge-sm badge-primary">{{.IPAddress}}</span>
+                            </div>
+                            
+                            <div class="grid grid-2 grid-sm-2 gap-small">
+                                <div class="card card-sm view-card">
+                                    <div class="card-body txt-center">
+                                        <div class="txt-hint txt-sm">Received</div>
+                                        <div class="txt-lg">{{formatBytes .BytesRecv}}</div>
+                                        <div class="txt-hint txt-xs">{{.PacketsRecv}} packets</div>
+                                    </div>
+                                </div>
+                                <div class="card card-sm view-card">
+                                    <div class="card-body txt-center">
+                                        <div class="txt-hint txt-sm">Sent</div>
+                                        <div class="txt-lg">{{formatBytes .BytesSent}}</div>
+                                        <div class="txt-hint txt-xs">{{.PacketsSent}} packets</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="card card-sm">
-                        <div class="card-body txt-center">
-                            <div class="txt-hint txt-sm">Sent</div>
-                            <div class="txt-lg">{{formatBytes .BytesSent}}</div>
-                            <div class="txt-hint txt-xs">{{.PacketsSent}} packets</div>
-                        </div>
-                    </div>
+                    {{end}}
                 </div>
             </div>
         </div>
-        {{end}}
     </div>
 </div>
 {{end}} 

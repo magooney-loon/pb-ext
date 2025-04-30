@@ -1,11 +1,13 @@
 {{define "critical_metrics"}}
-<div class="panel">
-    <h5 class="section-title">
-        <i class="ri-dashboard-2-line"></i>
-        System Metrics
-    </h5>
-    
-    <div class="grid grid-sm-3 grid-xl-6">
+<div class="section m-t-base">
+    <header class="section-header">
+        <h4 class="section-title">
+            <i class="ri-dashboard-2-line"></i>
+            System Metrics
+        </h4>
+    </header>
+
+    <div class="grid grid-sm-3 grid-xl-6 gap-base">
         <!-- CPU -->
         <div class="card">
             <div class="card-body">
@@ -26,11 +28,11 @@
                 </div>
                 
                 <div class="flex txt-sm m-t-10">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Cores</div>
                         <div>{{len .SystemStats.CPUInfo}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Temp</div>
                         <div>
                             {{if gt (index .SystemStats.CPUInfo 0).Temperature 0.0}}
@@ -64,15 +66,15 @@
                 </div>
                 
                 <div class="flex txt-sm m-t-10">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Total</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Total 1073741824)}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Used</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Used 1073741824)}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Free</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Free 1073741824)}}</div>
                     </div>
@@ -100,15 +102,15 @@
                 </div>
                 
                 <div class="flex txt-sm m-t-10">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Total</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.DiskTotal 1073741824)}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Used</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.DiskUsed 1073741824)}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Free</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.DiskFree 1073741824)}}</div>
                     </div>
@@ -116,7 +118,7 @@
                 
                 {{if hasDiskTemps .SystemStats}}
                 <div class="flex txt-sm m-t-5">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Temp</div>
                         <div>{{printf "%.1f°C" (getDiskTemp .SystemStats)}}</div>
                     </div>
@@ -137,15 +139,15 @@
                 </div>
                 
                 <div class="flex txt-sm m-t-10">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Connections</div>
                         <div>{{.SystemStats.NetworkConnections}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Received</div>
                         <div>{{printf "%.1f MB" (divideFloat64 .SystemStats.NetworkBytesRecv 1048576)}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Sent</div>
                         <div>{{printf "%.1f MB" (divideFloat64 .SystemStats.NetworkBytesSent 1048576)}}</div>
                     </div>
@@ -173,22 +175,22 @@
                 </div>
                 
                 <div class="flex txt-sm m-t-10">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">PID</div>
                         <div>{{.SystemStats.ProcessStats.PID}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Threads</div>
                         <div>{{.SystemStats.ProcessStats.NumThreads}}</div>
                     </div>
                 </div>
                 
                 <div class="flex txt-sm m-t-5">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">RAM</div>
                         <div>{{printf "%.1f MB" (divideFloat64 .SystemStats.ProcessStats.RSS 1048576)}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Virtual</div>
                         <div>{{printf "%.1f MB" (divideFloat64 .SystemStats.ProcessStats.VMS 1048576)}}</div>
                     </div>
@@ -208,22 +210,22 @@
                 </div>
                 
                 <div class="flex txt-sm m-t-10">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">GC Count</div>
                         <div>{{.SystemStats.RuntimeStats.NumGC}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Last GC</div>
                         <div>{{.SystemStats.RuntimeStats.LastGCTime.Format "15:04:05"}}</div>
                     </div>
                 </div>
                 
                 <div class="flex txt-sm m-t-5">
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">GC Pause</div>
                         <div>{{printf "%.2fms" (divideFloat64 .SystemStats.RuntimeStats.GCPauseTotal 1000000)}}</div>
                     </div>
-                    <div class="column">
+                    <div class="column flex-fill">
                         <div class="txt-hint">Memory</div>
                         <div>{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.AllocatedBytes 1048576)}}</div>
                     </div>

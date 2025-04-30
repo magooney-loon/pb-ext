@@ -2,6 +2,8 @@
 <script>
     function updateCountdown() {
         const countdownEl = document.getElementById('countdown');
+        if (!countdownEl) return;
+        
         let seconds = 60;
         
         function tick() {
@@ -21,16 +23,61 @@
             el.style.display = 'inline-flex';
         });
     }
+    
+    function setupTabNavigation() {
+        const healthTab = document.querySelector('.health-tab');
+        const analyticsTab = document.querySelector('.analytics-tab');
+        const healthSection = document.getElementById('health-section');
+        const analyticsSection = document.getElementById('analytics-section');
+        
+        if (!healthTab || !analyticsTab || !healthSection || !analyticsSection) return;
+        
+        // Set health tab as active by default
+        if (!window.location.hash || window.location.hash === '#health') {
+            healthTab.classList.add('current-route');
+            healthSection.style.display = 'block';
+            analyticsSection.style.display = 'none';
+        } else if (window.location.hash === '#analytics') {
+            analyticsTab.classList.add('current-route');
+            analyticsSection.style.display = 'block';
+            healthSection.style.display = 'none';
+        }
+        
+        // Handle tab clicks
+        healthTab.addEventListener('click', function(e) {
+            e.preventDefault();
+            healthTab.classList.add('current-route');
+            analyticsTab.classList.remove('current-route');
+            healthSection.style.display = 'block';
+            analyticsSection.style.display = 'none';
+            window.location.hash = 'health';
+        });
+        
+        analyticsTab.addEventListener('click', function(e) {
+            e.preventDefault();
+            analyticsTab.classList.add('current-route');
+            healthTab.classList.remove('current-route');
+            analyticsSection.style.display = 'block';
+            healthSection.style.display = 'none';
+            window.location.hash = 'analytics';
+        });
+    }
 
     window.onload = () => {
         // Show content once loaded
-        document.getElementById('content').style.opacity = '1';
+        const contentEl = document.getElementById('content');
+        if (contentEl) {
+            contentEl.style.opacity = '1';
+        }
         
         // Start countdown timer
         updateCountdown();
         
+        // Setup tab navigation
+        setupTabNavigation();
+        
         // If body has the pb-piggybacked class, enable PocketBase-specific elements
-        if (document.body.classList.contains('pb-piggybacked')) {
+        if (document.body.classList.contains('pb-styled')) {
             showPocketBaseElements();
         }
         
@@ -38,7 +85,7 @@
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
                 if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-                    if (document.body.classList.contains('pb-piggybacked')) {
+                    if (document.body.classList.contains('pb-styled')) {
                         showPocketBaseElements();
                         observer.disconnect(); // No need to observe anymore
                     }

@@ -103,54 +103,11 @@
                             document.head.appendChild(clonedLink);
                         }
                     }
-
-                    // Show content after styles are loaded
-                    document.getElementById('content').style.opacity = '1';
-                    
-                    // Setup tab navigation
-                    setupTabs();
                 }
             } catch (error) {
                 console.error('Failed to piggyback PocketBase CSS:', error);
-                // Still show content even if CSS piggyback fails
-                document.getElementById('content').style.opacity = '1';
             }
         })();
-
-        // Tab navigation setup
-        function setupTabs() {
-            const healthTab = document.querySelector('.health-tab');
-            const analyticsTab = document.querySelector('.analytics-tab');
-            const healthSection = document.getElementById('health-section');
-            const analyticsSection = document.getElementById('analytics-section');
-            
-            // Set health tab as active by default
-            healthTab.classList.add('current-route');
-            
-            // Handle tab clicks
-            healthTab.addEventListener('click', function(e) {
-                e.preventDefault();
-                healthTab.classList.add('current-route');
-                analyticsTab.classList.remove('current-route');
-                healthSection.style.display = 'block';
-                analyticsSection.style.display = 'none';
-                window.location.hash = 'health';
-            });
-            
-            analyticsTab.addEventListener('click', function(e) {
-                e.preventDefault();
-                analyticsTab.classList.add('current-route');
-                healthTab.classList.remove('current-route');
-                analyticsSection.style.display = 'block';
-                healthSection.style.display = 'none';
-                window.location.hash = 'analytics';
-            });
-            
-            // Check URL hash on page load
-            if (window.location.hash === '#analytics') {
-                analyticsTab.click();
-            }
-        }
     </script>
 </body>
 </html>
