@@ -6,36 +6,62 @@
     <meta http-equiv="refresh" content="60">
     <title>System Health Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2346b6ff'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z'/></svg>" type="image/svg+xml">
-    <!-- Include PocketBase integration styles -->
-    {{template "pb_integration"}}
 </head>
 <body>
-    <div class="app-body" id="content" style="opacity: 0;">
-        <main class="page-content">
-            <div class="dashboard-wrapper">
-                {{template "header" .}}
-                
-                <!-- Visitor Analytics -->
-                {{template "visitor_analytics" .}}
-                
-                <!-- Critical System Metrics -->
-                {{template "critical_metrics" .}}
-                
-                <!-- Detail panels in a row -->
-                <div class="panels-grid">
-                    {{template "cpu_details" .}}
-                    {{template "memory_details" .}}
-                    {{template "network_details" .}}
+    <div id="app">
+        <div class="app-layout">
+            <aside class="app-sidebar">
+                <a class="logo logo-sm"><img src="{{.PBAdminURL}}/images/logo.svg" alt="PocketBase logo" width="40" height="40"></a> 
+                <nav class="main-menu">
+                    <a href="#health" class="menu-item health-tab" aria-label="Health" title="Health"><i class="ri-heart-pulse-line"></i></a>
+                    <a href="#analytics" class="menu-item analytics-tab" aria-label="Analytics" title="Analytics"><i class="ri-bar-chart-line"></i></a>
+                </nav> 
+            </aside>
+            <div class="app-body" id="content" style="opacity: 0;">
+                <!-- Health Section -->
+                <div id="health-section" class="section-content">
+                    <main class="page-content">
+                        <div class="dashboard-wrapper">
+                            {{template "header" .}}
+                            
+                            <!-- Critical System Metrics -->
+                            {{template "critical_metrics" .}}
+                            
+                            <!-- Detail panels in a row -->
+                            <div class="panels-grid">
+                                {{template "cpu_details" .}}
+                                {{template "memory_details" .}}
+                            </div>
+                        </div>
+                    </main>
                 </div>
+                
+                <!-- Analytics Section -->
+                <div id="analytics-section" class="section-content" style="display: none;">
+                    <main class="page-content">
+                        <div class="dashboard-wrapper">
+                            {{template "header" .}}
+                            
+                            <!-- Visitor Analytics -->
+                            {{template "visitor_analytics" .}}
+                            
+                            <!-- Network Section -->
+                            <div class="panels-grid">
+                                {{template "network_details" .}}
+                            </div>
+                        </div>
+                    </main>
+                </div>
+                
+                <footer class="page-footer">
+                    <div class="flex-fill"></div>
+                    <a href="{{.PBAdminURL}}" class="txt">
+                        <i class="ri-arrow-left-line"></i>
+                        Back to Admin
+                    </a>
+                </footer>
             </div>
-        </main>
-        <footer class="page-footer">
-            <div class="flex-fill"></div>
-            <a href="{{.PBAdminURL}}" class="txt">
-                <i class="ri-arrow-left-line"></i>
-                Back to Admin
-            </a>
-        </footer>
+        </div>
     </div>
 
     {{template "scripts"}}
@@ -77,11 +103,54 @@
                             document.head.appendChild(clonedLink);
                         }
                     }
+
+                    // Show content after styles are loaded
+                    document.getElementById('content').style.opacity = '1';
+                    
+                    // Setup tab navigation
+                    setupTabs();
                 }
             } catch (error) {
                 console.error('Failed to piggyback PocketBase CSS:', error);
+                // Still show content even if CSS piggyback fails
+                document.getElementById('content').style.opacity = '1';
             }
         })();
+
+        // Tab navigation setup
+        function setupTabs() {
+            const healthTab = document.querySelector('.health-tab');
+            const analyticsTab = document.querySelector('.analytics-tab');
+            const healthSection = document.getElementById('health-section');
+            const analyticsSection = document.getElementById('analytics-section');
+            
+            // Set health tab as active by default
+            healthTab.classList.add('current-route');
+            
+            // Handle tab clicks
+            healthTab.addEventListener('click', function(e) {
+                e.preventDefault();
+                healthTab.classList.add('current-route');
+                analyticsTab.classList.remove('current-route');
+                healthSection.style.display = 'block';
+                analyticsSection.style.display = 'none';
+                window.location.hash = 'health';
+            });
+            
+            analyticsTab.addEventListener('click', function(e) {
+                e.preventDefault();
+                analyticsTab.classList.add('current-route');
+                healthTab.classList.remove('current-route');
+                analyticsSection.style.display = 'block';
+                healthSection.style.display = 'none';
+                window.location.hash = 'analytics';
+            });
+            
+            // Check URL hash on page load
+            if (window.location.hash === '#analytics') {
+                analyticsTab.click();
+            }
+        }
     </script>
 </body>
 </html>

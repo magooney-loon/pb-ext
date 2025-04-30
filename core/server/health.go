@@ -206,7 +206,6 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		"templates/components/memory_details.tmpl",
 		"templates/components/network_details.tmpl",
 		"templates/components/visitor_analytics.tmpl",
-		"templates/components/pb_integration.tmpl",
 	)
 	if err != nil {
 		log.Printf("Error parsing health templates: %v", err)
