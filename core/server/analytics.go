@@ -48,6 +48,9 @@ type Analytics struct {
 	batchSize     int
 	lastFlushTime time.Time
 	flushChan     chan struct{}
+	flushTicker   *time.Ticker
+	flushActive   bool
+	flushMutex    sync.Mutex
 
 	// Enhanced tracking
 	knownVisitors map[string]time.Time // Track recent visitors (visitorID -> last seen)
@@ -110,6 +113,7 @@ func NewAnalytics(app *pocketbase.PocketBase) *Analytics {
 		batchSize:     50,
 		lastFlushTime: time.Now(),
 		flushChan:     make(chan struct{}, 1),
+		flushActive:   false,
 		knownVisitors: make(map[string]time.Time),
 		sessionWindow: 30 * time.Minute,
 	}
@@ -127,7 +131,7 @@ func InitializeAnalytics(app *pocketbase.PocketBase) (*Analytics, error) {
 		return nil, err
 	}
 
-	// Start background worker for flushing data
+	// Start background worker for flushing data (it will remain dormant until first pageview)
 	go analytics.backgroundFlushWorker()
 
 	// Start session cleanup worker
@@ -171,24 +175,54 @@ func (a *Analytics) cleanupExpiredSessions() {
 	}
 }
 
-// backgroundFlushWorker processes the buffer at regular intervals
+// backgroundFlushWorker processes the buffer at regular intervals, but only when active
 func (a *Analytics) backgroundFlushWorker() {
-	ticker := time.NewTicker(a.flushInterval)
-	defer ticker.Stop()
+	for range a.flushChan {
+		a.flushBuffer()
+	}
+}
 
-	for {
-		select {
-		case <-a.flushChan:
-			a.flushBuffer()
-		case <-ticker.C:
-			// Send a signal to flush
-			select {
-			case a.flushChan <- struct{}{}:
-				// Signal sent
-			default:
-				// Channel already has a signal, worker is already processing
+// startFlushTimer starts the flush timer if it's not already running
+func (a *Analytics) startFlushTimer() {
+	a.flushMutex.Lock()
+	defer a.flushMutex.Unlock()
+
+	if !a.flushActive {
+		a.app.Logger().Debug("Starting flush timer due to new traffic")
+
+		// Create and start a new ticker
+		a.flushTicker = time.NewTicker(a.flushInterval)
+		a.flushActive = true
+
+		// Start a goroutine to handle the timer events
+		go func() {
+			for range a.flushTicker.C {
+				a.flushMutex.Lock()
+
+				// Check if there's anything to flush
+				a.bufferMutex.Lock()
+				bufferSize := len(a.buffer)
+				a.bufferMutex.Unlock()
+
+				if bufferSize > 0 {
+					// There's data, send flush signal
+					select {
+					case a.flushChan <- struct{}{}:
+						// Signal sent
+					default:
+						// Channel already has a signal
+					}
+					a.flushMutex.Unlock()
+				} else {
+					// Buffer is empty, stop the timer
+					a.app.Logger().Debug("Stopping flush timer due to inactivity")
+					a.flushTicker.Stop()
+					a.flushActive = false
+					a.flushMutex.Unlock()
+					return
+				}
 			}
-		}
+		}()
 	}
 }
 
@@ -464,12 +498,20 @@ func (a *Analytics) TrackRequest(r *http.Request, durationMs int64) {
 
 // ForceFlush manually triggers a buffer flush
 func (a *Analytics) ForceFlush() {
-	select {
-	case a.flushChan <- struct{}{}:
-		// Signal sent
-		a.app.Logger().Debug("Manual analytics flush triggered")
-	default:
-		// Already signaled
+	a.bufferMutex.Lock()
+	hasData := len(a.buffer) > 0
+	a.bufferMutex.Unlock()
+
+	if hasData {
+		select {
+		case a.flushChan <- struct{}{}:
+			// Signal sent
+			a.app.Logger().Debug("Manual analytics flush triggered")
+		default:
+			// Already signaled
+		}
+	} else {
+		a.app.Logger().Debug("Manual flush skipped - no data in buffer")
 	}
 }
 
@@ -487,7 +529,10 @@ func (a *Analytics) addToBuffer(pageView PageView) {
 		"device", pageView.DeviceType,
 		"bufferSize", bufferSize)
 
-	// Trigger flush if buffer size exceeds batch size or flush interval has passed
+	// Start the flush timer if this is new traffic
+	a.startFlushTimer()
+
+	// Trigger immediate flush if buffer size exceeds batch size or flush interval has passed
 	if bufferSize >= a.batchSize || timeSinceLastFlush >= a.flushInterval {
 		select {
 		case a.flushChan <- struct{}{}:
