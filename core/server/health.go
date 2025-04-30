@@ -29,7 +29,7 @@ var templateFuncs = template.FuncMap{
 	"multiply": func(a, b float64) float64 {
 		return a * b
 	},
-	"divide": func(a, b interface{}) float64 {
+	"divide": func(a, b any) float64 {
 		var af, bf float64
 
 		switch v := a.(type) {
