@@ -21,7 +21,7 @@ Enhanced PocketBase server with extensive monitoring & logging.
 - **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and runtime stats
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
 - **Visitor Analytics**: Track and analyze visitor statistics, page views, device types, and browsers
-- **PocketBase Integration**: Seamlessly piggybacks off PocketBase's superuser authentication and CSS styling
+- **PocketBase Integration**: Seamlessly piggybacks off PocketBase's superuser authentication and CSS
 
 ## Quick Start
 
