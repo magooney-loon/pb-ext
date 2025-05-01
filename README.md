@@ -20,6 +20,8 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 - **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and runtime stats
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
+- **Visitor Analytics**: Track and analyze visitor statistics, page views, device types, and browsers
+- **PocketBase Integration**: Seamlessly piggybacks off PocketBase's superuser authentication and CSS styling
 
 ## Quick Start
 
@@ -87,7 +89,18 @@ func registerRoutes(app core.App) {
 go run cmd/server/main.go serve
 ```
 
-## Webmaster Panel
+## Dashboard
 
-- Admin panel `127.0.0.1:8090/_`
-- Server panel `127.0.0.1:8090/_/_`
+The enhanced dashboard provides a comprehensive view of your server's health and visitor analytics:
+
+- **Health Tab**: Monitor system metrics including CPU, memory, and network usage
+- **Analytics Tab**: Track visitor statistics, page views, and user behavior
+
+## Access
+
+- Admin panel: `127.0.0.1:8090/_`
+- Server dashboard: `127.0.0.1:8090/_/_`
+
+## Authentication
+
+The dashboard utilizes PocketBase's superuser authentication system, ensuring that only authorized administrators can access the monitoring and analytics features.
