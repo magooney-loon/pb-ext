@@ -6,6 +6,24 @@
     <meta http-equiv="refresh" content="60">
     <title>System Health Dashboard</title>
     <link rel="shortcut icon" type="image/png" href="../_/images/favicon/favicon.png">
+    <script>
+        // Preserve hash on page refresh
+        document.addEventListener('DOMContentLoaded', function() {
+            // Store current hash in localStorage
+            const currentHash = window.location.hash;
+            if (currentHash) {
+                localStorage.setItem('lastActiveTab', currentHash);
+            }
+        });
+        
+        // When page is about to refresh, make sure we keep the hash
+        window.onbeforeunload = function() {
+            const currentHash = window.location.hash;
+            if (currentHash) {
+                localStorage.setItem('lastActiveTab', currentHash);
+            }
+        };
+    </script>
 </head>
 <body>
     <div id="app">
@@ -59,6 +77,14 @@
 
     {{template "scripts"}}
     <script>
+        // Restore previous active tab
+        (function() {
+            const lastActiveTab = localStorage.getItem('lastActiveTab');
+            if (lastActiveTab && !window.location.hash) {
+                window.location.hash = lastActiveTab;
+            }
+        })();
+    
         // Piggyback PocketBase CSS
         (async function() {
             try {
