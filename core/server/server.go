@@ -15,6 +15,7 @@ type Server struct {
 	app       *pocketbase.PocketBase
 	stats     *ServerStats
 	analytics *Analytics
+	options   *options
 }
 
 // ServerStats tracks server metrics
@@ -27,10 +28,37 @@ type ServerStats struct {
 	AverageRequestTime atomic.Int64 // nanoseconds
 }
 
-// New creates a server instance
-func New() *Server {
+// New creates a server instance. Options args used for precision setup - pocketbase.Config and pocketbase.Pocketbase instance injection.
+func New(create_options ...Option) *Server {
+	var (
+		opts    *options = &options{}
+		pb_conf *pocketbase.Config
+		pb_app  *pocketbase.PocketBase
+	)
+
+	for _, opt := range create_options {
+		opt(opts)
+	}
+	if opts.config != nil {
+		pb_conf = opts.config
+	} else {
+		pb_conf = &pocketbase.Config{
+			DefaultDev: opts.developer_mode,
+		}
+	}
+
+	if opts.pocketbase != nil {
+		pb_app = opts.pocketbase
+		if opts.developer_mode && !pb_app.App.IsDev() {
+			pb_app.Logger().Warn("cannot change developer mode for pocketbase.Pocketbase, cause you already pass instance of *pocketbase.Pocketbase with unchecked dev mode flag")
+		}
+	} else {
+		pb_app = pocketbase.NewWithConfig(*pb_conf)
+	}
+
 	return &Server{
-		app: pocketbase.New(),
+		app:     pb_app,
+		options: opts,
 		stats: &ServerStats{
 			StartTime: time.Now(),
 		},
