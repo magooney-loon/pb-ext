@@ -25,6 +25,8 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 ## Quick Start
 
+> 🆕 New to Golang and/or PocketBase? [Read this beginner tutorial](TUTORIAL.md).
+
 ```go
 package main
 
