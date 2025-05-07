@@ -123,7 +123,7 @@ func productionBuild(rootDir string, installDeps bool, distDir string) {
 	fmt.Println("Building server binary...")
 
 	// Determine binary name based on OS
-	binaryName := "orrusta"
+	binaryName := "myapp"
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}
