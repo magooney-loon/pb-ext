@@ -1,10 +1,14 @@
 package logging
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"runtime/debug"
+	"strings"
+	"text/template"
+	"time"
 
 	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/magooney-loon/pb-ext/core/server"
@@ -21,10 +25,17 @@ type ErrorResponse struct {
 	Operation  string `json:"operation,omitempty"`
 	StatusCode int    `json:"status_code"`
 	TraceID    string `json:"trace_id"`
+	Timestamp  string `json:"timestamp"`
 }
 
 // SetupErrorHandler configures global error handling
 func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
+	// Parse error template
+	tmpl, err := template.ParseFS(server.TemplateFS, "templates/error.tmpl")
+	if err != nil {
+		app.Logger().Error("Failed to parse error template", "error", err)
+	}
+
 	e.Router.BindFunc(func(c *core.RequestEvent) error {
 		err := c.Next()
 		if err == nil {
@@ -66,14 +77,47 @@ func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
 		)
 
 		response := ErrorResponse{
-			Status:     "error",
+			Status:     http.StatusText(statusCode),
 			Message:    message,
 			Type:       errorType,
 			Operation:  operation,
 			StatusCode: statusCode,
 			TraceID:    traceID,
+			Timestamp:  time.Now().Format(time.RFC3339),
 		}
 
+		// Check if client accepts HTML
+		accept := c.Request.Header.Get("Accept")
+		userAgent := c.Request.Header.Get("User-Agent")
+		isBrowser := strings.Contains(strings.ToLower(userAgent), "mozilla") ||
+			strings.Contains(strings.ToLower(userAgent), "chrome") ||
+			strings.Contains(strings.ToLower(userAgent), "safari") ||
+			strings.Contains(strings.ToLower(userAgent), "firefox")
+
+		app.Logger().Debug("Error response details",
+			"accept", accept,
+			"user_agent", userAgent,
+			"is_browser", isBrowser,
+		)
+
+		// Return HTML for browsers or when explicitly requested
+		if isBrowser || strings.Contains(strings.ToLower(accept), "text/html") {
+			// Return HTML error page
+			if tmpl != nil {
+				var buf bytes.Buffer
+				if err := tmpl.Execute(&buf, response); err == nil {
+					app.Logger().Debug("Serving HTML error page")
+					return c.HTML(statusCode, buf.String())
+				} else {
+					app.Logger().Error("Failed to execute error template", "error", err)
+				}
+			} else {
+				app.Logger().Error("Error template is nil")
+			}
+		}
+
+		// Return JSON response
+		app.Logger().Debug("Serving JSON error response")
 		return c.JSON(statusCode, response)
 	})
 }
@@ -120,13 +164,49 @@ func RecoverFromPanic(app *pocketbase.PocketBase, c *core.RequestEvent) {
 			"stack", string(debug.Stack()),
 		)
 
-		_ = c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Status:     "error",
-			Message:    "Internal server error",
+		response := ErrorResponse{
+			Status:     "Internal Server Error",
+			Message:    "A panic occurred while processing your request",
 			Type:       "panic",
 			Operation:  "request_handler",
 			StatusCode: http.StatusInternalServerError,
 			TraceID:    traceID,
-		})
+			Timestamp:  time.Now().Format(time.RFC3339),
+		}
+
+		// Check if client accepts HTML
+		accept := c.Request.Header.Get("Accept")
+		userAgent := c.Request.Header.Get("User-Agent")
+		isBrowser := strings.Contains(strings.ToLower(userAgent), "mozilla") ||
+			strings.Contains(strings.ToLower(userAgent), "chrome") ||
+			strings.Contains(strings.ToLower(userAgent), "safari") ||
+			strings.Contains(strings.ToLower(userAgent), "firefox")
+
+		app.Logger().Debug("Panic response details",
+			"accept", accept,
+			"user_agent", userAgent,
+			"is_browser", isBrowser,
+		)
+
+		// Return HTML for browsers or when explicitly requested
+		if isBrowser || strings.Contains(strings.ToLower(accept), "text/html") {
+			// Return HTML error page
+			if tmpl, err := template.ParseFS(server.TemplateFS, "templates/error.tmpl"); err == nil {
+				var buf bytes.Buffer
+				if err := tmpl.Execute(&buf, response); err == nil {
+					app.Logger().Debug("Serving HTML error page for panic")
+					_ = c.HTML(http.StatusInternalServerError, buf.String())
+					return
+				} else {
+					app.Logger().Error("Failed to execute error template for panic", "error", err)
+				}
+			} else {
+				app.Logger().Error("Failed to parse error template for panic", "error", err)
+			}
+		}
+
+		// Return JSON response
+		app.Logger().Debug("Serving JSON error response for panic")
+		_ = c.JSON(http.StatusInternalServerError, response)
 	}
 }

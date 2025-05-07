@@ -197,8 +197,9 @@ var templateFuncs = template.FuncMap{
 // RegisterHealthRoute registers the health check endpoint
 func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 	// Parse templates from embedded filesystem
-	tmpl, err := template.New("index.tmpl").Funcs(templateFuncs).ParseFS(templateFS,
+	tmpl, err := template.New("index.tmpl").Funcs(templateFuncs).ParseFS(TemplateFS,
 		"templates/index.tmpl",
+		"templates/error.tmpl",
 		"templates/scripts/main.tmpl",
 		"templates/components/header.tmpl",
 		"templates/components/critical_metrics.tmpl",

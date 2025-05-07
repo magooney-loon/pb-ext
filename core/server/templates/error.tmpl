@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error {{.StatusCode}}</title>
+    <style>
+        :root {
+            --error: #ef4444;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --gray: #6b7280;
+            --light: #f3f4f6;
+            --border: #e5e7eb;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            line-height: 1.5;
+            color: #1f2937;
+            background: var(--light);
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 1rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 32rem;
+            background: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: var(--error);
+            color: white;
+            padding: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .content {
+            padding: 1.25rem;
+        }
+
+        .message {
+            background: var(--light);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-family: ui-monospace, monospace;
+            font-size: 0.875rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin-bottom: 1rem;
+        }
+
+        .note {
+            background: #fef3c7;
+            border: 1px solid #fbbf24;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .note h3 {
+            color: #92400e;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .note ul {
+            list-style: none;
+            padding-left: 1.5rem;
+        }
+
+        .note li {
+            position: relative;
+            margin-bottom: 0.25rem;
+        }
+
+        .note li::before {
+            content: "•";
+            position: absolute;
+            left: -1rem;
+            color: #92400e;
+        }
+
+        .actions {
+            display: grid;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            text-decoration: none;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn-home {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-home:hover {
+            background: #16a34a;
+        }
+
+        .btn-error {
+            background: var(--error);
+            color: white;
+        }
+
+        .btn-error:hover {
+            background: #dc2626;
+        }
+
+        .btn-secondary {
+            background: var(--gray);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .meta {
+            font-size: 0.75rem;
+            color: var(--gray);
+            border-top: 1px solid var(--border);
+            padding-top: 1rem;
+            margin-top: 1rem;
+        }
+
+        .meta p {
+            margin-bottom: 0.25rem;
+        }
+
+        .meta strong {
+            color: #374151;
+        }
+
+        .toast {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: var(--success);
+            color: white;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            display: none;
+            animation: slideIn 0.2s ease-out;
+            z-index: 50;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @media (min-width: 640px) {
+            .actions {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            .btn-home {
+                grid-column: 1 / -1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <span>⚠️</span>
+            <h1>{{.StatusCode}} - {{.Status}}</h1>
+        </div>
+
+        <div class="content">
+            <div class="message">{{.Message}}</div>
+
+            <div class="note">
+                <h3>💡 What happened?</h3>
+                <ul>
+                    <li>Invalid or expired session data</li>
+                    <li>Network connectivity issues</li>
+                    <li>Server-side processing error</li>
+                    <li>Browser cache or cookie issues</li>
+                </ul>
+            </div>
+
+            <div class="actions">
+                <a href="/" class="btn btn-home">🏠 Return to Home</a>
+                <button class="btn btn-error" onclick="copyError()">📋 Copy Error</button>
+                <button class="btn btn-secondary" onclick="saveError()">💾 Save Error</button>
+                <button class="btn btn-secondary" onclick="clearSiteData()">🧹 Clear Data</button>
+            </div>
+
+            <div class="meta">
+                <p><strong>Type:</strong> {{.Type}}</p>
+                <p><strong>Operation:</strong> {{.Operation}}</p>
+                <p><strong>Trace ID:</strong> {{.TraceID}}</p>
+                <p><strong>Time:</strong> {{.Timestamp}}</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.display = 'block';
+            toast.style.background = type === 'success' ? 'var(--success)' : 'var(--error)';
+            setTimeout(() => toast.style.display = 'none', 3000);
+        }
+
+        function copyError() {
+            const errorDetails = {
+                status: "{{.Status}}",
+                message: "{{.Message}}",
+                type: "{{.Type}}",
+                operation: "{{.Operation}}",
+                traceID: "{{.TraceID}}",
+                timestamp: "{{.Timestamp}}"
+            };
+
+            navigator.clipboard.writeText(JSON.stringify(errorDetails, null, 2))
+                .then(() => showToast('Error details copied to clipboard!'));
+        }
+
+        function saveError() {
+            const errorDetails = {
+                status: "{{.Status}}",
+                message: "{{.Message}}",
+                type: "{{.Type}}",
+                operation: "{{.Operation}}",
+                traceID: "{{.TraceID}}",
+                timestamp: "{{.Timestamp}}"
+            };
+
+            const blob = new Blob([JSON.stringify(errorDetails, null, 2)], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `error-{{.TraceID}}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            showToast('Error details saved!');
+        }
+
+        function clearSiteData() {
+            if (!confirm('Clear all site data? This will log you out and remove all local information.')) return;
+
+            // Clear cookies
+            document.cookie.split(";").forEach(c => {
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            });
+
+            // Clear storage
+            localStorage.clear();
+            sessionStorage.clear();
+
+            // Clear cache
+            if ('caches' in window) {
+                caches.keys().then(names => names.forEach(name => caches.delete(name)));
+            }
+
+            showToast('Site data cleared! Redirecting...');
+            setTimeout(() => window.location.href = '/', 1500);
+        }
+    </script>
+</body>
+</html> 
