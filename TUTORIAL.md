@@ -43,6 +43,7 @@ import (
 
 	app "github.com/magooney-loon/pb-ext/core"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 func main() {
@@ -53,6 +54,8 @@ func initApp() {
 	srv := app.New()
 
 	app.SetupLogging(srv)
+
+	registerCollections(srv.App())
 
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.SetupRecovery(srv.App(), e)
@@ -73,6 +76,15 @@ func initApp() {
 	}
 }
 
+func registerCollections(app core.App) {
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		if err := exampleCollection(e.App); err != nil {
+			app.Logger().Error("Failed to create example collection", "error", err)
+		}
+		return e.Next()
+	})
+}
+
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.Router.GET("/api/time", func(c *core.RequestEvent) error {
@@ -87,8 +99,74 @@ func registerRoutes(app core.App) {
 			})
 		})
 
+		// You can use POST /api/collections/users/records to create a new user
+		// See PocketBase documentation for more details: https://pocketbase.io/docs/api-records/
+
 		return e.Next()
 	})
+}
+
+func exampleCollection(app core.App) error {
+	// Example: Create a simple collection
+	existingCollection, _ := app.FindCollectionByNameOrId("example_collection")
+	if existingCollection != nil {
+		app.Logger().Info("Example collection already exists")
+		return nil
+	}
+
+	// Create new collection
+	collection := core.NewBaseCollection("example_collection")
+
+	// Find users collection for relation
+	usersCollection, err := app.FindCollectionByNameOrId("users")
+	if err != nil {
+		return err
+	}
+
+	// Add relation field to user FIRST
+	collection.Fields.Add(&core.RelationField{
+		Name:          "user",
+		Required:      true,
+		CollectionId:  usersCollection.Id,
+		CascadeDelete: true,
+	})
+
+	// Set collection rules AFTER adding the relation field
+	collection.ViewRule = types.Pointer("@request.auth.id != ''")
+	collection.CreateRule = types.Pointer("@request.auth.id != ''")
+	collection.UpdateRule = types.Pointer("@request.auth.id = user.id")
+	collection.DeleteRule = types.Pointer("@request.auth.id = user.id")
+
+	// Add other fields to collection
+	collection.Fields.Add(&core.TextField{
+		Name:     "title",
+		Required: true,
+		Max:      100,
+	})
+
+	// Add auto-date fields
+	collection.Fields.Add(&core.AutodateField{
+		Name:     "created",
+		OnCreate: true,
+	})
+
+	collection.Fields.Add(&core.AutodateField{
+		Name:     "updated",
+		OnCreate: true,
+		OnUpdate: true,
+	})
+
+	// Add index for user relation
+	collection.AddIndex("idx_example_user", true, "user", "")
+
+	// Save the collection
+	if err := app.Save(collection); err != nil {
+		app.Logger().Error("Failed to create example collection", "error", err)
+		return err
+	}
+
+	app.Logger().Info("Created example collection")
+	return nil
 }
 ```
 
@@ -157,6 +235,56 @@ Create a file `pb_public/index.html` with basic content:
 ```
 
 Once you restart your server, you can access your website at `http://127.0.0.1:8090/`. PocketBase automatically serves the `index.html` file from the `pb_public` folder as the root route.
+
+### 7. Adding Custom Collections
+
+To add your own collections, follow the same pattern as our example. Create a new function for each collection:
+
+```go
+func myCustomCollection(app core.App) error {
+    // Check if collection exists
+    existingCollection, _ := app.FindCollectionByNameOrId("my_collection")
+    if existingCollection != nil {
+        app.Logger().Info("My collection already exists")
+        return nil
+    }
+
+    // Create new collection
+    collection := core.NewBaseCollection("my_collection")
+
+    // Add your fields here
+    collection.Fields.Add(&core.TextField{
+        Name:     "title",
+        Required: true,
+        Max:      100,
+    })
+
+    // Save the collection
+    if err := app.Save(collection); err != nil {
+        return err
+    }
+
+    return nil
+}
+```
+
+Then add it to your `registerCollections` function:
+
+```go
+func registerCollections(app core.App) {
+    app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+        if err := exampleCollection(e.App); err != nil {
+            app.Logger().Error("Failed to create example collection", "error", err)
+        }
+        if err := myCustomCollection(e.App); err != nil {
+            app.Logger().Error("Failed to create my collection", "error", err)
+        }
+        return e.Next()
+    })
+}
+```
+
+For more details on available field types and collection options, refer to the [PocketBase documentation](https://pocketbase.io/docs/collections/).
 
 ## Access your application
 

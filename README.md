@@ -38,6 +38,7 @@ import (
 
 	app "github.com/magooney-loon/pb-ext/core"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 func main() {
@@ -48,6 +49,8 @@ func initApp() {
 	srv := app.New()
 
 	app.SetupLogging(srv)
+
+	registerCollections(srv.App())
 
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.SetupRecovery(srv.App(), e)
@@ -68,6 +71,15 @@ func initApp() {
 	}
 }
 
+func registerCollections(app core.App) {
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		if err := exampleCollection(e.App); err != nil {
+			app.Logger().Error("Failed to create example collection", "error", err)
+		}
+		return e.Next()
+	})
+}
+
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.Router.GET("/api/time", func(c *core.RequestEvent) error {
@@ -82,8 +94,17 @@ func registerRoutes(app core.App) {
 			})
 		})
 
+		// You can use POST /api/collections/users/records to create a new user
+		// See PocketBase documentation for more details: https://pocketbase.io/docs/api-records/
+
 		return e.Next()
 	})
+}
+
+func exampleCollection(app core.App) error {
+	// Check cmd/server/main.go
+	// For the full example
+	return nil
 }
 ```
 
