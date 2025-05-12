@@ -3,10 +3,13 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	app "github.com/magooney-loon/pb-ext/core"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
@@ -63,6 +66,34 @@ func registerRoutes(app core.App) {
 				},
 			})
 		})
+
+		// Serve static files from pb_public with improved path resolution
+		publicDirPath := "./pb_public"
+
+		// Check if the directory exists
+		if _, err := os.Stat(publicDirPath); os.IsNotExist(err) {
+			// Try with absolute path
+			exePath, err := os.Executable()
+			if err == nil {
+				exeDir := filepath.Dir(exePath)
+				possiblePaths := []string{
+					filepath.Join(exeDir, "pb_public"),
+					filepath.Join(exeDir, "../pb_public"),
+					filepath.Join(exeDir, "../../pb_public"),
+				}
+
+				for _, path := range possiblePaths {
+					if _, err := os.Stat(path); err == nil {
+						publicDirPath = path
+						app.Logger().Info("Using pb_public from absolute path", "path", publicDirPath)
+						break
+					}
+				}
+			}
+		}
+
+		app.Logger().Info("Serving static files from", "path", publicDirPath)
+		e.Router.GET("/{path...}", apis.Static(os.DirFS(publicDirPath), false))
 
 		// You can use POST /api/collections/users/records to create a new user
 		// See PocketBase documentation for more details: https://pocketbase.io/docs/api-records/
