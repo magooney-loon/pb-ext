@@ -2,6 +2,7 @@ package server
 
 import (
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -149,7 +150,33 @@ func (s *Server) Start() error {
 			app.Logger().Info("✅ Analytics system initialized")
 		}
 
-		e.Router.GET("/{path...}", apis.Static(os.DirFS("./pb_public"), false))
+		// Serve static files from pb_public with improved path resolution
+		publicDirPath := "./pb_public"
+
+		// Check if the directory exists
+		if _, err := os.Stat(publicDirPath); os.IsNotExist(err) {
+			// Try with absolute path
+			exePath, err := os.Executable()
+			if err == nil {
+				exeDir := filepath.Dir(exePath)
+				possiblePaths := []string{
+					filepath.Join(exeDir, "pb_public"),
+					filepath.Join(exeDir, "../pb_public"),
+					filepath.Join(exeDir, "../../pb_public"),
+				}
+
+				for _, path := range possiblePaths {
+					if _, err := os.Stat(path); err == nil {
+						publicDirPath = path
+						app.Logger().Info("Using pb_public from absolute path", "path", publicDirPath)
+						break
+					}
+				}
+			}
+		}
+
+		app.Logger().Info("Serving static files from", "path", publicDirPath)
+		e.Router.GET("/{path...}", apis.Static(os.DirFS(publicDirPath), false))
 
 		return e.Next()
 	})
