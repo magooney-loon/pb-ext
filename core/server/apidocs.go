@@ -17,7 +17,10 @@ package server
 // Access: http://localhost:8090/api/docs/openapi
 
 import (
+	"bufio"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"sort"
@@ -695,20 +698,72 @@ func (r *APIRegistry) initializeASTParser() {
 		return
 	}
 
-	// Try different possible paths for main.go
-	possiblePaths := []string{
-		"cmd/server/main.go",
-		"main.go",
-		"./cmd/server/main.go",
-		"./main.go",
-	}
+	// Only use API_SOURCE directive discovery
+	r.discoverSourceFilesWithDirective()
+}
 
-	for _, path := range possiblePaths {
-		err := r.astParser.ParseFile(path)
-		if err == nil {
+// discoverSourceFilesWithDirective finds Go files marked with API_SOURCE directive
+func (r *APIRegistry) discoverSourceFilesWithDirective() {
+	// Walk through the project directory looking for Go files with API_SOURCE directive
+	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors, continue walking
+		}
+
+		// Skip non-Go files, test files, vendor, and hidden directories
+		if !strings.HasSuffix(path, ".go") ||
+			strings.Contains(path, "_test.go") ||
+			strings.Contains(path, "/vendor/") ||
+			strings.Contains(path, "/.git/") ||
+			strings.HasPrefix(filepath.Base(path), ".") {
+			return nil
+		}
+
+		// Check if file contains API_SOURCE directive and parse it
+		if r.fileContainsAPISourceDirective(path) {
+			r.astParser.ParseFile(path)
+		}
+
+		return nil
+	})
+}
+
+// fileContainsAPISourceDirective checks if a Go file contains the API_SOURCE directive
+func (r *APIRegistry) fileContainsAPISourceDirective(filepath string) bool {
+	file, err := os.Open(filepath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	lineCount := 0
+
+	// Only check the first 50 lines for performance
+	for scanner.Scan() && lineCount < 50 {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Look for API_SOURCE directive in comments
+		if strings.Contains(line, "// API_SOURCE") ||
+			strings.Contains(line, "//API_SOURCE") ||
+			strings.Contains(line, "/* API_SOURCE") {
+			return true
+		}
+
+		lineCount++
+
+		// Stop checking after we hit the first non-comment, non-package, non-import line
+		if line != "" &&
+			!strings.HasPrefix(line, "//") &&
+			!strings.HasPrefix(line, "/*") &&
+			!strings.HasPrefix(line, "package ") &&
+			!strings.HasPrefix(line, "import") &&
+			line != "(" && line != ")" {
 			break
 		}
 	}
+
+	return false
 }
 
 // EnhanceEndpointWithAST enhances an endpoint using AST analysis

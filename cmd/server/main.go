@@ -1,5 +1,7 @@
 package main
 
+// API_SOURCE
+// Use API_SOURCE to mark all routes in this file for AST API docs generation
 import (
 	"flag"
 	"log"
@@ -67,6 +69,9 @@ func registerCollections(app core.App) {
 func registerRoutes(pbApp core.App) {
 	pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		router := app.EnableAutoDocumentation(e)
+
+		// Files marked with API_SOURCE directive are automatically discovered for AST parsing
+		// This file is marked with the directive at the top, so handlers here will be parsed
 
 		router.GET("/api/time", timeHandler)
 		router.GET("/api/hello-auth", helloAuthHandler).Bind(apis.RequireAuth())
