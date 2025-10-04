@@ -11,8 +11,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+)
+
+// Analytics configuration constants
+const (
+	// Time windows for data analysis
+	AnalyticsLookbackDays = 90 // Days to look back for detailed analysis
+
+	// Query limits for performance
+	MaxAnalyticsRecords = 50000 // Maximum records to fetch for analysis
+
+	// Timing constants
+	FlushWaitTime = 100 * time.Millisecond // Wait time after flush
+
+	// Activity calculation constants
+	MaxExpectedHourlyVisits = 100 // Expected max hourly visits for percentage calculation
 )
 
 // PageView represents a single page view event with enhanced metrics
@@ -701,6 +717,25 @@ func extractClientIP(r *http.Request) string {
 }
 
 // GetAnalyticsData retrieves analytics data for display in the template
+// getTotalPageViewsCount gets the accurate total count of all page views in the database
+func (a *Analytics) getTotalPageViewsCount() (int, error) {
+	collection, err := a.app.FindCollectionByNameOrId("_analytics")
+	if err != nil {
+		return 0, err
+	}
+
+	var count int
+	err = a.app.DB().Select("COUNT(*)").
+		From(collection.Name).
+		Row(&count)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
 func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 	// Create analytics data structure
 	data := &AnalyticsData{
@@ -718,14 +753,23 @@ func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 
 	// First flush any pending data to ensure we have the latest
 	a.ForceFlush()
-	time.Sleep(100 * time.Millisecond) // Brief pause to let flush complete
+	time.Sleep(FlushWaitTime) // Brief pause to let flush complete
 
-	// Get all pageviews for analysis
+	// Get accurate total page views count from entire database
+	totalPageViews, err := a.getTotalPageViewsCount()
+	if err != nil {
+		a.app.Logger().Error("Failed to get total page views count", "error", err)
+		totalPageViews = 0
+	}
+
+	// Get recent records for detailed analysis
+	lookbackTime := time.Now().AddDate(0, 0, -AnalyticsLookbackDays)
 	var records []*core.Record
-	if err := a.app.RecordQuery(collection.Id).
+	query := a.app.RecordQuery(collection.Id).
 		OrderBy("timestamp DESC").
-		Limit(1000).
-		All(&records); err != nil {
+		AndWhere(dbx.NewExp("timestamp >= {:timestamp}", dbx.Params{"timestamp": lookbackTime}))
+
+	if err := query.Limit(MaxAnalyticsRecords).All(&records); err != nil {
 		a.app.Logger().Error("Failed to query _analytics collection", "error", err)
 		return defaultAnalyticsData(), nil
 	}
@@ -826,7 +870,8 @@ func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 	data.UniqueVisitors = uniqueVisitorCount
 	data.NewVisitors = newVisitors
 	data.ReturningVisitors = returningVisitors
-	data.TotalPageViews = pageViews
+	// Use the accurate total count from the database
+	data.TotalPageViews = totalPageViews
 	data.TodayPageViews = todayViews
 	data.YesterdayPageViews = yesterdayViews
 
@@ -926,9 +971,8 @@ func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 	data.RecentVisits = recentVisits
 	data.RecentVisitCount = hourlyVisits
 
-	// Calculate hourly activity percentage (relative to 100 being our max expected hourly visits)
-	maxExpectedHourlyVisits := 100 // Adjust based on your site's traffic
-	data.HourlyActivityPercentage = math.Min(100, float64(hourlyVisits)/float64(maxExpectedHourlyVisits)*100)
+	// Calculate hourly activity percentage
+	data.HourlyActivityPercentage = math.Min(100, float64(hourlyVisits)/float64(MaxExpectedHourlyVisits)*100)
 
 	return data, nil
 }
