@@ -2,11 +2,11 @@
 <div class="section m-t-base">
     <header class="section-header">
         <h4 class="section-title">
-            <i class="ri-memory-line"></i>
+            <i class="ri-database-2-line"></i>
             Memory Details
         </h4>
     </header>
-    
+
     <div class="card">
         <div class="card-body">
             <div class="grid grid-sm-2 grid-xl-4 gap-base">
@@ -17,19 +17,19 @@
                             <h4 class="m-0">{{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Used 1073741824)}}</h4>
                             <span class="txt-hint txt-sm m-l-5">of {{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Total 1073741824)}}</span>
                         </div>
-                        
+
                         <div class="progress m-b-5">
-                            <div class="progress-bar {{if gt .SystemStats.MemoryInfo.UsedPercent 90.0}}danger{{else if gt .SystemStats.MemoryInfo.UsedPercent 70.0}}warning{{else}}success{{end}}" 
-                                role="progressbar" 
-                                style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}}" 
-                                aria-valuenow="{{printf "%.1f" .SystemStats.MemoryInfo.UsedPercent}}" 
-                                aria-valuemin="0" 
+                            <div class="progress-bar {{if gt .SystemStats.MemoryInfo.UsedPercent 90.0}}danger{{else if gt .SystemStats.MemoryInfo.UsedPercent 70.0}}warning{{else}}success{{end}}"
+                                role="progressbar"
+                                style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}}"
+                                aria-valuenow="{{printf "%.1f" .SystemStats.MemoryInfo.UsedPercent}}"
+                                aria-valuemin="0"
                                 aria-valuemax="100"></div>
                         </div>
                         <div class="txt-hint txt-sm txt-right">{{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}} used</div>
                     </div>
                 </div>
-                
+
                 <div class="card view-card">
                     <div class="card-body">
                         <h6 class="txt-hint m-b-5">Swap</h6>
@@ -37,19 +37,19 @@
                             <h4 class="m-0">{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.SwapUsed 1073741824)}}</h4>
                             <span class="txt-hint txt-sm m-l-5">of {{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.SwapTotal 1073741824)}}</span>
                         </div>
-                        
+
                         <div class="progress m-b-5">
-                            <div class="progress-bar {{if gt .SystemStats.MemoryInfo.SwapPercent 50.0}}warning{{else}}success{{end}}" 
-                                role="progressbar" 
-                                style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.SwapPercent}}" 
-                                aria-valuenow="{{printf "%.1f" .SystemStats.MemoryInfo.SwapPercent}}" 
-                                aria-valuemin="0" 
+                            <div class="progress-bar {{if gt .SystemStats.MemoryInfo.SwapPercent 50.0}}warning{{else}}success{{end}}"
+                                role="progressbar"
+                                style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.SwapPercent}}"
+                                aria-valuenow="{{printf "%.1f" .SystemStats.MemoryInfo.SwapPercent}}"
+                                aria-valuemin="0"
                                 aria-valuemax="100"></div>
                         </div>
                         <div class="txt-hint txt-sm txt-right">{{printf "%.1f%%" .SystemStats.MemoryInfo.SwapPercent}} used</div>
                     </div>
                 </div>
-                
+
                 <div class="card view-card">
                     <div class="card-body">
                         <h6 class="txt-hint m-b-5">Process Memory</h6>
@@ -57,19 +57,19 @@
                             <h4 class="m-0">{{printf "%.1f MB" (divideFloat64 .SystemStats.ProcessStats.RSS 1048576)}}</h4>
                             <span class="txt-hint txt-sm m-l-5">RSS</span>
                         </div>
-                        
+
                         <div class="progress m-b-5">
-                            <div class="progress-bar primary" 
-                                role="progressbar" 
-                                style="width: {{printf "%.1f%%" .SystemStats.ProcessStats.MemoryPercent}}" 
-                                aria-valuenow="{{printf "%.1f" .SystemStats.ProcessStats.MemoryPercent}}" 
-                                aria-valuemin="0" 
+                            <div class="progress-bar primary"
+                                role="progressbar"
+                                style="width: {{printf "%.1f%%" .SystemStats.ProcessStats.MemoryPercent}}"
+                                aria-valuenow="{{printf "%.1f" .SystemStats.ProcessStats.MemoryPercent}}"
+                                aria-valuemin="0"
                                 aria-valuemax="100"></div>
                         </div>
                         <div class="txt-hint txt-sm txt-right">{{printf "%.1f%%" .SystemStats.ProcessStats.MemoryPercent}} of system</div>
                     </div>
                 </div>
-                
+
                 <div class="card view-card">
                     <div class="card-body">
                         <h6 class="txt-hint m-b-5">Heap</h6>
@@ -77,7 +77,7 @@
                             <h4 class="m-0">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.HeapObjects 1048576)}}</h4>
                             <span class="txt-hint txt-sm m-l-5">Objects</span>
                         </div>
-                        
+
                         <div class="txt-hint txt-sm m-t-5">
                             GC Duration: {{printf "%.2fms" (divideFloat64 (int64 .SystemStats.RuntimeStats.LastGCDuration) 1000000)}}
                         </div>
@@ -87,7 +87,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="m-t-15">
                 <div class="flex align-center m-b-10">
                     <i class="ri-database-2-line m-r-5 txt-hint"></i>
@@ -117,4 +117,4 @@
         </div>
     </div>
 </div>
-{{end}} 
+{{end}}

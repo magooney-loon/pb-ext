@@ -18,15 +18,15 @@
                         <h3 class="m-b-5">{{printf "%.1f%%" (avgCPUUsage .SystemStats.CPUInfo)}}</h3>
                     </div>
                 </div>
-                
+
                 <div class="progress m-t-10 m-b-5">
-                    <div class="progress-bar" role="progressbar" 
-                        style="width: {{printf "%.1f%%" (avgCPUUsage .SystemStats.CPUInfo)}}" 
-                        aria-valuenow="{{printf "%.1f" (avgCPUUsage .SystemStats.CPUInfo)}}" 
-                        aria-valuemin="0" 
+                    <div class="progress-bar" role="progressbar"
+                        style="width: {{printf "%.1f%%" (avgCPUUsage .SystemStats.CPUInfo)}}"
+                        aria-valuenow="{{printf "%.1f" (avgCPUUsage .SystemStats.CPUInfo)}}"
+                        aria-valuemin="0"
                         aria-valuemax="100"></div>
                 </div>
-                
+
                 <div class="flex txt-sm m-t-10">
                     <div class="column flex-fill">
                         <div class="txt-hint">Cores</div>
@@ -45,26 +45,26 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Memory -->
         <div class="card">
             <div class="card-body">
                 <div class="flex gap-5">
-                    <i class="ri-memory-line txt-lg txt-hint"></i>
+                    <i class="ri-database-2-line txt-lg txt-hint"></i>
                     <div class="flex-fill">
                         <h6 class="txt-hint m-b-5">Memory</h6>
                         <h3 class="m-b-5">{{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}}</h3>
                     </div>
                 </div>
-                
+
                 <div class="progress m-t-10 m-b-5">
-                    <div class="progress-bar primary" role="progressbar" 
-                        style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}}" 
-                        aria-valuenow="{{printf "%.1f" .SystemStats.MemoryInfo.UsedPercent}}" 
-                        aria-valuemin="0" 
+                    <div class="progress-bar primary" role="progressbar"
+                        style="width: {{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}}"
+                        aria-valuenow="{{printf "%.1f" .SystemStats.MemoryInfo.UsedPercent}}"
+                        aria-valuemin="0"
                         aria-valuemax="100"></div>
                 </div>
-                
+
                 <div class="flex txt-sm m-t-10">
                     <div class="column flex-fill">
                         <div class="txt-hint">Total</div>
@@ -81,7 +81,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Disk -->
         <div class="card">
             <div class="card-body">
@@ -92,15 +92,15 @@
                         <h3 class="m-b-5">{{printf "%.1f%%" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}</h3>
                     </div>
                 </div>
-                
+
                 <div class="progress m-t-10 m-b-5">
-                    <div class="progress-bar success" role="progressbar" 
-                        style="width: {{printf "%.1f%%" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}" 
-                        aria-valuenow="{{printf "%.1f" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}" 
-                        aria-valuemin="0" 
+                    <div class="progress-bar success" role="progressbar"
+                        style="width: {{printf "%.1f%%" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}"
+                        aria-valuenow="{{printf "%.1f" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}"
+                        aria-valuemin="0"
                         aria-valuemax="100"></div>
                 </div>
-                
+
                 <div class="flex txt-sm m-t-10">
                     <div class="column flex-fill">
                         <div class="txt-hint">Total</div>
@@ -115,7 +115,7 @@
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.DiskFree 1073741824)}}</div>
                     </div>
                 </div>
-                
+
                 {{if hasDiskTemps .SystemStats}}
                 <div class="flex txt-sm m-t-5">
                     <div class="column flex-fill">
@@ -126,7 +126,7 @@
                 {{end}}
             </div>
         </div>
-        
+
         <!-- Network -->
         <div class="card">
             <div class="card-body">
@@ -137,7 +137,7 @@
                         <h3 class="m-b-5">{{len .SystemStats.NetworkInterfaces}}</h3>
                     </div>
                 </div>
-                
+
                 <div class="flex txt-sm m-t-10">
                     <div class="column flex-fill">
                         <div class="txt-hint">Connections</div>
@@ -154,7 +154,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Process -->
         <div class="card">
             <div class="card-body">
@@ -165,15 +165,15 @@
                         <h3 class="m-b-5">{{printf "%.1f%%" .SystemStats.ProcessStats.CPUPercent}}</h3>
                     </div>
                 </div>
-                
+
                 <div class="progress m-t-10 m-b-5">
-                    <div class="progress-bar warning" role="progressbar" 
-                        style="width: {{printf "%.1f%%" .SystemStats.ProcessStats.CPUPercent}}" 
-                        aria-valuenow="{{printf "%.1f" .SystemStats.ProcessStats.CPUPercent}}" 
-                        aria-valuemin="0" 
+                    <div class="progress-bar warning" role="progressbar"
+                        style="width: {{printf "%.1f%%" .SystemStats.ProcessStats.CPUPercent}}"
+                        aria-valuenow="{{printf "%.1f" .SystemStats.ProcessStats.CPUPercent}}"
+                        aria-valuemin="0"
                         aria-valuemax="100"></div>
                 </div>
-                
+
                 <div class="flex txt-sm m-t-10">
                     <div class="column flex-fill">
                         <div class="txt-hint">PID</div>
@@ -184,7 +184,7 @@
                         <div>{{.SystemStats.ProcessStats.NumThreads}}</div>
                     </div>
                 </div>
-                
+
                 <div class="flex txt-sm m-t-5">
                     <div class="column flex-fill">
                         <div class="txt-hint">RAM</div>
@@ -197,7 +197,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Runtime -->
         <div class="card">
             <div class="card-body">
@@ -208,7 +208,7 @@
                         <h3 class="m-b-5">{{.SystemStats.RuntimeStats.NumGoroutines}}</h3>
                     </div>
                 </div>
-                
+
                 <div class="flex txt-sm m-t-10">
                     <div class="column flex-fill">
                         <div class="txt-hint">GC Count</div>
@@ -219,7 +219,7 @@
                         <div>{{.SystemStats.RuntimeStats.LastGCTime.Format "15:04:05"}}</div>
                     </div>
                 </div>
-                
+
                 <div class="flex txt-sm m-t-5">
                     <div class="column flex-fill">
                         <div class="txt-hint">GC Pause</div>
@@ -234,4 +234,4 @@
         </div>
     </div>
 </div>
-{{end}} 
+{{end}}
