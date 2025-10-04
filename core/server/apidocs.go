@@ -1,15 +1,9 @@
 package server
 
-// Zero-Configuration API Documentation System
+// API Documentation System openapi style
 //
 // This module provides automatic runtime discovery and documentation of API routes.
 //
-// Key Features:
-// - 🚫 ZERO CONFIG: No setup, directives, or manual registration required
-// - 🤖 AUTO DISCOVERY: Routes automatically documented as they're registered
-// - 🧠 INTELLIGENT: Smart analysis of function names, paths, and auth patterns
-// - ⚡ ZERO OVERHEAD: Documentation generated only during route registration
-// - 🔌 SIMPLE JSON API: Clean JSON endpoint at /api/docs/json
 //
 // Usage:
 //   func registerRoutes(app core.App) {
@@ -81,9 +75,9 @@ type APIRegistry struct {
 func NewAPIRegistry() *APIRegistry {
 	registry := &APIRegistry{
 		docs: &APIDocs{
-			Title:       "PocketBase Extension API",
+			Title:       "pb-ext API",
 			Version:     "1.0.0",
-			Description: "Automatically discovered API endpoints",
+			Description: "AST discovered API endpoints",
 			BaseURL:     "/api",
 			Endpoints:   []APIEndpoint{},
 			Generated:   "runtime",
