@@ -655,6 +655,7 @@ func extractUTMParams(reqURL *url.URL) (source, medium, campaign string) {
 func shouldExcludeFromAnalytics(path string) bool {
 	return strings.HasPrefix(path, "/api/") ||
 		strings.HasPrefix(path, "/_/") ||
+		strings.HasPrefix(path, "/_app/immutable/") ||
 		strings.HasPrefix(path, "/.well-known/") ||
 		path == "/favicon.ico" ||
 		path == "/service-worker.js" ||
@@ -837,8 +838,10 @@ func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 		// Count browsers
 		browserCounts[browser]++
 
-		// Count page views by path
-		pathCounts[path]++
+		// Count page views by path (exclude framework immutable assets)
+		if !strings.Contains(path, "/_app/immutable/") {
+			pathCounts[path]++
+		}
 
 		// Check if view is from today or yesterday
 		if timestamp.After(startOfToday) {
@@ -847,12 +850,12 @@ func (a *Analytics) GetAnalyticsData() (*AnalyticsData, error) {
 			yesterdayViews++
 		}
 
-		// Add to recent visits if within last hour
+		// Add to recent visits if within last hour (exclude framework immutable assets)
 		if timestamp.After(oneHourAgo) {
 			hourlyVisits++
 
 			// Only keep the 3 most recent for display
-			if len(recentVisits) < 3 {
+			if len(recentVisits) < 3 && !strings.Contains(path, "/_app/immutable/") {
 				recentVisits = append(recentVisits, RecentVisit{
 					Time:       timestamp,
 					Path:       path,
