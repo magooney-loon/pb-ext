@@ -11,7 +11,7 @@ Enhanced PocketBase server with extensive monitoring & logging.
 │   └── server/          # Server initialization
 └── core/
     ├── logging/         # Logging and error handling
-    ├── monitoring/      # System metrics collection 
+    ├── monitoring/      # System metrics collection
     └── server/          # Core server implementation
 
 ```
@@ -41,22 +41,36 @@ import (
 )
 
 func main() {
-	initApp()
+	devMode := flag.Bool("dev", false, "Run in developer mode")
+	flag.Parse()
+
+	// Check environment variable as fallback
+	if !*devMode && strings.ToLower(os.Getenv("DEV")) == "true" {
+		*devMode = true
+	}
+
+	initApp(*devMode)
 }
 
-func initApp() {
-	srv := app.New()
+func initApp(devMode bool) {
+	var srv *app.Server
+	if devMode {
+		srv = app.New(app.InDeveloperMode())
+		log.Println("🔧 Developer mode enabled")
+	} else {
+		srv = app.New(app.InNormalMode())
+		log.Println("🚀 Production mode")
+	}
 
 	app.SetupLogging(srv)
 
 	registerCollections(srv.App())
+	registerRoutes(srv.App())
 
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.SetupRecovery(srv.App(), e)
 		return e.Next()
 	})
-
-	registerRoutes(srv.App())
 
 	if err := srv.Start(); err != nil {
 		srv.App().Logger().Error("Fatal application error",
@@ -68,6 +82,7 @@ func initApp() {
 		)
 		log.Fatal(err)
 	}
+
 }
 
 func registerCollections(app core.App) {

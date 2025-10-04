@@ -39,13 +39,12 @@ func initApp(devMode bool) {
 	app.SetupLogging(srv)
 
 	registerCollections(srv.App())
+	registerRoutes(srv.App())
 
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.SetupRecovery(srv.App(), e)
 		return e.Next()
 	})
-
-	registerRoutes(srv.App())
 
 	if err := srv.Start(); err != nil {
 		srv.App().Logger().Error("Fatal application error",
