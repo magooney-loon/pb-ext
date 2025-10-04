@@ -10,7 +10,6 @@ import (
 	"time"
 
 	app "github.com/magooney-loon/pb-ext/core"
-	server "github.com/magooney-loon/pb-ext/core/server"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
@@ -28,12 +27,12 @@ func main() {
 }
 
 func initApp(devMode bool) {
-	var srv *server.Server
+	var srv *app.Server
 	if devMode {
-		srv = app.New(server.InDeveloperMode())
+		srv = app.New(app.InDeveloperMode())
 		log.Println("🔧 Developer mode enabled")
 	} else {
-		srv = app.New(server.InNormalMode())
+		srv = app.New(app.InNormalMode())
 		log.Println("🚀 Production mode")
 	}
 
@@ -58,6 +57,7 @@ func initApp(devMode bool) {
 		)
 		log.Fatal(err)
 	}
+
 }
 
 func registerCollections(app core.App) {
