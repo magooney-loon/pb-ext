@@ -1,46 +1,6 @@
 {{define "scripts"}}
 <script>
-    // Store the timeout ID for the countdown to enable resetting
-    let countdownTimeout = null;
 
-    function updateCountdown() {
-        const countdownElements = document.querySelectorAll('.countdown-timer');
-        if (!countdownElements.length) return;
-
-        // Clear any existing timeout to avoid multiple countdowns
-        if (countdownTimeout) {
-            clearTimeout(countdownTimeout);
-        }
-
-        // Get the time since the page loaded (in seconds)
-        const pageLoadTime = window.performance.timing.navigationStart || Date.now();
-        const secondsSinceLoad = Math.floor((Date.now() - pageLoadTime) / 1000);
-
-        // Calculate how many seconds are left until refresh
-        let seconds = 60 - secondsSinceLoad;
-        if (seconds < 1) seconds = 1; // Ensure we don't show 0 or negative numbers
-
-        // Update all countdown elements
-        countdownElements.forEach(el => {
-            el.textContent = seconds;
-        });
-
-        function tick() {
-            seconds--;
-            if (seconds < 1) seconds = 1; // Prevent showing 0
-
-            // Update all countdown elements
-            countdownElements.forEach(el => {
-                el.textContent = seconds;
-            });
-
-            if (seconds > 0) {
-                countdownTimeout = setTimeout(tick, 1000);
-            }
-        }
-
-        tick();
-    }
 
     function showPocketBaseElements() {
         // Show elements that should only appear when PocketBase styles are loaded
@@ -84,8 +44,7 @@
                 window.location.hash = 'api';
             }
 
-            // Reset countdown when switching tabs
-            updateCountdown();
+
         }
 
         // Set initial tab based on hash
@@ -132,7 +91,7 @@
             contentEl.style.opacity = '1';
         }
 
-        // Setup tab navigation (will also start the countdown)
+        // Setup tab navigation
         setupTabNavigation();
 
         // If body has the pb-piggybacked class, enable PocketBase-specific elements

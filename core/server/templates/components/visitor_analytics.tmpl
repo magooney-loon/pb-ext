@@ -6,10 +6,11 @@
             Visitor Analytics
         </h4>
     </header>
-    
+
     <div class="card">
         <div class="card-body">
-            <div class="grid grid-sm-3 grid-xl-6 gap-base">
+            <!-- Main Analytics Metrics -->
+            <div class="grid grid-sm-2 grid-xl-4 gap-base">
                 <!-- Total Visitors -->
                 <div class="card view-card">
                     <div class="card-body">
@@ -30,7 +31,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Page Views -->
                 <div class="card view-card">
                     <div class="card-body">
@@ -55,7 +56,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Devices -->
                 <div class="card view-card">
                     <div class="card-body">
@@ -80,13 +81,13 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Browsers -->
                 <div class="card view-card">
                     <div class="card-body">
                         <h6 class="txt-hint m-b-10">Browsers</h6>
                         <h4 class="m-b-10">{{.AnalyticsData.TopBrowser}}</h4>
-                        
+
                         <div class="m-t-10">
                             {{range $browser, $percent := .AnalyticsData.BrowserBreakdown}}
                             <div class="flex align-center m-b-5">
@@ -102,21 +103,24 @@
                         </div>
                     </div>
                 </div>
-                
+            </div>
+
+            <!-- Detailed Analytics -->
+            <div class="grid grid-sm-1 gap-base m-t-base">
                 <!-- Top Pages -->
                 <div class="card view-card">
                     <div class="card-body">
                         <h6 class="txt-hint m-b-10">Top Pages</h6>
                         <h4 class="m-b-10">{{len .AnalyticsData.TopPages}}</h4>
-                        
+
                         <table class="table table-compact m-t-10">
                             <tbody>
                                 {{range $index, $page := .AnalyticsData.TopPages}}
                                     {{if lt $index 5}}
                                     <tr>
                                         <td width="30" class="txt-center txt-sm">{{inc $index}}</td>
-                                        <td class="txt-sm txt-ellipsis" style="max-width: 150px">{{$page.Path}}</td>
-                                        <td width="40" class="txt-right txt-sm">{{$page.Views}}</td>
+                                        <td class="txt-sm">{{$page.Path}}</td>
+                                        <td width="60" class="txt-right txt-sm">{{$page.Views}}</td>
                                     </tr>
                                     {{end}}
                                 {{end}}
@@ -124,7 +128,7 @@
                         </table>
                     </div>
                 </div>
-                
+
                 <!-- Recent Activity -->
                 <div class="card view-card">
                     <div class="card-body">
@@ -133,14 +137,14 @@
                         <div class="progress m-b-10">
                             <div class="progress-bar warning" role="progressbar" style="width: {{printf "%.1f%%" .AnalyticsData.HourlyActivityPercentage}}" aria-valuenow="{{.AnalyticsData.HourlyActivityPercentage}}" aria-valuemin="0" aria-valuemax="100"></div>
                         </div>
-                        
+
                         <table class="table table-compact m-t-10">
                             <tbody>
                                 {{range $visit := .AnalyticsData.RecentVisits}}
                                 <tr>
-                                    <td width="50" class="txt-sm">{{formatTime $visit.Time}}</td>
-                                    <td class="txt-sm txt-ellipsis" style="max-width: 150px">{{$visit.Path}}</td>
-                                    <td width="30">
+                                    <td width="80" class="txt-sm">{{formatTime $visit.Time}}</td>
+                                    <td class="txt-sm">{{$visit.Path}}</td>
+                                    <td width="40">
                                         {{if eq $visit.DeviceType "desktop"}}
                                         <i class="ri-computer-line txt-sm" title="{{$visit.Browser}} on {{$visit.OS}}"></i>
                                         {{else if eq $visit.DeviceType "mobile"}}
@@ -159,4 +163,4 @@
         </div>
     </div>
 </div>
-{{end}} 
+{{end}}

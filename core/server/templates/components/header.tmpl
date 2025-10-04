@@ -13,8 +13,6 @@
                     <div class="flex flex-gap-5 flex-wrap">
                         <div>{{.SystemStats.Platform}} {{.SystemStats.OS}} {{.SystemStats.KernelVersion}}</div>
                         <div class="txt-nowrap">Up: {{.UptimeDuration}}</div>
-                        <div class="txt-nowrap">Last check: {{.LastCheckTime.Format "15:04:05"}}</div>
-                        <div class="txt-nowrap">Next refresh: <span class="countdown-timer txt-mono">60</span>s</div>
                     </div>
                 </div>
             </div>
@@ -57,4 +55,4 @@
         </div>
     </header>
 </div>
-{{end}} 
+{{end}}
