@@ -18,7 +18,7 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 ## Core Features
 
-- **API Schema**: Automatic routes schema discovery at runtime with docs
+- **API Schema**: Automatic routes discovery openapi style
 - **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and runtime stats
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
 - **Visitor Analytics**: Track and analyze visitor statistics, page views, device types, and browsers
