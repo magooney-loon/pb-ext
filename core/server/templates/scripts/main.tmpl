@@ -2,43 +2,43 @@
 <script>
     // Store the timeout ID for the countdown to enable resetting
     let countdownTimeout = null;
-    
+
     function updateCountdown() {
         const countdownElements = document.querySelectorAll('.countdown-timer');
         if (!countdownElements.length) return;
-        
+
         // Clear any existing timeout to avoid multiple countdowns
         if (countdownTimeout) {
             clearTimeout(countdownTimeout);
         }
-        
+
         // Get the time since the page loaded (in seconds)
         const pageLoadTime = window.performance.timing.navigationStart || Date.now();
         const secondsSinceLoad = Math.floor((Date.now() - pageLoadTime) / 1000);
-        
+
         // Calculate how many seconds are left until refresh
         let seconds = 60 - secondsSinceLoad;
         if (seconds < 1) seconds = 1; // Ensure we don't show 0 or negative numbers
-        
+
         // Update all countdown elements
         countdownElements.forEach(el => {
             el.textContent = seconds;
         });
-        
+
         function tick() {
             seconds--;
             if (seconds < 1) seconds = 1; // Prevent showing 0
-            
+
             // Update all countdown elements
             countdownElements.forEach(el => {
                 el.textContent = seconds;
             });
-            
+
             if (seconds > 0) {
                 countdownTimeout = setTimeout(tick, 1000);
             }
         }
-        
+
         tick();
     }
 
@@ -48,56 +48,77 @@
             el.style.display = 'inline-flex';
         });
     }
-    
+
     function setupTabNavigation() {
         const healthTab = document.querySelector('.health-tab');
         const analyticsTab = document.querySelector('.analytics-tab');
+        const apiTab = document.querySelector('.api-tab');
         const healthSection = document.getElementById('health-section');
         const analyticsSection = document.getElementById('analytics-section');
-        
-        if (!healthTab || !analyticsTab || !healthSection || !analyticsSection) return;
-        
+        const apiSection = document.getElementById('api-section');
+
+        if (!healthTab || !analyticsTab || !apiTab || !healthSection || !analyticsSection || !apiSection) return;
+
         function switchToTab(tabName) {
+            // Remove current-route class from all tabs
+            healthTab.classList.remove('current-route');
+            analyticsTab.classList.remove('current-route');
+            apiTab.classList.remove('current-route');
+
+            // Hide all sections
+            healthSection.style.display = 'none';
+            analyticsSection.style.display = 'none';
+            apiSection.style.display = 'none';
+
             if (tabName === 'health') {
                 healthTab.classList.add('current-route');
-                analyticsTab.classList.remove('current-route');
                 healthSection.style.display = 'block';
-                analyticsSection.style.display = 'none';
                 window.location.hash = 'health';
             } else if (tabName === 'analytics') {
                 analyticsTab.classList.add('current-route');
-                healthTab.classList.remove('current-route');
                 analyticsSection.style.display = 'block';
-                healthSection.style.display = 'none';
                 window.location.hash = 'analytics';
+            } else if (tabName === 'api') {
+                apiTab.classList.add('current-route');
+                apiSection.style.display = 'block';
+                window.location.hash = 'api';
             }
-            
+
             // Reset countdown when switching tabs
             updateCountdown();
         }
-        
+
         // Set initial tab based on hash
         if (window.location.hash === '#analytics') {
             switchToTab('analytics');
+        } else if (window.location.hash === '#api') {
+            switchToTab('api');
         } else {
             switchToTab('health');
         }
-        
+
         // Handle tab clicks
         healthTab.addEventListener('click', function(e) {
             e.preventDefault();
             switchToTab('health');
         });
-        
+
         analyticsTab.addEventListener('click', function(e) {
             e.preventDefault();
             switchToTab('analytics');
         });
-        
+
+        apiTab.addEventListener('click', function(e) {
+            e.preventDefault();
+            switchToTab('api');
+        });
+
         // Handle hash changes (for browser navigation)
         window.addEventListener('hashchange', function() {
             if (window.location.hash === '#analytics') {
                 switchToTab('analytics');
+            } else if (window.location.hash === '#api') {
+                switchToTab('api');
             } else {
                 switchToTab('health');
             }
@@ -110,15 +131,15 @@
         if (contentEl) {
             contentEl.style.opacity = '1';
         }
-        
+
         // Setup tab navigation (will also start the countdown)
         setupTabNavigation();
-        
+
         // If body has the pb-piggybacked class, enable PocketBase-specific elements
         if (document.body.classList.contains('pb-styled')) {
             showPocketBaseElements();
         }
-        
+
         // Also set up a MutationObserver to detect if the class is added later
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
@@ -130,8 +151,8 @@
                 }
             });
         });
-        
+
         observer.observe(document.body, { attributes: true });
     };
 </script>
-{{end}} 
+{{end}}

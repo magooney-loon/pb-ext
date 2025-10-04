@@ -15,7 +15,7 @@
                 localStorage.setItem('lastActiveTab', currentHash);
             }
         });
-        
+
         // When page is about to refresh, make sure we keep the hash
         window.onbeforeunload = function() {
             const currentHash = window.location.hash;
@@ -29,11 +29,12 @@
     <div id="app">
         <div class="app-layout">
             <aside class="app-sidebar">
-                <a href="{{.PBAdminURL}}" class="logo logo-sm"><img src="{{.PBAdminURL}}/images/logo.svg" alt="PocketBase logo" width="40" height="40"></a> 
+                <a href="{{.PBAdminURL}}" class="logo logo-sm"><img src="{{.PBAdminURL}}/images/logo.svg" alt="PocketBase logo" width="40" height="40"></a>
                 <nav class="main-menu">
                     <a href="#health" class="menu-item health-tab" aria-label="Health" title="Health"><i class="ri-heart-pulse-line"></i></a>
                     <a href="#analytics" class="menu-item analytics-tab" aria-label="Analytics" title="Analytics"><i class="ri-bar-chart-line"></i></a>
-                </nav> 
+                    <a href="#api" class="menu-item api-tab" aria-label="API" title="API"><i class="ri-code-s-slash-line"></i></a>
+                </nav>
             </aside>
             <div class="app-body" id="content" style="opacity: 0;">
                 <!-- Health Section -->
@@ -41,10 +42,10 @@
                     <main class="page-content">
                         <div class="dashboard-wrapper">
                             {{template "header" .}}
-                            
+
                             <!-- Critical System Metrics -->
                             {{template "critical_metrics" .}}
-                            
+
                             <!-- Detail panels in a row -->
                             <div class="panels-grid">
                                 {{template "cpu_details" .}}
@@ -53,16 +54,16 @@
                         </div>
                     </main>
                 </div>
-                
+
                 <!-- Analytics Section -->
                 <div id="analytics-section" class="section-content" style="display: none;">
                     <main class="page-content">
                         <div class="dashboard-wrapper">
                             {{template "header" .}}
-                            
+
                             <!-- Visitor Analytics -->
                             {{template "visitor_analytics" .}}
-                            
+
                             <!-- Network Section -->
                             <div class="panels-grid">
                                 {{template "network_details" .}}
@@ -70,7 +71,19 @@
                         </div>
                     </main>
                 </div>
-                
+
+                <!-- API Section -->
+                <div id="api-section" class="section-content" style="display: none;">
+                    <main class="page-content">
+                        <div class="dashboard-wrapper">
+                            {{template "header" .}}
+
+                            <!-- API Documentation -->
+                            {{template "api_details" .}}
+                        </div>
+                    </main>
+                </div>
+
             </div>
         </div>
     </div>
@@ -84,7 +97,7 @@
                 window.location.hash = lastActiveTab;
             }
         })();
-    
+
         // Piggyback PocketBase CSS
         (async function() {
             try {
@@ -94,7 +107,7 @@
                     const text = await response.text();
                     const parser = new DOMParser();
                     const pbDOM = parser.parseFromString(text, 'text/html');
-                    
+
                     // Get all CSS links from PocketBase admin UI
                     const cssLinks = pbDOM.querySelectorAll('link[rel="stylesheet"]');
                     if (cssLinks.length > 0) {
@@ -105,13 +118,13 @@
                             clonedLink.href = link.href;
                             document.head.appendChild(clonedLink);
                         }
-                        
+
                         // Add a class to body to apply PocketBase styled versions
                         document.body.classList.add('pb-styled');
-                        
+
                         console.log('Successfully piggybacked PocketBase CSS');
                     }
-                    
+
                     // Also get Remix icons if available
                     const remixLinks = pbDOM.querySelectorAll('link[href*="remixicon"]');
                     if (remixLinks.length > 0) {

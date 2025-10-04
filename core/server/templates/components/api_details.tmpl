@@ -1,0 +1,657 @@
+{{define "api_details"}}
+<div class="section">
+    <header class="section-header">
+        <div class="flex flex-gap-10 align-center">
+
+            <div class="flex gap-5 align-center">
+                <span id="api-status-badge" class="badge badge-sm badge-info">Loading...</span>
+                <button id="refresh-api-btn" class="btn btn-sm btn-secondary" type="button">
+                    <i class="ri-refresh-line"></i>
+                    Refresh
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="card">
+        <div class="card-body">
+            <!-- API Overview -->
+            <div id="api-overview" class="mb-3" style="display: none;">
+                <div class="flex flex-gap-10 mb-3">
+                    <div class="card card-sm flex-fill">
+                        <div class="card-body">
+                            <div class="flex flex-column">
+                                <div class="txt-lg" id="api-title">API Title</div>
+                                <div class="txt-hint txt-sm" id="api-version">Version</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card card-sm flex-fill">
+                        <div class="card-body">
+                            <div class="flex flex-column">
+                                <div class="txt-lg" id="api-endpoints-count">0</div>
+                                <div class="txt-hint txt-sm">Endpoints</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card card-sm flex-fill">
+                        <div class="card-body">
+                            <div class="flex flex-column">
+                                <div class="txt-lg" id="api-schemas-count">0</div>
+                                <div class="txt-hint txt-sm">Schemas</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <p id="api-description" class="txt-sm txt-hint">API Description will appear here...</p>
+                </div>
+            </div>
+
+            <!-- Tab Navigation for API sections -->
+            <div class="tabs-header" id="api-tabs">
+                <button class="tab-item active" data-tab="endpoints">
+                    <i class="ri-route-line"></i>
+                    Endpoints
+                </button>
+                <button class="tab-item" data-tab="schemas">
+                    <i class="ri-file-code-line"></i>
+                    Schemas
+                </button>
+                <button class="tab-item" data-tab="raw">
+                    <i class="ri-code-line"></i>
+                    Raw Schema
+                </button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="tabs-content">
+                <!-- Endpoints Tab -->
+                <div id="endpoints-tab" class="tab-content active">
+                    <div id="endpoints-list" class="mb-3">
+                        <div class="txt-center txt-hint p-4">
+                            <i class="ri-loader-4-line ri-xl"></i>
+                            <p>Loading API endpoints...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Schemas Tab -->
+                <div id="schemas-tab" class="tab-content" style="display: none;">
+                    <div id="schemas-list" class="mb-3">
+                        <div class="txt-center txt-hint p-4">
+                            <i class="ri-loader-4-line ri-xl"></i>
+                            <p>Loading API schemas...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Raw Schema Tab -->
+                <div id="raw-tab" class="tab-content" style="display: none;">
+                    <div class="flex justify-between align-center mb-2">
+                        <div class="flex gap-2 align-center">
+                            <span class="txt-sm txt-hint">Format:</span>
+                            <div class="inline-flex">
+                                <button id="json-format-btn" class="btn btn-xs btn-secondary active" data-format="json">JSON</button>
+                                <button id="yaml-format-btn" class="btn btn-xs btn-secondary" data-format="yaml">YAML</button>
+                            </div>
+                        </div>
+                        <button id="copy-schema-btn" class="btn btn-xs btn-secondary" type="button">
+                            <i class="ri-file-copy-line"></i>
+                            Copy
+                        </button>
+                    </div>
+                    <div class="code-block">
+                        <pre id="raw-schema-content" class="code"><code>Loading schema...</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.api-endpoint {
+    border: 1px solid var(--baseAlt2Color);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+
+.api-endpoint-header {
+    background: var(--baseAlt1Color);
+    padding: 12px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--baseAlt2Color);
+}
+
+.api-endpoint-header:hover {
+    background: var(--baseAlt2Color);
+}
+
+.api-endpoint-content {
+    padding: 16px;
+    display: none;
+    background: var(--baseColor);
+}
+
+.api-endpoint-content.active {
+    display: block;
+}
+
+.http-method {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 60px;
+    height: 24px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    text-transform: uppercase;
+    color: white;
+}
+
+.http-method.get { background-color: #22c55e; }
+.http-method.post { background-color: #3b82f6; }
+.http-method.put { background-color: #f59e0b; }
+.http-method.patch { background-color: #8b5cf6; }
+.http-method.delete { background-color: #ef4444; }
+.http-method.options { background-color: #6b7280; }
+.http-method.head { background-color: #374151; }
+
+.code-block {
+    background: var(--baseAlt1Color);
+    border: 1px solid var(--baseAlt2Color);
+    border-radius: 6px;
+    position: relative;
+}
+
+.code-block pre {
+    margin: 0;
+    padding: 16px;
+    overflow-x: auto;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    background: transparent;
+}
+
+.tabs-header {
+    display: flex;
+    border-bottom: 1px solid var(--baseAlt2Color);
+    margin-bottom: 16px;
+}
+
+.tab-item {
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: var(--txtHintColor);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.tab-item:hover {
+    color: var(--txtPrimaryColor);
+    background: var(--baseAlt1Color);
+}
+
+.tab-item.active {
+    color: var(--primaryColor);
+    border-bottom-color: var(--primaryColor);
+}
+
+.tab-content {
+    min-height: 200px;
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.schema-item {
+    border: 1px solid var(--baseAlt2Color);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    background: var(--baseColor);
+}
+
+.schema-header {
+    background: var(--baseAlt1Color);
+    padding: 12px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--baseAlt2Color);
+}
+
+.schema-header:hover {
+    background: var(--baseAlt2Color);
+}
+
+.schema-content {
+    padding: 16px;
+    display: none;
+}
+
+.schema-content.active {
+    display: block;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let openApiSchema = null;
+
+    // Tab switching functionality
+    const tabButtons = document.querySelectorAll('#api-tabs .tab-item');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const tabName = this.getAttribute('data-tab');
+
+            // Update active states
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+                content.style.display = 'none';
+            });
+
+            this.classList.add('active');
+            const targetContent = document.getElementById(tabName + '-tab');
+            if (targetContent) {
+                targetContent.classList.add('active');
+                targetContent.style.display = 'block';
+            }
+        });
+    });
+
+    // Format switching for raw schema
+    const jsonBtn = document.getElementById('json-format-btn');
+    const yamlBtn = document.getElementById('yaml-format-btn');
+
+    if (jsonBtn && yamlBtn) {
+        jsonBtn.addEventListener('click', function() {
+            jsonBtn.classList.add('active');
+            yamlBtn.classList.remove('active');
+            updateRawSchema('json');
+        });
+
+        yamlBtn.addEventListener('click', function() {
+            yamlBtn.classList.add('active');
+            jsonBtn.classList.remove('active');
+            updateRawSchema('yaml');
+        });
+    }
+
+    // Copy schema functionality
+    const copyBtn = document.getElementById('copy-schema-btn');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', function() {
+            const content = document.getElementById('raw-schema-content').textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="ri-check-line"></i> Copied!';
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            });
+        });
+    }
+
+    // Refresh button functionality
+    const refreshBtn = document.getElementById('refresh-api-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            loadOpenApiSchema();
+        });
+    }
+
+    // Load OpenAPI schema
+    function loadOpenApiSchema() {
+        const statusBadge = document.getElementById('api-status-badge');
+        const refreshBtn = document.getElementById('refresh-api-btn');
+
+        if (statusBadge) {
+            statusBadge.textContent = 'Loading...';
+            statusBadge.className = 'badge badge-sm badge-info';
+        }
+
+        if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Loading...';
+        }
+
+        // Show loading state in containers
+        const loadingHtml = `
+            <div class="txt-center txt-hint p-4">
+                <i class="ri-loader-4-line ri-xl animate-spin"></i>
+                <p>Loading API documentation...</p>
+            </div>
+        `;
+
+        const endpointsList = document.getElementById('endpoints-list');
+        const schemasList = document.getElementById('schemas-list');
+        if (endpointsList) endpointsList.innerHTML = loadingHtml;
+        if (schemasList) schemasList.innerHTML = loadingHtml;
+
+        fetch('/api/docs/openapi')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                openApiSchema = data;
+                updateApiStatus('success', 'Loaded');
+                populateApiOverview(data);
+                populateEndpoints(data);
+                populateSchemas(data);
+                updateRawSchema('json');
+            })
+            .catch(error => {
+                console.error('Failed to load OpenAPI schema:', error);
+                updateApiStatus('error', 'Failed to load');
+
+                let errorMessage = 'Failed to load OpenAPI schema: ' + error.message;
+                if (error.message.includes('HTTP 404')) {
+                    errorMessage = 'API documentation endpoint not found. The server might still be starting up.';
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Network error. Please check your connection and try again.';
+                }
+
+                showError(errorMessage);
+            })
+            .finally(() => {
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = '<i class="ri-refresh-line"></i> Refresh';
+                }
+            });
+    }
+
+    function updateApiStatus(type, message) {
+        const statusBadge = document.getElementById('api-status-badge');
+        if (statusBadge) {
+            statusBadge.textContent = message;
+            statusBadge.className = `badge badge-sm badge-${type === 'success' ? 'success' : 'danger'}`;
+        }
+    }
+
+    function populateApiOverview(schema) {
+        const overview = document.getElementById('api-overview');
+        if (overview) overview.style.display = 'block';
+
+        const title = document.getElementById('api-title');
+        const version = document.getElementById('api-version');
+        const description = document.getElementById('api-description');
+        const endpointsCount = document.getElementById('api-endpoints-count');
+        const schemasCount = document.getElementById('api-schemas-count');
+
+        if (title) title.textContent = schema.title || 'API Documentation';
+        if (version) version.textContent = `v${schema.version || '1.0.0'}`;
+        if (description) description.textContent = schema.description || 'No description available.';
+
+        const pathsCount = schema.endpoints ? schema.endpoints.length : 0;
+
+        const componentSchemasCount = schema.components?.schemas ? Object.keys(schema.components.schemas).length : 0;
+
+        if (endpointsCount) endpointsCount.textContent = pathsCount;
+        if (schemasCount) schemasCount.textContent = componentSchemasCount;
+    }
+
+    function populateEndpoints(schema) {
+        const container = document.getElementById('endpoints-list');
+        if (!container) return;
+
+        if (!schema.endpoints || !Array.isArray(schema.endpoints)) {
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-route-line ri-2x mb-2"></i>
+                    <h4>No API endpoints discovered</h4>
+                    <p class="txt-sm">This could mean:</p>
+                    <ul class="txt-sm txt-left" style="display: inline-block; margin-top: 8px;">
+                        <li>• No custom routes have been registered yet</li>
+                        <li>• Auto-discovery is disabled</li>
+                        <li>• Routes are registered after the documentation system</li>
+                    </ul>
+                    <button onclick="loadOpenApiSchema()" class="btn btn-sm btn-secondary mt-2">
+                        <i class="ri-refresh-line"></i> Retry
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        if (schema.endpoints.length === 0) {
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-route-line ri-2x mb-2"></i>
+                    <h4>No endpoints available</h4>
+                    <p class="txt-sm">The API documentation system is working, but no endpoints have been registered yet.</p>
+                    <button onclick="loadOpenApiSchema()" class="btn btn-sm btn-secondary mt-2">
+                        <i class="ri-refresh-line"></i> Refresh
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        const endpointsHtml = schema.endpoints.map((endpoint, index) => {
+            const method = endpoint.method ? endpoint.method.toLowerCase() : 'get';
+            const path = endpoint.path || '/';
+            const operationId = endpoint.handler_name || `endpoint_${index}`;
+            const summary = endpoint.description || 'No description';
+            const authRequired = endpoint.requires_auth ? 'Yes' : 'No';
+
+            return `
+                <div class="api-endpoint">
+                    <div class="api-endpoint-header" onclick="toggleEndpoint('${operationId}')">
+                        <span class="http-method ${method}">${method.toUpperCase()}</span>
+                        <span class="flex-fill txt-mono">${path}</span>
+                        <span class="txt-sm txt-hint">${summary}</span>
+                        <i class="ri-arrow-down-s-line"></i>
+                    </div>
+                    <div id="${operationId}" class="api-endpoint-content">
+                        <div class="mb-2">
+                            <strong>Description:</strong>
+                            <p class="txt-sm txt-hint mt-1">${endpoint.description || summary}</p>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Authentication Required:</strong>
+                            <span class="txt-sm ${endpoint.requires_auth ? 'txt-danger' : 'txt-success'}">${authRequired}</span>
+                        </div>
+                        ${endpoint.tags && endpoint.tags.length > 0 ? `
+                            <div class="mb-2">
+                                <strong>Tags:</strong>
+                                <div class="flex gap-1 mt-1">
+                                    ${endpoint.tags.map(tag => `<span class="badge badge-sm">${tag}</span>`).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${endpoint.request ? `
+                            <div class="mb-2">
+                                <strong>Request Schema:</strong>
+                                <div class="code-block mt-1">
+                                    <pre><code>${JSON.stringify(endpoint.request, null, 2)}</code></pre>
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${endpoint.response ? `
+                            <div class="mb-2">
+                                <strong>Response Schema:</strong>
+                                <div class="code-block mt-1">
+                                    <pre><code>${JSON.stringify(endpoint.response, null, 2)}</code></pre>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = endpointsHtml || '<div class="txt-center txt-hint p-4">No endpoints found.</div>';
+    }
+
+    function populateSchemas(schema) {
+        const container = document.getElementById('schemas-list');
+        if (!container) return;
+
+        const schemas = schema.components?.schemas;
+        if (!schemas) {
+            container.innerHTML = '<div class="txt-center txt-hint p-4">No schemas found.</div>';
+            return;
+        }
+
+        const schemasHtml = Object.entries(schemas).map(([name, schemaObj]) => {
+            return `
+                <div class="schema-item">
+                    <div class="schema-header" onclick="toggleSchema('${name}')">
+                        <div>
+                            <strong>${name}</strong>
+                            <div class="txt-sm txt-hint">${schemaObj.type || 'object'}</div>
+                        </div>
+                        <i class="ri-arrow-down-s-line"></i>
+                    </div>
+                    <div id="schema-${name}" class="schema-content">
+                        <div class="code-block">
+                            <pre><code>${JSON.stringify(schemaObj, null, 2)}</code></pre>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = schemasHtml;
+    }
+
+    function updateRawSchema(format) {
+        const content = document.getElementById('raw-schema-content');
+        if (!content || !openApiSchema) return;
+
+        try {
+            if (format === 'yaml') {
+                // Simple JSON to YAML conversion
+                content.textContent = jsonToYaml(openApiSchema);
+            } else {
+                content.textContent = JSON.stringify(openApiSchema, null, 2);
+            }
+        } catch (error) {
+            content.textContent = 'Error formatting schema: ' + error.message;
+        }
+    }
+
+    function jsonToYaml(obj, indent = 0) {
+        const spaces = '  '.repeat(indent);
+        let yaml = '';
+
+        for (const [key, value] of Object.entries(obj)) {
+            if (value === null) {
+                yaml += `${spaces}${key}: null\n`;
+            } else if (typeof value === 'object' && !Array.isArray(value)) {
+                yaml += `${spaces}${key}:\n${jsonToYaml(value, indent + 1)}`;
+            } else if (Array.isArray(value)) {
+                yaml += `${spaces}${key}:\n`;
+                value.forEach(item => {
+                    if (typeof item === 'object') {
+                        yaml += `${spaces}  -\n${jsonToYaml(item, indent + 2)}`;
+                    } else {
+                        yaml += `${spaces}  - ${JSON.stringify(item)}\n`;
+                    }
+                });
+            } else {
+                yaml += `${spaces}${key}: ${JSON.stringify(value)}\n`;
+            }
+        }
+
+        return yaml;
+    }
+
+    function showError(message) {
+        const containers = ['endpoints-list', 'schemas-list'];
+        containers.forEach(containerId => {
+            const container = document.getElementById(containerId);
+            if (container) {
+                container.innerHTML = `
+                    <div class="txt-center txt-danger p-4">
+                        <i class="ri-error-warning-line ri-2x mb-2"></i>
+                        <h4>Failed to Load API Documentation</h4>
+                        <p class="txt-sm">${message}</p>
+                        <div class="mt-3">
+                            <button onclick="loadOpenApiSchema()" class="btn btn-sm btn-secondary">
+                                <i class="ri-refresh-line"></i> Try Again
+                            </button>
+                            <button onclick="window.open('/api/docs/openapi', '_blank')" class="btn btn-sm btn-outline">
+                                <i class="ri-external-link-line"></i> View Raw
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        const rawContent = document.getElementById('raw-schema-content');
+        if (rawContent) {
+            rawContent.textContent = `Error: ${message}
+
+This usually means:
+- The API documentation endpoint is not available
+- There's a network connectivity issue
+- The server is still starting up
+
+Try refreshing the page or check the server logs for more details.`;
+        }
+    }
+
+    // Global functions for onclick handlers
+    window.toggleEndpoint = function(operationId) {
+        const content = document.getElementById(operationId);
+        const header = content.previousElementSibling;
+        const arrow = header.querySelector('.ri-arrow-down-s-line');
+
+        if (content.classList.contains('active')) {
+            content.classList.remove('active');
+            arrow.style.transform = 'rotate(0deg)';
+        } else {
+            content.classList.add('active');
+            arrow.style.transform = 'rotate(180deg)';
+        }
+    };
+
+    window.toggleSchema = function(schemaName) {
+        const content = document.getElementById(`schema-${schemaName}`);
+        const header = content.previousElementSibling;
+        const arrow = header.querySelector('.ri-arrow-down-s-line');
+
+        if (content.classList.contains('active')) {
+            content.classList.remove('active');
+            arrow.style.transform = 'rotate(0deg)';
+        } else {
+            content.classList.add('active');
+            arrow.style.transform = 'rotate(180deg)';
+        }
+    };
+
+    // Load schema on page load
+    loadOpenApiSchema();
+});
+</script>
+{{end}}

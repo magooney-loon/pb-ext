@@ -207,6 +207,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		"templates/components/memory_details.tmpl",
 		"templates/components/network_details.tmpl",
 		"templates/components/visitor_analytics.tmpl",
+		"templates/components/api_details.tmpl",
 	)
 	if err != nil {
 		log.Printf("Error parsing health templates: %v", err)
@@ -272,7 +273,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 							'__pb_superuser_auth__',    // Double underscore format
 							'pocketbase_superuser_auth' // No underscore format
 						];
-						
+
 						// First try the known token keys directly
 						let foundSuperuserToken = false;
 						for (const tokenKey of possibleTokenKeys) {
@@ -280,12 +281,12 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 							if (token) {
 								showDebug("Found token with key: " + tokenKey);
 								foundSuperuserToken = true;
-								
+
 								// Try to parse as JSON
 								try {
 									const tokenObj = JSON.parse(token);
 									showDebug("- Parsed as JSON: " + JSON.stringify(tokenObj));
-									
+
 									if (tokenObj && tokenObj.token) {
 										showDebug("- Using token.token property");
 										tryAuth(tokenObj.token);
@@ -298,34 +299,34 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 								}
 							}
 						}
-						
+
 						// If we didn't find any of the known token keys, scan all localStorage for PB tokens
 						if (!foundSuperuserToken) {
 							showDebug("No superuser token found with known keys, scanning all localStorage...");
-							
+
 							// Check all items in localStorage to find any PocketBase tokens
 							let pbTokenFound = false;
-							
+
 							for (let i = 0; i < localStorage.length; i++) {
 								const key = localStorage.key(i);
-								
+
 								// Look for PocketBase tokens (pb and auth in the name)
 								if (key && (key.includes('pb') || key.includes('pocketbase')) && key.includes('auth')) {
 									pbTokenFound = true;
 									const value = localStorage.getItem(key);
 									showDebug("Found possible token with key: " + key);
-									
+
 									// Try to parse it if it's JSON
 									try {
 										const parsed = JSON.parse(value);
 										showDebug("- Parsed as JSON: " + JSON.stringify(parsed));
-										
+
 										// Check if it has a token property
 										if (parsed && parsed.token) {
 											// Check if it's a superuser token by checking the collection name or type
 											const record = parsed.record || {};
-											if (record.collectionName === '_superusers' || 
-												key.includes('superuser') || 
+											if (record.collectionName === '_superusers' ||
+												key.includes('superuser') ||
 												key.includes('admin')) {
 												showDebug("- Looks like a superuser token!");
 												tryAuth(parsed.token);
@@ -336,7 +337,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 										}
 									} catch (e) {
 										showDebug("- Not valid JSON, trying as raw string");
-										
+
 										// If key name suggests it's a superuser token, try it directly
 										if (key.includes('superuser') || key.includes('admin')) {
 											tryAuth(value);
@@ -345,22 +346,22 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 									}
 								}
 							}
-							
+
 							if (!pbTokenFound) {
 								showDebug("No PocketBase tokens found in localStorage.");
 							} else {
 								showDebug("Found PocketBase tokens but none were valid superuser tokens.");
 							}
 						}
-						
+
 						// Show error if we get here
 						document.getElementById('loading').style.display = 'none';
 						document.getElementById('error').style.display = 'block';
 					});
-					
+
 					function tryAuth(tokenValue) {
 						showDebug("Making fetch request with Authorization: Bearer " + tokenValue.substring(0, 10) + "...");
-						
+
 						// Make request to the current URL with proper Authorization header
 						fetch(window.location.href, {
 							method: 'GET',
@@ -384,7 +385,7 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 								document.getElementById('error').style.display = 'block';
 								return;
 							}
-							
+
 							showDebug("Auth successful, replacing content");
 							// Replace entire page with the response
 							document.open();
