@@ -39,11 +39,6 @@ func main() {
 	devMode := flag.Bool("dev", false, "Run in developer mode")
 	flag.Parse()
 
-	// Check environment variable as fallback
-	if !*devMode && strings.ToLower(os.Getenv("DEV")) == "true" {
-		*devMode = true
-	}
-
 	initApp(*devMode)
 }
 
@@ -78,7 +73,6 @@ func initApp(devMode bool) {
 		)
 		log.Fatal(err)
 	}
-
 }
 
 // Check cmd/server/main.go
