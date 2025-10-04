@@ -20,7 +20,7 @@ package server
 //       })
 //   }
 //
-// Access: http://localhost:8090/api/docs/json
+// Access: http://localhost:8090/api/docs/openapi
 
 import (
 	"net/http"
@@ -47,12 +47,13 @@ type APIEndpoint struct {
 
 // APIDocs holds all API documentation
 type APIDocs struct {
-	Title       string        `json:"title"`
-	Version     string        `json:"version"`
-	Description string        `json:"description"`
-	BaseURL     string        `json:"base_url"`
-	Endpoints   []APIEndpoint `json:"endpoints"`
-	Generated   string        `json:"generated_at"`
+	Title       string                 `json:"title"`
+	Version     string                 `json:"version"`
+	Description string                 `json:"description"`
+	BaseURL     string                 `json:"base_url"`
+	Endpoints   []APIEndpoint          `json:"endpoints"`
+	Generated   string                 `json:"generated_at"`
+	Components  map[string]interface{} `json:"components,omitempty"`
 }
 
 // APIRegistry manages automatic API endpoint documentation
@@ -63,17 +64,7 @@ type APIRegistry struct {
 	enabled   bool
 }
 
-// RouterWrapper holds the router and registry for automatic documentation
-type RouterWrapper struct {
-	router interface {
-		GET(string, func(*core.RequestEvent) error) interface{}
-		POST(string, func(*core.RequestEvent) error) interface{}
-		PATCH(string, func(*core.RequestEvent) error) interface{}
-		PUT(string, func(*core.RequestEvent) error) interface{}
-		DELETE(string, func(*core.RequestEvent) error) interface{}
-	}
-	registry *APIRegistry
-}
+// RouterWrapper is deprecated - use AutoAPIRouter instead
 
 // NewAPIRegistry creates a new automatic API documentation registry
 func NewAPIRegistry() *APIRegistry {
@@ -84,6 +75,7 @@ func NewAPIRegistry() *APIRegistry {
 			Description: "Automatically discovered API endpoints",
 			BaseURL:     "/api",
 			Endpoints:   []APIEndpoint{},
+			Components:  make(map[string]interface{}),
 		},
 		endpoints: make(map[string]APIEndpoint),
 		enabled:   true,
@@ -97,49 +89,7 @@ func (r *APIRegistry) EnableAutoDiscovery(enabled bool) {
 	r.enabled = enabled
 }
 
-// WrapRouter creates a wrapper for the router with automatic documentation
-func (r *APIRegistry) WrapRouter(router interface {
-	GET(string, func(*core.RequestEvent) error) interface{}
-	POST(string, func(*core.RequestEvent) error) interface{}
-	PATCH(string, func(*core.RequestEvent) error) interface{}
-	PUT(string, func(*core.RequestEvent) error) interface{}
-	DELETE(string, func(*core.RequestEvent) error) interface{}
-}) *RouterWrapper {
-	return &RouterWrapper{
-		router:   router,
-		registry: r,
-	}
-}
-
-// GET intercepts GET route registration
-func (rw *RouterWrapper) GET(path string, handler func(*core.RequestEvent) error) {
-	rw.router.GET(path, handler)
-	rw.registry.autoRegisterRoute("GET", path, handler)
-}
-
-// POST intercepts POST route registration
-func (rw *RouterWrapper) POST(path string, handler func(*core.RequestEvent) error) {
-	rw.router.POST(path, handler)
-	rw.registry.autoRegisterRoute("POST", path, handler)
-}
-
-// PATCH intercepts PATCH route registration
-func (rw *RouterWrapper) PATCH(path string, handler func(*core.RequestEvent) error) {
-	rw.router.PATCH(path, handler)
-	rw.registry.autoRegisterRoute("PATCH", path, handler)
-}
-
-// PUT intercepts PUT route registration
-func (rw *RouterWrapper) PUT(path string, handler func(*core.RequestEvent) error) {
-	rw.router.PUT(path, handler)
-	rw.registry.autoRegisterRoute("PUT", path, handler)
-}
-
-// DELETE intercepts DELETE route registration
-func (rw *RouterWrapper) DELETE(path string, handler func(*core.RequestEvent) error) {
-	rw.router.DELETE(path, handler)
-	rw.registry.autoRegisterRoute("DELETE", path, handler)
-}
+// WrapRouter is deprecated - use EnableAutoDocumentation instead
 
 // autoRegisterRoute automatically analyzes and registers a route
 func (r *APIRegistry) autoRegisterRoute(method, path string, handler func(*core.RequestEvent) error) {
@@ -160,9 +110,31 @@ func (r *APIRegistry) autoRegisterRoute(method, path string, handler func(*core.
 		Handler:     r.getHandlerName(handler),
 	}
 
-	// Try to extract request/response schemas using reflection
-	endpoint.Request = r.analyzeRequestSchema(handler)
-	endpoint.Response = r.analyzeResponseSchema(handler)
+	// Use advanced schema analysis - prioritize path-based analysis first
+	handlerName := r.getHandlerName(handler)
+	schemaAnalyzer := GetSchemaAnalyzer()
+
+	// Start with path-based analysis (most accurate)
+	reqSchema, respSchema := r.analyzeSchemaFromPath(method, path)
+	endpoint.Request = reqSchema
+	endpoint.Response = respSchema
+
+	// Enhance with handler-based analysis if empty
+	if endpoint.Request == nil {
+		if schema := r.analyzeRequestSchema(handler); schema != nil {
+			endpoint.Request = schema
+		} else if schema := schemaAnalyzer.AnalyzeRequestSchema(handlerName, path); schema != nil {
+			endpoint.Request = schema
+		}
+	}
+
+	if endpoint.Response == nil {
+		if schema := r.analyzeResponseSchema(handler); schema != nil {
+			endpoint.Response = schema
+		} else if schema := schemaAnalyzer.AnalyzeResponseSchema(handlerName, path); schema != nil {
+			endpoint.Response = schema
+		}
+	}
 
 	key := endpoint.Method + ":" + endpoint.Path
 	r.endpoints[key] = endpoint
@@ -172,7 +144,9 @@ func (r *APIRegistry) autoRegisterRoute(method, path string, handler func(*core.
 // generateDescription creates a human-readable description from path and handler
 func (r *APIRegistry) generateDescription(method, path string, handler func(*core.RequestEvent) error) string {
 	// First try to get description from handler function name
+	// Generate description based on handler function name and path
 	handlerName := r.getHandlerName(handler)
+
 	if desc := r.descriptionFromHandlerName(handlerName); desc != "" {
 		return desc
 	}
@@ -283,26 +257,46 @@ func (r *APIRegistry) descriptionFromPath(method, path string) string {
 
 // detectAuthRequirement analyzes path to determine if authentication is required
 func (r *APIRegistry) detectAuthRequirement(path string) bool {
-	// Check for common auth-related paths
+	pathLower := strings.ToLower(path)
+
+	// PocketBase admin routes always require superuser auth
+	if strings.HasPrefix(pathLower, "/api/admins") ||
+		strings.HasPrefix(pathLower, "/api/settings") ||
+		strings.HasPrefix(pathLower, "/api/logs") ||
+		strings.HasPrefix(pathLower, "/api/health") {
+		return true
+	}
+
+	// File routes typically require auth
+	if strings.HasPrefix(pathLower, "/api/files") {
+		return true
+	}
+
+	// Common auth-related path patterns
 	authIndicators := []string{
 		"/auth/",
 		"/admin/",
 		"/protected/",
 		"/user/",
+		"/users/",
 		"/account/",
 		"/profile/",
 		"/settings/",
+		"/dashboard/",
+		"/private/",
 	}
 
-	pathLower := strings.ToLower(path)
 	for _, indicator := range authIndicators {
 		if strings.Contains(pathLower, indicator) {
 			return true
 		}
 	}
 
-	// Collections with users typically require auth for non-GET operations
-	if strings.Contains(pathLower, "/collections/") && strings.Contains(pathLower, "/records") {
+	// PocketBase collection records - most operations require some form of auth
+	// except for public GET operations which depend on collection rules
+	if strings.Contains(pathLower, "/api/collections/") && strings.Contains(pathLower, "/records") {
+		// More nuanced: assume auth required for most collection operations
+		// This can be overridden by middleware detection
 		return true
 	}
 
@@ -345,7 +339,7 @@ func (r *APIRegistry) generateTags(path string) []string {
 		}
 	}
 
-	// Add special tags based on path patterns
+	// Add special tags based on PocketBase path patterns
 	pathLower := strings.ToLower(path)
 	if strings.Contains(pathLower, "auth") || strings.Contains(pathLower, "login") || strings.Contains(pathLower, "register") {
 		tags = append(tags, "authentication")
@@ -353,11 +347,20 @@ func (r *APIRegistry) generateTags(path string) []string {
 	if strings.Contains(pathLower, "user") || strings.Contains(pathLower, "profile") || strings.Contains(pathLower, "account") {
 		tags = append(tags, "users")
 	}
-	if strings.Contains(pathLower, "admin") {
+	if strings.Contains(pathLower, "admin") || strings.Contains(pathLower, "superuser") {
 		tags = append(tags, "admin")
 	}
-	if strings.Contains(pathLower, "collection") {
+	if strings.Contains(pathLower, "collection") || strings.Contains(pathLower, "/records") {
 		tags = append(tags, "collections")
+	}
+	if strings.Contains(pathLower, "file") {
+		tags = append(tags, "files")
+	}
+	if strings.Contains(pathLower, "setting") {
+		tags = append(tags, "settings")
+	}
+	if strings.Contains(pathLower, "log") {
+		tags = append(tags, "logs")
 	}
 
 	// Ensure we have at least one tag
@@ -370,16 +373,442 @@ func (r *APIRegistry) generateTags(path string) []string {
 
 // analyzeRequestSchema attempts to extract request schema using reflection
 func (r *APIRegistry) analyzeRequestSchema(handler func(*core.RequestEvent) error) map[string]interface{} {
-	// This is a simplified version - in a full implementation you might
-	// analyze the handler function body or use static analysis
-	return nil // For now, return nil - could be enhanced with more sophisticated analysis
+	if handler == nil {
+		return nil
+	}
+
+	// Get handler information for analysis
+	handlerName := r.getHandlerName(handler)
+
+	// Skip path-based analysis here to avoid infinite recursion
+
+	// Generate schema based on handler name patterns and common REST patterns
+	schema := r.generateRequestSchemaFromPattern(handlerName)
+
+	if schema != nil {
+		return schema
+	}
+
+	// For GET requests, usually no request body needed
+	return nil
 }
 
 // analyzeResponseSchema attempts to extract response schema using reflection
 func (r *APIRegistry) analyzeResponseSchema(handler func(*core.RequestEvent) error) map[string]interface{} {
-	// This is a simplified version - in a full implementation you might
-	// analyze the handler function body or use static analysis
-	return nil // For now, return nil - could be enhanced with more sophisticated analysis
+	if handler == nil {
+		return nil
+	}
+
+	// Get handler information for analysis
+	handlerName := r.getHandlerName(handler)
+
+	// Skip path-based analysis here to avoid infinite recursion
+
+	// Generate schema based on handler name patterns and common REST patterns
+	schema := r.generateResponseSchemaFromPattern(handlerName)
+
+	if schema != nil {
+		return schema
+	}
+
+	// Return generic response schema for unrecognized patterns
+	return r.getGenericResponseSchema()
+}
+
+// generateRequestSchemaFromPattern creates request schema based on handler name patterns
+func (r *APIRegistry) generateRequestSchemaFromPattern(handlerName string) map[string]interface{} {
+	lowerName := strings.ToLower(handlerName)
+
+	// Login/Auth patterns
+	if strings.Contains(lowerName, "login") || strings.Contains(lowerName, "signin") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"identity": map[string]interface{}{
+					"type":        "string",
+					"description": "Email or username",
+					"example":     "user@example.com",
+				},
+				"password": map[string]interface{}{
+					"type":        "string",
+					"description": "User password",
+					"example":     "password123",
+				},
+			},
+			"required": []string{"identity", "password"},
+		}
+	}
+
+	// Register/Signup patterns
+	if strings.Contains(lowerName, "register") || strings.Contains(lowerName, "signup") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"email": map[string]interface{}{
+					"type":    "string",
+					"format":  "email",
+					"example": "user@example.com",
+				},
+				"password": map[string]interface{}{
+					"type":      "string",
+					"minLength": 6,
+					"example":   "password123",
+				},
+				"passwordConfirm": map[string]interface{}{
+					"type":    "string",
+					"example": "password123",
+				},
+			},
+			"required": []string{"email", "password", "passwordConfirm"},
+		}
+	}
+
+	// Create patterns
+	if strings.Contains(lowerName, "create") || strings.Contains(lowerName, "add") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"data": map[string]interface{}{
+					"type":                 "object",
+					"description":          "Record data to create",
+					"additionalProperties": true,
+				},
+			},
+			"required": []string{"data"},
+		}
+	}
+
+	// Update patterns
+	if strings.Contains(lowerName, "update") || strings.Contains(lowerName, "patch") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"data": map[string]interface{}{
+					"type":                 "object",
+					"description":          "Record data to update",
+					"additionalProperties": true,
+				},
+			},
+		}
+	}
+
+	// File upload patterns
+	if strings.Contains(lowerName, "upload") || strings.Contains(lowerName, "file") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"file": map[string]interface{}{
+					"type":        "string",
+					"format":      "binary",
+					"description": "File to upload",
+				},
+			},
+			"required": []string{"file"},
+		}
+	}
+
+	return nil
+}
+
+// generateResponseSchemaFromPattern creates response schema based on handler name patterns
+func (r *APIRegistry) generateResponseSchemaFromPattern(handlerName string) map[string]interface{} {
+	lowerName := strings.ToLower(handlerName)
+
+	// Health check patterns
+	if strings.Contains(lowerName, "health") || strings.Contains(lowerName, "status") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"status": map[string]interface{}{
+					"type":    "string",
+					"enum":    []string{"ok", "error"},
+					"example": "ok",
+				},
+				"timestamp": map[string]interface{}{
+					"type":    "string",
+					"format":  "date-time",
+					"example": "2024-01-01T00:00:00Z",
+				},
+			},
+		}
+	}
+
+	// Login/Auth patterns
+	if strings.Contains(lowerName, "login") || strings.Contains(lowerName, "signin") || strings.Contains(lowerName, "auth") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"token": map[string]interface{}{
+					"type":        "string",
+					"description": "JWT authentication token",
+					"example":     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+				},
+				"record": map[string]interface{}{
+					"type":        "object",
+					"description": "Authenticated user record",
+					"properties": map[string]interface{}{
+						"id": map[string]interface{}{
+							"type":    "string",
+							"example": "k5r4y36w2hgzm7p",
+						},
+						"email": map[string]interface{}{
+							"type":    "string",
+							"example": "user@example.com",
+						},
+						"verified": map[string]interface{}{
+							"type":    "boolean",
+							"example": true,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	// List patterns
+	if strings.Contains(lowerName, "list") || strings.Contains(lowerName, "get") && strings.Contains(lowerName, "all") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"page": map[string]interface{}{
+					"type":    "integer",
+					"example": 1,
+				},
+				"perPage": map[string]interface{}{
+					"type":    "integer",
+					"example": 30,
+				},
+				"totalItems": map[string]interface{}{
+					"type":    "integer",
+					"example": 100,
+				},
+				"totalPages": map[string]interface{}{
+					"type":    "integer",
+					"example": 4,
+				},
+				"items": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"id": map[string]interface{}{
+								"type":    "string",
+								"example": "k5r4y36w2hgzm7p",
+							},
+							"created": map[string]interface{}{
+								"type":    "string",
+								"format":  "date-time",
+								"example": "2024-01-01T00:00:00Z",
+							},
+							"updated": map[string]interface{}{
+								"type":    "string",
+								"format":  "date-time",
+								"example": "2024-01-01T00:00:00Z",
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	// Single record patterns
+	if strings.Contains(lowerName, "get") || strings.Contains(lowerName, "show") || strings.Contains(lowerName, "find") {
+		return r.getSingleRecordSchema()
+	}
+
+	// Create patterns
+	if strings.Contains(lowerName, "create") || strings.Contains(lowerName, "add") {
+		return r.getSingleRecordSchema()
+	}
+
+	// Update patterns
+	if strings.Contains(lowerName, "update") || strings.Contains(lowerName, "patch") {
+		return r.getSingleRecordSchema()
+	}
+
+	// Delete patterns
+	if strings.Contains(lowerName, "delete") || strings.Contains(lowerName, "remove") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"success": map[string]interface{}{
+					"type":    "boolean",
+					"example": true,
+				},
+			},
+		}
+	}
+
+	// Time/Clock patterns
+	if strings.Contains(lowerName, "time") || strings.Contains(lowerName, "clock") {
+		return map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"time": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"iso": map[string]interface{}{
+							"type":        "string",
+							"format":      "date-time",
+							"description": "ISO 8601 formatted time",
+							"example":     "2024-01-01T00:00:00Z",
+						},
+						"unix": map[string]interface{}{
+							"type":        "string",
+							"description": "Unix timestamp",
+							"example":     "1704067200",
+						},
+						"unix_nano": map[string]interface{}{
+							"type":        "string",
+							"description": "Unix timestamp in nanoseconds",
+							"example":     "1704067200000000000",
+						},
+						"utc": map[string]interface{}{
+							"type":        "string",
+							"description": "UTC formatted time",
+							"example":     "2024-01-01T00:00:00Z",
+						},
+					},
+				},
+			},
+		}
+	}
+
+	return nil
+}
+
+// getSingleRecordSchema returns a generic single record response schema
+func (r *APIRegistry) getSingleRecordSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"id": map[string]interface{}{
+				"type":    "string",
+				"example": "k5r4y36w2hgzm7p",
+			},
+			"created": map[string]interface{}{
+				"type":    "string",
+				"format":  "date-time",
+				"example": "2024-01-01T00:00:00Z",
+			},
+			"updated": map[string]interface{}{
+				"type":    "string",
+				"format":  "date-time",
+				"example": "2024-01-01T00:00:00Z",
+			},
+		},
+		"additionalProperties": true,
+	}
+}
+
+// getGenericRequestSchema returns a generic request schema
+func (r *APIRegistry) getGenericRequestSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":                 "object",
+		"description":          "Request body",
+		"additionalProperties": true,
+	}
+}
+
+// getGenericResponseSchema returns a generic response schema
+func (r *APIRegistry) getGenericResponseSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":                 "object",
+		"description":          "Response data",
+		"additionalProperties": true,
+	}
+}
+
+// analyzeSchemaFromPath generates schema based on URL path patterns
+func (r *APIRegistry) analyzeSchemaFromPath(method, path string) (map[string]interface{}, map[string]interface{}) {
+	var requestSchema, responseSchema map[string]interface{}
+
+	pathLower := strings.ToLower(path)
+	methodUpper := strings.ToUpper(method)
+
+	// Collection record operations
+	if strings.Contains(pathLower, "/collections/") && strings.Contains(pathLower, "/records") {
+		switch methodUpper {
+		case "GET":
+			if strings.Contains(path, "{id}") || strings.Contains(path, ":id") {
+				responseSchema = r.getSingleRecordSchema()
+			} else {
+				responseSchema = map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"page":       map[string]interface{}{"type": "integer", "example": 1},
+						"perPage":    map[string]interface{}{"type": "integer", "example": 30},
+						"totalItems": map[string]interface{}{"type": "integer", "example": 100},
+						"totalPages": map[string]interface{}{"type": "integer", "example": 4},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": r.getSingleRecordSchema(),
+						},
+					},
+				}
+			}
+		case "POST":
+			requestSchema = map[string]interface{}{
+				"type":                 "object",
+				"additionalProperties": true,
+				"description":          "Record data to create",
+			}
+			responseSchema = r.getSingleRecordSchema()
+		case "PATCH", "PUT":
+			requestSchema = map[string]interface{}{
+				"type":                 "object",
+				"additionalProperties": true,
+				"description":          "Record data to update",
+			}
+			responseSchema = r.getSingleRecordSchema()
+		case "DELETE":
+			responseSchema = map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"success": map[string]interface{}{"type": "boolean", "example": true},
+				},
+			}
+		}
+	}
+
+	// Auth endpoints
+	if strings.Contains(pathLower, "auth") {
+		if strings.Contains(pathLower, "login") || strings.Contains(pathLower, "signin") {
+			requestSchema = map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"identity": map[string]interface{}{"type": "string", "example": "user@example.com"},
+					"password": map[string]interface{}{"type": "string", "example": "password123"},
+				},
+				"required": []string{"identity", "password"},
+			}
+			responseSchema = map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"token":  map[string]interface{}{"type": "string"},
+					"record": r.getSingleRecordSchema(),
+				},
+			}
+		}
+	}
+
+	return requestSchema, responseSchema
+}
+
+// enhanceEndpointWithPathAnalysis enhances endpoint with path-based schema analysis
+func (r *APIRegistry) enhanceEndpointWithPathAnalysis(endpoint *APIEndpoint) {
+	if endpoint.Request == nil || endpoint.Response == nil {
+		reqSchema, respSchema := r.analyzeSchemaFromPath(endpoint.Method, endpoint.Path)
+
+		if endpoint.Request == nil && reqSchema != nil {
+			endpoint.Request = reqSchema
+		}
+
+		if endpoint.Response == nil && respSchema != nil {
+			endpoint.Response = respSchema
+		}
+	}
 }
 
 // GetDocs returns the complete API documentation
@@ -387,9 +816,106 @@ func (r *APIRegistry) GetDocs() *APIDocs {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	// Update generated timestamp
+	return r.getEnhancedDocs()
+}
+
+// GetDocsWithComponents returns API documentation with schema components
+func (r *APIRegistry) GetDocsWithComponents() *APIDocs {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	docs := r.getEnhancedDocs()
+	docs.Components = r.generateComponents()
+	return docs
+}
+
+// getEnhancedDocs returns enhanced documentation (internal method, must be called with lock)
+func (r *APIRegistry) getEnhancedDocs() *APIDocs {
+	// Update generated timestamp and enhance endpoints
 	r.docs.Generated = "runtime"
+
+	// Enhance endpoints with additional analysis
+	for i := range r.docs.Endpoints {
+		r.enhanceEndpointWithPathAnalysis(&r.docs.Endpoints[i])
+	}
+
 	return r.docs
+}
+
+// generateComponents creates schema components for the API documentation
+func (r *APIRegistry) generateComponents() map[string]interface{} {
+	schemaComponents := GetSchemaComponents()
+
+	return map[string]interface{}{
+		"schemas": schemaComponents.GetCommonSchemas(),
+		"responses": map[string]interface{}{
+			"ErrorResponse": map[string]interface{}{
+				"description": "Error response",
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"$ref": "#/components/schemas/ErrorResponse",
+						},
+					},
+				},
+			},
+			"SuccessResponse": map[string]interface{}{
+				"description": "Success response",
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"success": map[string]interface{}{
+									"type":    "boolean",
+									"example": true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"parameters": map[string]interface{}{
+			"PageParam": map[string]interface{}{
+				"name":        "page",
+				"in":          "query",
+				"description": "Page number for pagination",
+				"schema": map[string]interface{}{
+					"type":    "integer",
+					"minimum": 1,
+					"default": 1,
+				},
+			},
+			"PerPageParam": map[string]interface{}{
+				"name":        "perPage",
+				"in":          "query",
+				"description": "Number of items per page",
+				"schema": map[string]interface{}{
+					"type":    "integer",
+					"minimum": 1,
+					"maximum": 500,
+					"default": 30,
+				},
+			},
+			"RecordIdParam": map[string]interface{}{
+				"name":        "id",
+				"in":          "path",
+				"required":    true,
+				"description": "Record identifier",
+				"schema": map[string]interface{}{
+					"type": "string",
+				},
+			},
+		},
+		"securitySchemes": map[string]interface{}{
+			"bearerAuth": map[string]interface{}{
+				"type":         "http",
+				"scheme":       "bearer",
+				"bearerFormat": "JWT",
+			},
+		},
+	}
 }
 
 // rebuildEndpoints rebuilds the endpoints slice from the map (must be called with lock held)
@@ -422,50 +948,16 @@ func GetGlobalRegistry() *APIRegistry {
 func (s *Server) RegisterAPIDocsRoutes(e *core.ServeEvent) {
 	registry := globalAPIRegistry
 
-	// JSON API documentation endpoint
-	e.Router.GET("/api/docs/json", func(c *core.RequestEvent) error {
-		docs := registry.GetDocs()
+	// OpenAPI documentation endpoint with components - NOT auto-documented
+	e.Router.GET("/api/docs/openapi", func(c *core.RequestEvent) error {
+		docs := registry.GetDocsWithComponents()
 		return c.JSON(http.StatusOK, docs)
 	})
-
-	// Auto-register some built-in routes for demonstration
-	s.registerBuiltinRoutes()
 }
 
-// registerBuiltinRoutes automatically documents some standard routes
+// registerBuiltinRoutes is completely removed - only user routes are documented
 func (s *Server) registerBuiltinRoutes() {
-	registry := globalAPIRegistry
-
-	// Health check endpoint
-	registry.autoRegisterRoute("GET", "/api/health", func(c *core.RequestEvent) error {
-		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
-	})
-
-	// API Documentation JSON endpoint
-	registry.autoRegisterRoute("GET", "/api/docs/json", func(c *core.RequestEvent) error {
-		return nil // JSON API documentation endpoint
-	})
-
-	// Standard PocketBase collection routes (examples)
-	registry.autoRegisterRoute("GET", "/api/collections/{collection}/records", func(c *core.RequestEvent) error {
-		return nil // List collection records
-	})
-
-	registry.autoRegisterRoute("POST", "/api/collections/{collection}/records", func(c *core.RequestEvent) error {
-		return nil // Create collection record
-	})
-
-	registry.autoRegisterRoute("GET", "/api/collections/{collection}/records/{id}", func(c *core.RequestEvent) error {
-		return nil // Get specific collection record
-	})
-
-	registry.autoRegisterRoute("PATCH", "/api/collections/{collection}/records/{id}", func(c *core.RequestEvent) error {
-		return nil // Update collection record
-	})
-
-	registry.autoRegisterRoute("DELETE", "/api/collections/{collection}/records/{id}", func(c *core.RequestEvent) error {
-		return nil // Delete collection record
-	})
+	// Intentionally empty - we only document user-registered routes
 }
 
 // AutoRegisterRoute can be used to manually register routes that bypass normal registration
