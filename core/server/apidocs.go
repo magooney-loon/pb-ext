@@ -4,14 +4,29 @@ package server
 //
 // This module provides automatic runtime discovery and documentation of API routes.
 //
-//
 // Usage:
+//   // API_SOURCE
+//
 //   func registerRoutes(app core.App) {
 //       app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 //           router := server.EnableAutoDocumentation(e)
-//           router.GET("/api/users", getUsersHandler)  // Auto-documented!
+//         	 router.GET("/api/time", timeHandler)  // Auto-documented!
 //           return e.Next()
 //       })
+//   }
+//
+//   // API_DESC Current server time
+//   // API_TAGS server,time,unix
+//   func timeHandler(c *core.RequestEvent) error {
+//	   now := time.Now()
+//	   return c.JSON(http.StatusOK, map[string]any{
+//		   "time": map[string]string{
+//			   "iso":       now.Format(time.RFC3339),
+//			   "unix":      strconv.FormatInt(now.Unix(), 10),
+//			   "unix_nano": strconv.FormatInt(now.UnixNano(), 10),
+//			   "utc":       now.UTC().Format(time.RFC3339),
+//		   },
+//	   })
 //   }
 //
 // Access: http://localhost:8090/api/docs/openapi

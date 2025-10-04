@@ -30,6 +30,8 @@ The dashboard utilizes PocketBase's superuser authentication system, ensuring th
 ```go
 package main
 
+// API_SOURCE
+
 import (
 	app "github.com/magooney-loon/pb-ext/core"
 	"github.com/pocketbase/pocketbase/core"
@@ -73,6 +75,32 @@ func initApp(devMode bool) {
 		)
 		log.Fatal(err)
 	}
+}
+
+func registerRoutes(pbApp core.App) {
+	pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		router := app.EnableAutoDocumentation(e)
+
+		// Files marked with API_SOURCE directive are automatically discovered for AST parsing
+
+		router.GET("/api/time", timeHandler)
+
+		return e.Next()
+	})
+}
+
+// API_DESC Current server time
+// API_TAGS server,time,unix
+func timeHandler(c *core.RequestEvent) error {
+	now := time.Now()
+	return c.JSON(http.StatusOK, map[string]any{
+		"time": map[string]string{
+			"iso":       now.Format(time.RFC3339),
+			"unix":      strconv.FormatInt(now.Unix(), 10),
+			"unix_nano": strconv.FormatInt(now.UnixNano(), 10),
+			"utc":       now.UTC().Format(time.RFC3339),
+		},
+	})
 }
 
 // Check cmd/server/main.go

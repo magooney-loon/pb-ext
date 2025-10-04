@@ -71,7 +71,6 @@ func registerRoutes(pbApp core.App) {
 		router := app.EnableAutoDocumentation(e)
 
 		// Files marked with API_SOURCE directive are automatically discovered for AST parsing
-		// This file is marked with the directive at the top, so handlers here will be parsed
 
 		router.GET("/api/time", timeHandler)
 		router.GET("/api/hello-auth", helloAuthHandler).Bind(apis.RequireAuth())
