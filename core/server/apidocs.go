@@ -118,16 +118,16 @@ func (r *APIRegistry) autoRegisterRoute(method, path string, handler func(*core.
 		Handler:     r.getHandlerName(handler),
 	}
 
-	// Use advanced schema analysis - prioritize path-based analysis first
+	// Use schema analysis to set initial schemas
 	handlerName := r.getHandlerName(handler)
 	schemaAnalyzer := GetSchemaAnalyzer()
 
-	// Start with path-based analysis (most accurate)
+	// Start with path-based analysis
 	reqSchema, respSchema := r.analyzeSchemaFromPath(method, path)
 	endpoint.Request = reqSchema
 	endpoint.Response = respSchema
 
-	// Enhance with handler-based analysis if empty
+	// Enhance with handler-based analysis if still empty
 	if endpoint.Request == nil {
 		if schema := r.analyzeRequestSchema(handler); schema != nil {
 			endpoint.Request = schema
@@ -144,7 +144,7 @@ func (r *APIRegistry) autoRegisterRoute(method, path string, handler func(*core.
 		}
 	}
 
-	// Enhance with AST parsing (highest priority)
+	// Final step: AST enhancement with absolute authority - this overrides everything above
 	r.EnhanceEndpointWithAST(&endpoint)
 
 	key := endpoint.Method + ":" + endpoint.Path
@@ -850,13 +850,13 @@ func (r *APIRegistry) GetDocsWithComponents() *APIDocs {
 
 // getEnhancedDocs returns enhanced documentation (internal method, must be called with lock)
 func (r *APIRegistry) getEnhancedDocs() *APIDocs {
-	// Update generated timestamp and enhance endpoints
+	// Update generated timestamp
 	r.docs.Generated = "runtime"
 
-	// Enhance endpoints with additional analysis
-	for i := range r.docs.Endpoints {
-		r.enhanceEndpointWithPathAnalysis(&r.docs.Endpoints[i])
-	}
+	// Skip additional path analysis enhancement since AST enhancement provides better results
+	// for i := range r.docs.Endpoints {
+	//     r.enhanceEndpointWithPathAnalysis(&r.docs.Endpoints[i])
+	// }
 
 	return r.docs
 }
@@ -988,11 +988,33 @@ func (r *APIRegistry) initializeASTParser() {
 		return
 	}
 
-	// Parse main.go file (this could be made configurable)
-	err := r.astParser.ParseFile("cmd/server/main.go")
-	if err != nil {
-		// Silently continue if parsing fails - fall back to pattern matching
-		return
+	// Try different possible paths for main.go
+	possiblePaths := []string{
+		"cmd/server/main.go",
+		"main.go",
+		"./cmd/server/main.go",
+		"./main.go",
+	}
+
+	var lastErr error
+	parsed := false
+
+	for _, path := range possiblePaths {
+		err := r.astParser.ParseFile(path)
+		if err == nil {
+			parsed = true
+			// Debug: log successful parsing
+			if handler, exists := r.astParser.GetHandlerByName("createUserHandler"); exists {
+				_ = handler // Successfully found handler
+			}
+			break
+		}
+		lastErr = err
+	}
+
+	if !parsed && lastErr != nil {
+		// Debug: Could add logging here if needed
+		_ = lastErr // Fall back to pattern matching
 	}
 }
 

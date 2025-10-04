@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -336,32 +337,55 @@ func (p *ASTParser) parseHandler(funcDecl *ast.FuncDecl, packageName string) *AS
 
 // analyzeHandlerBody analyzes handler function body to extract request/response info
 func (p *ASTParser) analyzeHandlerBody(handlerInfo *ASTHandlerInfo, body *ast.BlockStmt) {
+	// First pass: collect all variable declarations and their types
+	variables := make(map[string]string)
+
+	// Collect variable declarations
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch node := n.(type) {
-		case *ast.AssignStmt:
-			// Look for variable declarations like: var req CreateUserRequest
-			if len(node.Lhs) == 1 && len(node.Rhs) == 1 {
-				if ident, ok := node.Lhs[0].(*ast.Ident); ok {
-					if ident.Name == "req" {
-						// Found request variable
-						if typeInfo := p.typeToString(node.Rhs[0]); typeInfo != "" {
-							handlerInfo.RequestType = typeInfo
+		case *ast.DeclStmt:
+			if genDecl, ok := node.Decl.(*ast.GenDecl); ok && genDecl.Tok == token.VAR {
+				for _, spec := range genDecl.Specs {
+					if valueSpec, ok := spec.(*ast.ValueSpec); ok {
+						for _, name := range valueSpec.Names {
+							if valueSpec.Type != nil {
+								varType := p.typeToString(valueSpec.Type)
+								variables[name.Name] = varType
+							}
 						}
 					}
 				}
 			}
+		case *ast.AssignStmt:
+			// Handle short variable declarations with types
+			if len(node.Lhs) == 1 && len(node.Rhs) == 1 {
+				if ident, ok := node.Lhs[0].(*ast.Ident); ok {
+					// Look for composite literal with type
+					if compLit, ok := node.Rhs[0].(*ast.CompositeLit); ok && compLit.Type != nil {
+						varType := p.typeToString(compLit.Type)
+						variables[ident.Name] = varType
+					}
+				}
+			}
+		}
+		return true
+	})
 
+	// Second pass: analyze function calls and usage
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch node := n.(type) {
 		case *ast.CallExpr:
 			// Look for JSON decode calls
 			if selectorExpr, ok := node.Fun.(*ast.SelectorExpr); ok {
 				if p.isJSONDecodeCall(selectorExpr) {
 					handlerInfo.UsesJSONDecode = true
-					// Try to extract request type from decode call
-					if len(node.Args) > 1 {
-						if unaryExpr, ok := node.Args[1].(*ast.UnaryExpr); ok {
+					// Extract request type from decode call - Decode method has 1 argument (&req)
+					if len(node.Args) > 0 {
+						if unaryExpr, ok := node.Args[0].(*ast.UnaryExpr); ok {
 							if ident, ok := unaryExpr.X.(*ast.Ident); ok {
-								// Look for the variable type in declarations
-								handlerInfo.RequestType = p.findVariableType(body, ident.Name)
+								if varType, exists := variables[ident.Name]; exists {
+									handlerInfo.RequestType = varType
+								}
 							}
 						}
 					}
@@ -372,9 +396,9 @@ func (p *ASTParser) analyzeHandlerBody(handlerInfo *ASTHandlerInfo, body *ast.Bl
 			if selectorExpr, ok := node.Fun.(*ast.SelectorExpr); ok {
 				if p.isJSONResponseCall(selectorExpr) {
 					handlerInfo.UsesJSONReturn = true
-					// Try to extract response type
+					// Extract response type from c.JSON call
 					if len(node.Args) > 1 {
-						responseType := p.inferResponseType(node.Args[1])
+						responseType := p.analyzeResponseArgument(node.Args[1], variables)
 						if responseType != "" {
 							handlerInfo.ResponseType = responseType
 						}
@@ -423,13 +447,29 @@ func (p *ASTParser) isJSONDecodeCall(selectorExpr *ast.SelectorExpr) bool {
 		return false
 	}
 
+	// Handle chained method calls like json.NewDecoder(...).Decode(...)
 	if callExpr, ok := selectorExpr.X.(*ast.CallExpr); ok {
 		if selectorExpr2, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
 			if ident, ok := selectorExpr2.X.(*ast.Ident); ok {
-				return ident.Name == "json" && selectorExpr2.Sel.Name == "NewDecoder"
+				// Check for json.NewDecoder pattern
+				if ident.Name == "json" && selectorExpr2.Sel.Name == "NewDecoder" {
+					return true
+				}
+			}
+			// Also check for imported json package with alias
+			if _, ok := selectorExpr2.X.(*ast.Ident); ok && selectorExpr2.Sel.Name == "NewDecoder" {
+				// Could be an imported json package
+				return true
 			}
 		}
 	}
+
+	// Additional check for direct method calls on json decoder
+	if ident, ok := selectorExpr.X.(*ast.Ident); ok {
+		// This might be a decoder variable directly calling Decode
+		return strings.Contains(strings.ToLower(ident.Name), "decoder")
+	}
+
 	return false
 }
 
@@ -453,8 +493,17 @@ func (p *ASTParser) isQueryParamCall(selectorExpr *ast.SelectorExpr) bool {
 		return false
 	}
 
-	// This is a simplified check - could be more sophisticated
-	return true
+	// Check if it's a query parameter call by looking for URL.Query().Get() pattern
+	if callExpr, ok := selectorExpr.X.(*ast.CallExpr); ok {
+		if selectorExpr2, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
+			if selectorExpr2.Sel.Name == "Query" {
+				if selectorExpr3, ok := selectorExpr2.X.(*ast.SelectorExpr); ok {
+					return selectorExpr3.Sel.Name == "URL"
+				}
+			}
+		}
+	}
+	return false
 }
 
 // findVariableType finds the type of a variable in the function body
@@ -485,20 +534,40 @@ func (p *ASTParser) findVariableType(body *ast.BlockStmt, varName string) string
 	return varType
 }
 
-// inferResponseType tries to infer response type from c.JSON call argument
-func (p *ASTParser) inferResponseType(arg ast.Expr) string {
+// analyzeResponseArgument analyzes the argument passed to c.JSON to determine response type
+func (p *ASTParser) analyzeResponseArgument(arg ast.Expr, variables map[string]string) string {
 	switch node := arg.(type) {
 	case *ast.Ident:
+		// Variable reference - look up its type
+		if varType, exists := variables[node.Name]; exists {
+			return varType
+		}
 		return node.Name
 	case *ast.CompositeLit:
+		// Composite literal with explicit type
 		if node.Type != nil {
 			return p.typeToString(node.Type)
 		}
+		// Anonymous struct - try to infer from context
+		return ""
 	case *ast.CallExpr:
-		// Handle constructor calls
+		// Constructor call or function call
 		if ident, ok := node.Fun.(*ast.Ident); ok {
+			// Direct constructor call like UserResponse{...}
 			return ident.Name
 		}
+		if selectorExpr, ok := node.Fun.(*ast.SelectorExpr); ok {
+			// Method call like something.Build()
+			return p.typeToString(selectorExpr)
+		}
+	case *ast.UnaryExpr:
+		// Address-of expression &someVar
+		if node.Op == token.AND {
+			return p.analyzeResponseArgument(node.X, variables)
+		}
+	case *ast.SelectorExpr:
+		// Field access like obj.Field
+		return p.typeToString(node)
 	}
 	return ""
 }
@@ -708,30 +777,283 @@ func (p *ASTParser) GenerateAPISchema(handlerName string) (map[string]interface{
 }
 
 // Integration function for existing API docs system
+// EnhanceEndpoint enhances an endpoint using AST analysis
 func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) {
 	handlerName := endpoint.Handler
 
+	// Minimal debug
+	if handlerName == "createUserHandler" || handlerName == "updateUserHandler" || handlerName == "searchUsersHandler" {
+		fmt.Printf("AST: Processing %s %s -> %s\n", endpoint.Method, endpoint.Path, handlerName)
+	}
+
+	// GET and DELETE methods typically don't have request bodies
+	skipRequestProcessing := endpoint.Method == "GET" || endpoint.Method == "DELETE"
+	if skipRequestProcessing {
+		endpoint.Request = nil
+	}
+
 	if handler, exists := p.handlers[handlerName]; exists {
-		// Update request schema if available
-		if handler.RequestType != "" {
-			if structInfo, exists := p.structs[handler.RequestType]; exists {
+		// Update request schema - completely override existing schema if we have AST data
+		if !skipRequestProcessing && handler.RequestType != "" {
+			if structInfo := p.findStructByName(handler.RequestType); structInfo != nil && structInfo.JSONSchema != nil {
+				if handlerName == "createUserHandler" || handlerName == "updateUserHandler" || handlerName == "searchUsersHandler" {
+					fmt.Printf("AST: Replacing request schema with %s\n", handler.RequestType)
+				}
 				endpoint.Request = structInfo.JSONSchema
 			}
 		}
 
-		// Update response schema if available
+		// Update response schema - completely override existing schema if we have AST data
 		if handler.ResponseType != "" {
-			if structInfo, exists := p.structs[handler.ResponseType]; exists {
+			if structInfo := p.findStructByName(handler.ResponseType); structInfo != nil && structInfo.JSONSchema != nil {
 				endpoint.Response = structInfo.JSONSchema
 			}
 		}
+	}
 
-		// Add path parameters
-		for _, paramInfo := range handler.Parameters {
-			if paramInfo.Source == "path" {
-				// Path parameters are already detected by the existing system
-				continue
+	// Fallback: try to match based on handler name patterns only if no AST data found
+	if !skipRequestProcessing && endpoint.Request == nil {
+		if reqStruct := p.inferRequestStructFromHandler(handlerName, endpoint.Method); reqStruct != nil {
+			endpoint.Request = reqStruct.JSONSchema
+		}
+	}
+
+	if endpoint.Response == nil {
+		if respStruct := p.inferResponseStructFromHandler(handlerName, endpoint.Method); respStruct != nil {
+			endpoint.Response = respStruct.JSONSchema
+		}
+	}
+
+	// Debug: Show final endpoint state
+	if handlerName == "createUserHandler" || handlerName == "updateUserHandler" || handlerName == "searchUsersHandler" {
+		fmt.Printf("AST: FINAL STATE for %s:\n", handlerName)
+		if endpoint.Request != nil {
+			reqMap := endpoint.Request
+			if props, exists := reqMap["properties"]; exists {
+				if propsMap, ok := props.(map[string]interface{}); ok {
+					keys := make([]string, 0, len(propsMap))
+					for k := range propsMap {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+					fmt.Printf("AST:   Request properties: %v\n", keys)
+				}
+			}
+		} else {
+			fmt.Printf("AST: Final request: nil\n")
+		}
+		fmt.Println()
+	}
+}
+
+// cleanTypeName removes pointer prefixes and package prefixes from type names
+func (p *ASTParser) cleanTypeName(typeName string) string {
+	// Remove pointer prefix
+	typeName = strings.TrimPrefix(typeName, "*")
+
+	// Remove package prefix (e.g., "main.UserRequest" -> "UserRequest")
+	if dotIndex := strings.LastIndex(typeName, "."); dotIndex != -1 {
+		typeName = typeName[dotIndex+1:]
+	}
+
+	return typeName
+}
+
+// findStructByName finds a struct with fallback matching strategies
+func (p *ASTParser) findStructByName(typeName string) *StructInfo {
+	// Clean the type name first
+	cleanName := p.cleanTypeName(typeName)
+
+	// Direct match
+	if structInfo, exists := p.structs[cleanName]; exists {
+		return structInfo
+	}
+
+	// Try original name
+	if structInfo, exists := p.structs[typeName]; exists {
+		return structInfo
+	}
+
+	// Partial matching for common patterns
+	for structName, structInfo := range p.structs {
+		// Case-insensitive match
+		if strings.EqualFold(structName, cleanName) {
+			return structInfo
+		}
+
+		// Suffix matching (e.g., "CreateUserRequest" matches "UserRequest")
+		if strings.HasSuffix(structName, cleanName) {
+			return structInfo
+		}
+
+		// Prefix matching (e.g., "User" matches "UserRequest")
+		if strings.HasPrefix(structName, cleanName) {
+			return structInfo
+		}
+	}
+
+	return nil
+}
+
+// inferRequestStructFromHandler tries to infer request struct from handler name
+func (p *ASTParser) inferRequestStructFromHandler(handlerName, method string) *StructInfo {
+	// Extract base name from handler (e.g., "createUserHandler" -> "User")
+	baseName := p.extractBaseNameFromHandler(handlerName)
+	if baseName == "" {
+		return nil
+	}
+
+	// Try common request naming patterns
+	patterns := []string{
+		"Create" + baseName + "Request",
+		"Update" + baseName + "Request",
+		baseName + "Request",
+		"Create" + baseName,
+		"Update" + baseName,
+	}
+
+	for _, pattern := range patterns {
+		if structInfo := p.findStructByName(pattern); structInfo != nil {
+			// Check if the pattern makes sense for the HTTP method
+			if p.isPatternValidForMethod(pattern, method) {
+				return structInfo
 			}
 		}
 	}
+
+	return nil
+}
+
+// inferResponseStructFromHandler tries to infer response struct from handler name
+func (p *ASTParser) inferResponseStructFromHandler(handlerName, method string) *StructInfo {
+	// Extract base name from handler
+	baseName := p.extractBaseNameFromHandler(handlerName)
+	if baseName == "" {
+		return nil
+	}
+
+	// Try common response naming patterns
+	patterns := []string{
+		baseName + "Response",
+		baseName + "ListResponse",  // For list endpoints
+		baseName + "sListResponse", // Plural form
+		baseName,
+	}
+
+	for _, pattern := range patterns {
+		if structInfo := p.findStructByName(pattern); structInfo != nil {
+			return structInfo
+		}
+	}
+
+	return nil
+}
+
+// extractBaseNameFromHandler extracts the base entity name from handler name
+func (p *ASTParser) extractBaseNameFromHandler(handlerName string) string {
+	// Remove "Handler" suffix
+	handlerName = strings.TrimSuffix(handlerName, "Handler")
+
+	// Extract base name by removing common prefixes
+	prefixes := []string{"create", "get", "update", "delete", "search", "list"}
+
+	lowerName := strings.ToLower(handlerName)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(lowerName, prefix) {
+			// Remove prefix and capitalize the result
+			baseName := handlerName[len(prefix):]
+			if len(baseName) > 0 {
+				return strings.ToUpper(baseName[:1]) + baseName[1:]
+			}
+		}
+	}
+
+	// If no prefix found, use the handler name as is (capitalized)
+	if len(handlerName) > 0 {
+		return strings.ToUpper(handlerName[:1]) + handlerName[1:]
+	}
+
+	return ""
+}
+
+// isPatternValidForMethod checks if a request pattern makes sense for HTTP method
+func (p *ASTParser) isPatternValidForMethod(pattern, method string) bool {
+	pattern = strings.ToLower(pattern)
+	method = strings.ToUpper(method)
+
+	switch method {
+	case "POST":
+		return strings.Contains(pattern, "create") || strings.Contains(pattern, "request")
+	case "PUT", "PATCH":
+		return strings.Contains(pattern, "update") || strings.Contains(pattern, "request")
+	case "GET", "DELETE":
+		return !strings.Contains(pattern, "create") && !strings.Contains(pattern, "update")
+	default:
+		return true
+	}
+}
+
+// isGenericSchema checks if the current schema is generic and should be replaced
+func (p *ASTParser) isGenericSchema(schema map[string]interface{}) bool {
+	if schema == nil {
+		return true
+	}
+
+	// Check if it's a generic schema with additionalProperties: true
+	if additionalProps, exists := schema["additionalProperties"]; exists {
+		if additionalProps == true {
+			return true
+		}
+	}
+
+	// Check if it has generic description indicating it's auto-generated
+	if desc, exists := schema["description"]; exists {
+		if descStr, ok := desc.(string); ok {
+			genericDescriptions := []string{
+				"Request body",
+				"Response data",
+				"Record data to create",
+				"Record data to update",
+			}
+			for _, genericDesc := range genericDescriptions {
+				if descStr == genericDesc {
+					return true
+				}
+			}
+		}
+	}
+
+	// Check for PocketBase pattern-generated schemas
+	if properties, exists := schema["properties"].(map[string]interface{}); exists {
+		// Check for generic "data" field pattern
+		if dataField, exists := properties["data"].(map[string]interface{}); exists {
+			if desc, exists := dataField["description"].(string); exists {
+				if desc == "Record data to create" || desc == "Record data to update" {
+					return true
+				}
+			}
+			// Check if data field has additionalProperties: true (generic object)
+			if additionalProps, exists := dataField["additionalProperties"]; exists {
+				if additionalProps == true {
+					return true
+				}
+			}
+		}
+
+		// Check if schema only has generic record fields (id, created, updated)
+		if len(properties) <= 3 {
+			hasOnlyGenericFields := true
+			for fieldName := range properties {
+				if fieldName != "id" && fieldName != "created" && fieldName != "updated" {
+					hasOnlyGenericFields = false
+					break
+				}
+			}
+			if hasOnlyGenericFields {
+				return true
+			}
+		}
+	}
+
+	return false
 }

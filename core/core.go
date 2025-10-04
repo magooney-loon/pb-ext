@@ -10,11 +10,12 @@ var New = server.New
 
 // Re-export server options
 var (
-	WithConfig      = server.WithConfig
-	WithPocketbase  = server.WithPocketbase
-	WithMode        = server.WithMode
-	InDeveloperMode = server.InDeveloperMode
-	InNormalMode    = server.InNormalMode
+	WithConfig              = server.WithConfig
+	WithPocketbase          = server.WithPocketbase
+	WithMode                = server.WithMode
+	InDeveloperMode         = server.InDeveloperMode
+	InNormalMode            = server.InNormalMode
+	EnableAutoDocumentation = server.EnableAutoDocumentation
 )
 
 // Re-export server types
