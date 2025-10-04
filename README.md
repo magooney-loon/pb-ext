@@ -2,7 +2,7 @@
 
 Enhanced PocketBase server with extensive monitoring & logging.
 
-<img width="3830" height="1237" alt="pb-ext" src="https://github.com/user-attachments/assets/6965fd9c-2983-41db-a4f2-4c24f5739dad" />
+<img width="3840" height="2160" alt="pb-ext" src="https://github.com/user-attachments/assets/7def2b99-99bb-4616-8c25-550a845fe695" />
 
 ## Core Features
 
