@@ -62,24 +62,32 @@ type APIRegistry struct {
 	docs      *APIDocs
 	endpoints map[string]APIEndpoint
 	enabled   bool
+	astParser *ASTParser
 }
 
 // RouterWrapper is deprecated - use AutoAPIRouter instead
 
 // NewAPIRegistry creates a new automatic API documentation registry
 func NewAPIRegistry() *APIRegistry {
-	return &APIRegistry{
+	registry := &APIRegistry{
 		docs: &APIDocs{
 			Title:       "PocketBase Extension API",
 			Version:     "1.0.0",
 			Description: "Automatically discovered API endpoints",
 			BaseURL:     "/api",
 			Endpoints:   []APIEndpoint{},
+			Generated:   "runtime",
 			Components:  make(map[string]interface{}),
 		},
 		endpoints: make(map[string]APIEndpoint),
 		enabled:   true,
+		astParser: NewASTParser(),
 	}
+
+	// Initialize AST parser with current project files
+	registry.initializeASTParser()
+
+	return registry
 }
 
 // EnableAutoDiscovery turns on/off automatic route discovery
@@ -135,6 +143,9 @@ func (r *APIRegistry) autoRegisterRoute(method, path string, handler func(*core.
 			endpoint.Response = schema
 		}
 	}
+
+	// Enhance with AST parsing (highest priority)
+	r.EnhanceEndpointWithAST(&endpoint)
 
 	key := endpoint.Method + ":" + endpoint.Path
 	r.endpoints[key] = endpoint
@@ -380,11 +391,15 @@ func (r *APIRegistry) analyzeRequestSchema(handler func(*core.RequestEvent) erro
 	// Get handler information for analysis
 	handlerName := r.getHandlerName(handler)
 
-	// Skip path-based analysis here to avoid infinite recursion
+	// First try to get schema from AST parser
+	if r.astParser != nil {
+		if requestSchema, _ := r.astParser.GenerateAPISchema(handlerName); requestSchema != nil {
+			return requestSchema
+		}
+	}
 
-	// Generate schema based on handler name patterns and common REST patterns
+	// Fall back to pattern-based analysis
 	schema := r.generateRequestSchemaFromPattern(handlerName)
-
 	if schema != nil {
 		return schema
 	}
@@ -402,11 +417,15 @@ func (r *APIRegistry) analyzeResponseSchema(handler func(*core.RequestEvent) err
 	// Get handler information for analysis
 	handlerName := r.getHandlerName(handler)
 
-	// Skip path-based analysis here to avoid infinite recursion
+	// First try to get schema from AST parser
+	if r.astParser != nil {
+		if _, responseSchema := r.astParser.GenerateAPISchema(handlerName); responseSchema != nil {
+			return responseSchema
+		}
+	}
 
-	// Generate schema based on handler name patterns and common REST patterns
+	// Fall back to pattern-based analysis
 	schema := r.generateResponseSchemaFromPattern(handlerName)
-
 	if schema != nil {
 		return schema
 	}
@@ -844,10 +863,8 @@ func (r *APIRegistry) getEnhancedDocs() *APIDocs {
 
 // generateComponents creates schema components for the API documentation
 func (r *APIRegistry) generateComponents() map[string]interface{} {
-	schemaComponents := GetSchemaComponents()
-
 	return map[string]interface{}{
-		"schemas": schemaComponents.GetCommonSchemas(),
+		"schemas": r.generateSchemasWithAST(),
 		"responses": map[string]interface{}{
 			"ErrorResponse": map[string]interface{}{
 				"description": "Error response",
@@ -963,4 +980,148 @@ func (s *Server) registerBuiltinRoutes() {
 // AutoRegisterRoute can be used to manually register routes that bypass normal registration
 func AutoRegisterRoute(method, path string, handler func(*core.RequestEvent) error) {
 	globalAPIRegistry.autoRegisterRoute(method, path, handler)
+}
+
+// initializeASTParser initializes the AST parser with project files
+func (r *APIRegistry) initializeASTParser() {
+	if r.astParser == nil {
+		return
+	}
+
+	// Parse main.go file (this could be made configurable)
+	err := r.astParser.ParseFile("cmd/server/main.go")
+	if err != nil {
+		// Silently continue if parsing fails - fall back to pattern matching
+		return
+	}
+}
+
+// EnhanceEndpointWithAST enhances an endpoint using AST analysis
+func (r *APIRegistry) EnhanceEndpointWithAST(endpoint *APIEndpoint) {
+	if r.astParser == nil {
+		return
+	}
+
+	r.astParser.EnhanceEndpoint(endpoint)
+}
+
+// GetParsedStructs returns all structs parsed by the AST parser
+func (r *APIRegistry) GetParsedStructs() map[string]*StructInfo {
+	if r.astParser == nil {
+		return make(map[string]*StructInfo)
+	}
+	return r.astParser.GetAllStructs()
+}
+
+// GetParsedHandlers returns all handlers parsed by the AST parser
+func (r *APIRegistry) GetParsedHandlers() map[string]*ASTHandlerInfo {
+	if r.astParser == nil {
+		return make(map[string]*ASTHandlerInfo)
+	}
+	return r.astParser.GetAllHandlers()
+}
+
+// generateSchemasWithAST generates schemas including AST-parsed structs
+func (r *APIRegistry) generateSchemasWithAST() map[string]interface{} {
+	schemas := map[string]interface{}{
+		"ErrorResponse": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"code": map[string]interface{}{
+					"type":    "integer",
+					"example": 400,
+				},
+				"message": map[string]interface{}{
+					"type":    "string",
+					"example": "Something went wrong",
+				},
+				"data": map[string]interface{}{
+					"type":                 "object",
+					"additionalProperties": true,
+				},
+			},
+		},
+		"Record": map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": true,
+			"properties": map[string]interface{}{
+				"id": map[string]interface{}{
+					"type":        "string",
+					"description": "Unique record identifier",
+					"example":     "k5r4y36w2hgzm7p",
+				},
+				"created": map[string]interface{}{
+					"type":        "string",
+					"format":      "date-time",
+					"description": "Record creation timestamp",
+					"example":     "2024-01-01T00:00:00Z",
+				},
+				"updated": map[string]interface{}{
+					"type":        "string",
+					"format":      "date-time",
+					"description": "Record last update timestamp",
+					"example":     "2024-01-01T00:00:00Z",
+				},
+			},
+		},
+		"UserRecord": map[string]interface{}{
+			"allOf": []interface{}{
+				map[string]interface{}{"$ref": "#/components/schemas/Record"},
+				map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"username": map[string]interface{}{
+							"type":    "string",
+							"example": "johndoe",
+						},
+						"email": map[string]interface{}{
+							"type":    "string",
+							"format":  "email",
+							"example": "user@example.com",
+						},
+						"verified": map[string]interface{}{
+							"type":    "boolean",
+							"example": true,
+						},
+					},
+				},
+			},
+		},
+		"PaginatedResponse": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"page": map[string]interface{}{
+					"type":    "integer",
+					"minimum": 1,
+					"example": 1,
+				},
+				"perPage": map[string]interface{}{
+					"type":    "integer",
+					"minimum": 1,
+					"maximum": 500,
+					"example": 30,
+				},
+				"totalItems": map[string]interface{}{
+					"type":    "integer",
+					"minimum": 0,
+					"example": 100,
+				},
+				"totalPages": map[string]interface{}{
+					"type":    "integer",
+					"minimum": 0,
+					"example": 4,
+				},
+			},
+		},
+	}
+
+	// Add AST-parsed struct schemas
+	if r.astParser != nil {
+		parsedStructs := r.astParser.GetAllStructs()
+		for name, structInfo := range parsedStructs {
+			schemas[name] = structInfo.JSONSchema
+		}
+	}
+
+	return schemas
 }
