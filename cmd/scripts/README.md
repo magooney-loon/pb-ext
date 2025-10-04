@@ -1,8 +1,12 @@
-Create a root "frontend" dir for devving JS framework ala SvelteKit etc
+## 📋 Command Reference
 
-go run cmd/scripts/main.go - builds frontend and runs server
-go run cmd/scripts/main.go --install - installs dependencies, builds frontend, and runs server
-go run cmd/scripts/main.go --build-only - only builds the frontend
-go run cmd/scripts/main.go --run-only - only runs the server
-go run cmd/scripts/main.go --production - creates a production build in the dist folder
-go run cmd/scripts/main.go --production --dist customfolder - creates a production build in the customfolder directory
+| Command | Description | Example Output |
+|---------|-------------|----------------|
+| `go run cmd/scripts/main.go` | 🔄 **Development Build** | Builds frontend + starts server |
+| `go run cmd/scripts/main.go --install` | 📦 **Install + Build** | Downloads deps + builds + runs |
+| `go run cmd/scripts/main.go --build-only` | 🔨 **Build Only** | Just builds, doesn't run server |
+| `go run cmd/scripts/main.go --run-only` | ▶️ **Run Only** | Skips build, just runs server |
+| `go run cmd/scripts/main.go --production` | 🚀 **Production Build** | Creates optimized dist package |
+| `go run cmd/scripts/main.go --test-only` | 🧪 **Test Suite** | Runs tests and generates reports |
+| `go run cmd/scripts/main.go --production --dist <dir>` | 📁 **Custom Output** | Production build to custom dir |
+| `go run cmd/scripts/main.go --help` | ❓ **Show Help** | Displays all available flags and options |
