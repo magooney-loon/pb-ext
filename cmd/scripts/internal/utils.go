@@ -112,7 +112,7 @@ func ShowHelp() {
 	fmt.Printf("  %s--build-only%s    Build frontend without running server\n", Green, Reset)
 	fmt.Printf("  %s--run-only%s      Run server without building frontend\n", Green, Reset)
 	fmt.Printf("  %s--test-only%s     Run test suite and generate reports\n", Green, Reset)
-	fmt.Printf("  %s--docs%s          Generate API documentation only\n", Green, Reset)
+
 	fmt.Printf("  %s--dist DIR%s      Specify output directory (default: dist)\n", Green, Reset)
 
 	fmt.Printf("\n%sEXAMPLES:%s\n", Bold, Reset)
@@ -130,9 +130,6 @@ func ShowHelp() {
 
 	fmt.Printf("  %s# Run tests only%s\n", Gray, Reset)
 	fmt.Printf("  go run ./cmd/scripts --test-only\n\n")
-
-	fmt.Printf("  %s# Generate API docs only%s\n", Gray, Reset)
-	fmt.Printf("  go run ./cmd/scripts --docs\n\n")
 
 	fmt.Printf("  %s# Custom dist directory%s\n", Gray, Reset)
 	fmt.Printf("  go run ./cmd/scripts --production --dist release\n\n")

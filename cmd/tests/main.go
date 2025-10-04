@@ -12,7 +12,9 @@ import (
 func getTestPackages() []string {
 	return []string{
 		// Put test dirs here
-		// "./internal/api",
+		"./core/logging",
+		"./core/monitoring",
+		"./core/server",
 	}
 }
 

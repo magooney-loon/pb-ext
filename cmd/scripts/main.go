@@ -16,7 +16,7 @@ func main() {
 	runOnly := flag.Bool("run-only", false, "Run the server without building the frontend")
 	production := flag.Bool("production", false, "Create a production build in dist folder")
 	testOnly := flag.Bool("test-only", false, "Run test suite and generate reports only")
-	docsOnly := flag.Bool("docs", false, "Generate API documentation only")
+
 	distDir := flag.String("dist", "dist", "Output directory for production build")
 	help := flag.Bool("help", false, "Show help and usage information")
 	flag.Parse()
@@ -33,8 +33,6 @@ func main() {
 		operation = "PRODUCTION"
 	} else if *testOnly {
 		operation = "TESTING"
-	} else if *docsOnly {
-		operation = "DOCUMENTATION"
 	}
 	internal.PrintBanner(operation)
 
@@ -49,8 +47,6 @@ func main() {
 	start := time.Now()
 
 	switch {
-	case *docsOnly:
-		err = handleDocsOnlyMode(rootDir)
 	case *testOnly:
 		err = handleTestOnlyMode(rootDir, *distDir)
 	case *production:
@@ -79,13 +75,6 @@ func main() {
 			internal.PrintBuildSummary(duration, false)
 		}
 	}
-}
-
-// handleDocsOnlyMode generates API documentation only
-func handleDocsOnlyMode(rootDir string) error {
-	internal.PrintHeader("📚 DOCUMENTATION MODE")
-
-	return internal.GenerateAPIDocs()
 }
 
 // handleTestOnlyMode runs only the test suite
@@ -170,8 +159,6 @@ func isServerMode() bool {
 	production := flag.Lookup("production").Value.String() == "true"
 	buildOnly := flag.Lookup("build-only").Value.String() == "true"
 	testOnly := flag.Lookup("test-only").Value.String() == "true"
-	docsOnly := flag.Lookup("docs").Value.String() == "true"
-
 	// Server runs in default mode (development) and run-only mode
-	return runOnly || (!production && !buildOnly && !testOnly && !docsOnly)
+	return runOnly || (!production && !buildOnly && !testOnly)
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/magooney-loon/pb-ext/core/server"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/security"
 )
@@ -58,7 +57,7 @@ type LogContext struct {
 }
 
 // InfoWithContext logs an info message with context data using PocketBase's logger
-func InfoWithContext(ctx context.Context, app *pocketbase.PocketBase, message string, data map[string]interface{}) {
+func InfoWithContext(ctx context.Context, app core.App, message string, data map[string]interface{}) {
 	logger := app.Logger()
 
 	// Add request ID if available
@@ -77,7 +76,7 @@ func InfoWithContext(ctx context.Context, app *pocketbase.PocketBase, message st
 }
 
 // ErrorWithContext logs an error message with context data using PocketBase's logger
-func ErrorWithContext(ctx context.Context, app *pocketbase.PocketBase, message string, err error, data map[string]any) {
+func ErrorWithContext(ctx context.Context, app core.App, message string, err error, data map[string]any) {
 	logger := app.Logger()
 
 	// Add request ID if available
@@ -221,7 +220,7 @@ func SetupLogging(srv *server.Server) {
 }
 
 // SetupRecovery configures panic recovery
-func SetupRecovery(app *pocketbase.PocketBase, e *core.ServeEvent) {
+func SetupRecovery(app core.App, e *core.ServeEvent) {
 	app.Logger().Info("Server recovery starting",
 		"event", "recovery_setup",
 		"time", time.Now().Format(time.RFC3339),

@@ -157,7 +157,7 @@ func GetStatusString(statusCode int) string {
 
 // FormatDuration returns a formatted duration string
 func FormatDuration(d time.Duration) string {
-	if d > 1*time.Second {
+	if d >= 1*time.Second {
 		return fmt.Sprintf("%.2fs", d.Seconds())
 	}
 	return fmt.Sprintf("%.2fms", float64(d.Milliseconds()))

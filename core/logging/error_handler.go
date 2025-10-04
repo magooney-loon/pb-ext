@@ -13,7 +13,6 @@ import (
 	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/magooney-loon/pb-ext/core/server"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -29,7 +28,7 @@ type ErrorResponse struct {
 }
 
 // SetupErrorHandler configures global error handling
-func SetupErrorHandler(app *pocketbase.PocketBase, e *core.ServeEvent) {
+func SetupErrorHandler(app core.App, e *core.ServeEvent) {
 	// Parse error template
 	tmpl, err := template.ParseFS(server.TemplateFS, "templates/error.tmpl")
 	if err != nil {
@@ -128,7 +127,7 @@ func HandleContextErrors(ctx context.Context, err error, op string) error {
 		return nil
 	}
 
-	if ctx.Err() != nil {
+	if ctx != nil && ctx.Err() != nil {
 		switch ctx.Err() {
 		case context.DeadlineExceeded:
 			return monitoring.NewTimeoutError(op, "operation timed out")
@@ -151,7 +150,7 @@ func HandleContextErrors(ctx context.Context, err error, op string) error {
 }
 
 // RecoverFromPanic recovers from panics and returns a 500 response
-func RecoverFromPanic(app *pocketbase.PocketBase, c *core.RequestEvent) {
+func RecoverFromPanic(app core.App, c *core.RequestEvent) {
 	if r := recover(); r != nil {
 		traceID := c.Request.Header.Get(TraceIDHeader)
 
