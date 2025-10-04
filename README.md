@@ -4,18 +4,6 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 <img width="3830" height="1237" alt="pb-ext" src="https://github.com/user-attachments/assets/6965fd9c-2983-41db-a4f2-4c24f5739dad" />
 
-## Architecture
-
-```
-├── cmd/
-│   └── server/          # Server initialization
-└── core/
-    ├── logging/         # Logging and error handling
-    ├── monitoring/      # System metrics collection
-    └── server/          # Core server implementation
-
-```
-
 ## Core Features
 
 - **API Schema**: Automatic discovery openapi style and docs generation
