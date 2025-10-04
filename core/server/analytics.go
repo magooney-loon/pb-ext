@@ -655,8 +655,9 @@ func extractUTMParams(reqURL *url.URL) (source, medium, campaign string) {
 func shouldExcludeFromAnalytics(path string) bool {
 	return strings.HasPrefix(path, "/api/") ||
 		strings.HasPrefix(path, "/_/") ||
+		strings.HasPrefix(path, "/.well-known/") ||
 		path == "/favicon.ico" ||
-		strings.HasSuffix(path, ".js") ||
+		path == "/service-worker.js" ||
 		strings.HasSuffix(path, ".css") ||
 		strings.HasSuffix(path, ".png") ||
 		strings.HasSuffix(path, ".jpg") ||
