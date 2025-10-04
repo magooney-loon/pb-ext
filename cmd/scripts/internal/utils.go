@@ -95,6 +95,7 @@ func PrintTestSummary(duration time.Duration) {
 	fmt.Printf("\n%sOutput:%s\n", Gray, Reset)
 	fmt.Printf("  %stest-summary.txt%s report\n", Green, Reset)
 	fmt.Printf("  %stest-report.json%s detailed data\n", Green, Reset)
+	fmt.Printf("  %scoverage.html%s coverage report\n", Green, Reset)
 }
 
 // ShowHelp displays the help information

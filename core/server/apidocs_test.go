@@ -105,7 +105,7 @@ func TestNewAPIRegistry(t *testing.T) {
 	}
 
 	// Check default documentation values
-	if registry.docs.Title != "PocketBase Extension API" {
+	if registry.docs.Title != "pb-ext API" {
 		t.Errorf("Expected default title, got %s", registry.docs.Title)
 	}
 	if registry.docs.Version != "1.0.0" {

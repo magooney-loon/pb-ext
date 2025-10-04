@@ -42,9 +42,9 @@ func RunTestSuiteAndGenerateReport(rootDir, outputDir string) error {
 		PrintWarning("Failed to generate detailed test report: %v", err)
 	}
 
-	// Generate enhanced test analysis
-	if err := GenerateEnhancedTestReport(rootDir, reportsDir, duration, testErr, testOutput, testErrors); err != nil {
-		PrintWarning("Failed to generate enhanced test analysis: %v", err)
+	// Generate Go's built-in HTML coverage report
+	if err := GenerateHTMLCoverageReport(rootDir, reportsDir); err != nil {
+		PrintWarning("Failed to generate HTML coverage report: %v", err)
 	}
 
 	// Print appropriate completion message with analysis
@@ -257,62 +257,6 @@ func AnalyzeTestResults(testOutput, testErrors string) map[string]interface{} {
 	return results
 }
 
-// GenerateEnhancedTestReport creates a comprehensive test report with analysis
-func GenerateEnhancedTestReport(rootDir, reportsDir string, duration time.Duration, testErr error, testOutput, testErrors string) error {
-	PrintStep("📊", "Generating enhanced test analysis...")
-
-	analysis := AnalyzeTestResults(testOutput, testErrors)
-
-	// Create enhanced report file
-	reportPath := filepath.Join(reportsDir, "test-analysis.txt")
-	reportFile, err := os.Create(reportPath)
-	if err != nil {
-		return fmt.Errorf("failed to create enhanced test report: %w", err)
-	}
-	defer reportFile.Close()
-
-	fmt.Fprintf(reportFile, "pb-deployer Test Analysis Report\n")
-	fmt.Fprintf(reportFile, "================================\n\n")
-	fmt.Fprintf(reportFile, "Execution Time: %s\n", time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(reportFile, "Duration: %v\n", duration.Round(time.Millisecond))
-	fmt.Fprintf(reportFile, "Overall Status: %s\n\n", strings.ToUpper(analysis["status"].(string)))
-
-	// Test Statistics
-	fmt.Fprintf(reportFile, "Test Statistics:\n")
-	fmt.Fprintf(reportFile, "  Total Tests: %d\n", analysis["totalTests"].(int))
-	fmt.Fprintf(reportFile, "  Passed: %d\n", analysis["passedTests"].(int))
-	fmt.Fprintf(reportFile, "  Failed: %d\n", analysis["failedTests"].(int))
-	fmt.Fprintf(reportFile, "  Skipped: %d\n", analysis["skippedTests"].(int))
-	fmt.Fprintf(reportFile, "  Coverage: %s\n\n", analysis["coverage"].(string))
-
-	// Error Information
-	if testErr != nil {
-		fmt.Fprintf(reportFile, "Exit Code: Non-zero (test failure)\n")
-		fmt.Fprintf(reportFile, "Error Message: %s\n\n", testErr.Error())
-	} else {
-		fmt.Fprintf(reportFile, "Exit Code: 0 (success)\n\n")
-	}
-
-	// Recommendations
-	fmt.Fprintf(reportFile, "Recommendations:\n")
-	if analysis["failedTests"].(int) > 0 {
-		fmt.Fprintf(reportFile, "  • Review failed tests and fix issues\n")
-		fmt.Fprintf(reportFile, "  • Check error output for specific failure reasons\n")
-	}
-	if analysis["totalTests"].(int) == 0 {
-		fmt.Fprintf(reportFile, "  • No tests found - consider adding test cases\n")
-	}
-	if analysis["coverage"].(string) == "unknown" {
-		fmt.Fprintf(reportFile, "  • Consider running tests with coverage: go test -cover\n")
-	}
-	if analysis["totalTests"].(int) > 0 && analysis["failedTests"].(int) == 0 {
-		fmt.Fprintf(reportFile, "  • All tests passing - consider adding more test coverage\n")
-	}
-
-	PrintSuccess("Enhanced test analysis saved to: %s", reportPath)
-	return nil
-}
-
 // ValidateTestEnvironment checks if the test environment is properly set up
 // executeTestsWithFallback tries multiple strategies to execute tests
 func executeTestsWithFallback(rootDir string, start time.Time) (string, string, error, time.Duration) {
@@ -320,6 +264,14 @@ func executeTestsWithFallback(rootDir string, start time.Time) (string, string, 
 		name string
 		cmd  func() *exec.Cmd
 	}{
+		{
+			name: "go test ./... with coverage",
+			cmd:  func() *exec.Cmd { return exec.Command("go", "test", "-coverprofile=coverage.out", "./...") },
+		},
+		{
+			name: "go test ./... with coverage (verbose)",
+			cmd:  func() *exec.Cmd { return exec.Command("go", "test", "-v", "-coverprofile=coverage.out", "./...") },
+		},
 		{
 			name: "go run ./cmd/tests",
 			cmd:  func() *exec.Cmd { return exec.Command("go", "run", "./cmd/tests") },
@@ -412,6 +364,73 @@ func hasGoTestFiles(rootDir string) bool {
 		return nil
 	})
 	return found
+}
+
+// GenerateHTMLCoverageReport generates Go's built-in HTML coverage report
+func GenerateHTMLCoverageReport(rootDir, reportsDir string) error {
+	PrintStep("🌐", "Generating HTML coverage report...")
+
+	// Check if coverage.out exists
+	coverageFile := filepath.Join(rootDir, "coverage.out")
+	if _, err := os.Stat(coverageFile); os.IsNotExist(err) {
+		PrintWarning("No coverage.out file found, attempting to generate coverage...")
+
+		// Try to generate coverage if it doesn't exist
+		cmd := exec.Command("go", "test", "-coverprofile=coverage.out", "./...")
+		cmd.Dir = rootDir
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			PrintWarning("Failed to generate coverage data: %v", err)
+			return nil
+		}
+		PrintInfo("Generated coverage data")
+	}
+
+	// Generate HTML coverage report
+	htmlReportPath := filepath.Join(reportsDir, "coverage.html")
+	cmd := exec.Command("go", "tool", "cover", "-html=coverage.out", "-o", htmlReportPath)
+	cmd.Dir = rootDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to generate HTML coverage report: %w, stderr: %s", err, stderr.String())
+	}
+
+	PrintSuccess("HTML coverage report saved to: %s", htmlReportPath)
+
+	// Generate coverage summary
+	summaryCmd := exec.Command("go", "tool", "cover", "-func=coverage.out")
+	summaryCmd.Dir = rootDir
+	summaryOutput, err := summaryCmd.Output()
+	if err == nil {
+		summaryPath := filepath.Join(reportsDir, "coverage-summary.txt")
+		if summaryFile, err := os.Create(summaryPath); err == nil {
+			summaryFile.Write(summaryOutput)
+			summaryFile.Close()
+			PrintInfo("Coverage summary saved to: %s", summaryPath)
+		}
+	}
+
+	// Copy the coverage.out file to reports directory for reference
+	reportsCoverageFile := filepath.Join(reportsDir, "coverage.out")
+	if err := os.Rename(coverageFile, reportsCoverageFile); err != nil {
+		// If rename fails, try copying instead
+		if err := copyFile(coverageFile, reportsCoverageFile); err != nil {
+			PrintWarning("Failed to copy coverage.out to reports directory: %v", err)
+		} else {
+			PrintInfo("Coverage data copied to: %s", reportsCoverageFile)
+			os.Remove(coverageFile) // Clean up original
+		}
+	} else {
+		PrintInfo("Coverage data saved to: %s", reportsCoverageFile)
+	}
+
+	return nil
 }
 
 // RunQuickTests runs a subset of tests for quick feedback
