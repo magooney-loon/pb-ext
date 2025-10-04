@@ -71,7 +71,6 @@ func registerCollections(app core.App) {
 
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Enable automatic API documentation discovery
 		router := server.EnableAutoDocumentation(e)
 
 		router.GET("/api/time", timeHandler)
