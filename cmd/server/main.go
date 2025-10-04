@@ -1,22 +1,41 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	app "github.com/magooney-loon/pb-ext/core"
+	server "github.com/magooney-loon/pb-ext/core/server"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 func main() {
-	initApp()
+	devMode := flag.Bool("dev", false, "Run in developer mode")
+	flag.Parse()
+
+	// Check environment variable as fallback
+	if !*devMode && strings.ToLower(os.Getenv("DEV")) == "true" {
+		*devMode = true
+	}
+
+	initApp(*devMode)
 }
 
-func initApp() {
-	srv := app.New()
+func initApp(devMode bool) {
+	var srv *server.Server
+	if devMode {
+		srv = app.New(server.InDeveloperMode())
+		log.Println("🔧 Developer mode enabled")
+	} else {
+		srv = app.New(server.InNormalMode())
+		log.Println("🚀 Production mode")
+	}
 
 	app.SetupLogging(srv)
 
