@@ -65,15 +65,18 @@ func SetupErrorHandler(app core.App, e *core.ServeEvent) {
 			message = monErr.Message
 		}
 
-		app.Logger().Error("Request error",
-			"trace_id", traceID,
-			"error_type", errorType,
-			"operation", operation,
-			"message", message,
-			"status_code", statusCode,
-			"path", c.Request.URL.Path,
-			"method", c.Request.Method,
-		)
+		// Skip error logging for service worker and favicon requests
+		if !shouldExcludeFromLogging(c.Request.URL.Path) {
+			app.Logger().Error("Request error",
+				"trace_id", traceID,
+				"error_type", errorType,
+				"operation", operation,
+				"message", message,
+				"status_code", statusCode,
+				"path", c.Request.URL.Path,
+				"method", c.Request.Method,
+			)
+		}
 
 		response := ErrorResponse{
 			Status:     http.StatusText(statusCode),
@@ -154,14 +157,17 @@ func RecoverFromPanic(app core.App, c *core.RequestEvent) {
 	if r := recover(); r != nil {
 		traceID := c.Request.Header.Get(TraceIDHeader)
 
-		app.Logger().Error("Panic recovered",
-			"event", "panic",
-			"trace_id", traceID,
-			"error", r,
-			"path", c.Request.URL.Path,
-			"method", c.Request.Method,
-			"stack", string(debug.Stack()),
-		)
+		// Skip panic logging for service worker and favicon requests
+		if !shouldExcludeFromLogging(c.Request.URL.Path) {
+			app.Logger().Error("Panic recovered",
+				"event", "panic",
+				"trace_id", traceID,
+				"error", r,
+				"path", c.Request.URL.Path,
+				"method", c.Request.Method,
+				"stack", string(debug.Stack()),
+			)
+		}
 
 		response := ErrorResponse{
 			Status:     "Internal Server Error",

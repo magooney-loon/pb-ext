@@ -56,6 +56,11 @@ type LogContext struct {
 	IP         string
 }
 
+// shouldExcludeFromLogging returns true if the path should be excluded from logging
+func shouldExcludeFromLogging(path string) bool {
+	return path == "/service-worker.js" || path == "/favicon.ico"
+}
+
 // InfoWithContext logs an info message with context data using PocketBase's logger
 func InfoWithContext(ctx context.Context, app core.App, message string, data map[string]interface{}) {
 	logger := app.Logger()
@@ -180,38 +185,44 @@ func SetupLogging(srv *server.Server) {
 				stats.AverageRequestTime.Store(int64(duration.Seconds() * 1000))
 			}
 
-			metrics := monitoring.RequestMetrics{
-				Path:          logCtx.Path,
-				Method:        logCtx.Method,
-				StatusCode:    logCtx.StatusCode,
-				Duration:      logCtx.Duration,
-				Timestamp:     logCtx.StartTime,
-				UserAgent:     logCtx.UserAgent,
-				ContentLength: c.Request.ContentLength,
-				RemoteAddr:    logCtx.IP,
+			// Skip metrics tracking for service worker and favicon requests
+			if !shouldExcludeFromLogging(logCtx.Path) {
+				metrics := monitoring.RequestMetrics{
+					Path:          logCtx.Path,
+					Method:        logCtx.Method,
+					StatusCode:    logCtx.StatusCode,
+					Duration:      logCtx.Duration,
+					Timestamp:     logCtx.StartTime,
+					UserAgent:     logCtx.UserAgent,
+					ContentLength: c.Request.ContentLength,
+					RemoteAddr:    logCtx.IP,
+				}
+				requestStats.TrackRequest(metrics)
 			}
-			requestStats.TrackRequest(metrics)
 
 			if err != nil {
 				return err
 			}
 
-			// Create a request-specific logger with all request context
-			requestLogger := app.Logger().WithGroup("request").With(
-				"trace_id", logCtx.TraceID,
-				"method", logCtx.Method,
-				"path", logCtx.Path,
-				"status", fmt.Sprintf("%d [%s]", logCtx.StatusCode, monitoring.GetStatusString(logCtx.StatusCode)),
-				"duration", monitoring.FormatDuration(duration),
-				"ip", logCtx.IP,
-				"user_agent", logCtx.UserAgent,
-				"content_length", c.Request.ContentLength,
-				"request_rate", requestStats.GetRequestRate(),
-			)
+			// Skip logging for service worker and favicon requests
+			if !shouldExcludeFromLogging(logCtx.Path) {
+				// Create a request-specific logger with all request context
+				requestLogger := app.Logger().WithGroup("request").With(
+					"trace_id", logCtx.TraceID,
+					"method", logCtx.Method,
+					"path", logCtx.Path,
+					"status", fmt.Sprintf("%d [%s]", logCtx.StatusCode, monitoring.GetStatusString(logCtx.StatusCode)),
+					"duration", monitoring.FormatDuration(duration),
+					"ip", logCtx.IP,
+					"user_agent", logCtx.UserAgent,
+					"content_length", c.Request.ContentLength,
+					"request_rate", requestStats.GetRequestRate(),
+				)
 
-			requestLogger.Debug("Request processed",
-				"event", "http_request",
-			)
+				requestLogger.Debug("Request processed",
+					"event", "http_request",
+				)
+			}
 
 			return nil
 		})
