@@ -12,7 +12,7 @@ import (
 func RunServer(rootDir string) error {
 	PrintHeader("🚀 STARTING SERVER")
 
-	cmd := exec.Command("go", "run", filepath.Join(rootDir, "cmd/server/main.go"), "serve")
+	cmd := exec.Command("go", "run", filepath.Join(rootDir, "cmd/server/main.go"), "--dev", "serve")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -46,7 +46,7 @@ func StartServerWithTimeout(rootDir string, timeout time.Duration) error {
 		return err
 	}
 
-	cmd := exec.Command("go", "run", filepath.Join(rootDir, "cmd/server/main.go"), "serve")
+	cmd := exec.Command("go", "run", filepath.Join(rootDir, "cmd/server/main.go"), "--dev", "serve")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
