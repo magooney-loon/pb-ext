@@ -8,5 +8,4 @@
 | `go run cmd/scripts/main.go --run-only` | ▶️ **Run Only** | Skips build, just runs server |
 | `go run cmd/scripts/main.go --production` | 🚀 **Production Build** | Creates optimized dist package |
 | `go run cmd/scripts/main.go --test-only` | 🧪 **Test Suite** | Runs tests and generates reports |
-| `go run cmd/scripts/main.go --docs` | 🧪 **API Docs** | Generate API documentation |
 | `go run cmd/scripts/main.go --help` | ❓ **Show Help** | Displays all available flags and options |
