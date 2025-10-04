@@ -1,6 +1,7 @@
 # PocketBase
 pb_data/
 pb_migrations/
+pb_public/
 
 # Node.js / npm
 node_modules/

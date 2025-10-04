@@ -40,6 +40,7 @@ func initApp(devMode bool) {
 
 	registerCollections(srv.App())
 	registerRoutes(srv.App())
+	registerJobs(srv.App())
 
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.SetupRecovery(srv.App(), e)
@@ -56,7 +57,6 @@ func initApp(devMode bool) {
 		)
 		log.Fatal(err)
 	}
-
 }
 
 func registerCollections(app core.App) {
@@ -86,6 +86,24 @@ func registerRoutes(app core.App) {
 		// See PocketBase documentation for more details: https://pocketbase.io/docs/api-records/
 
 		return e.Next()
+	})
+}
+
+func registerJobs(app core.App) {
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+
+		// Register hello world job
+		if err := helloJob(app); err != nil {
+			return err
+		}
+
+		return e.Next()
+	})
+}
+
+func helloJob(app core.App) error {
+	return app.Cron().Add("helloWorld", "*/1 * * * *", func() {
+		log.Println("Hello from cron job!")
 	})
 }
 
