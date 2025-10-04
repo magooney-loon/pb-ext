@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -182,6 +183,18 @@ func (s *Server) Start() error {
 		app.Logger().Info("Serving static files from", "path", publicDirPath)
 		e.Router.GET("/{path...}", apis.Static(os.DirFS(publicDirPath), false))
 
+		return e.Next()
+	})
+
+	// Add extended server URLs after PocketBase initialization
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		// Wait for the next tick to ensure PocketBase has logged its URLs first
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// Match PocketBase's log format for additional URLs
+			log.Println("├─ Extended:  http://127.0.0.1:8090/_/_")
+			log.Println("└─ API Schema: http://127.0.0.1:8090/api/docs/openapi")
+		}()
 		return e.Next()
 	})
 
