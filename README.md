@@ -41,11 +41,6 @@ The dashboard utilizes PocketBase's superuser authentication system, ensuring th
 package main
 
 import (
-	"log"
-	"net/http"
-	"strconv"
-	"time"
-
 	app "github.com/magooney-loon/pb-ext/core"
 	"github.com/pocketbase/pocketbase/core"
 )
