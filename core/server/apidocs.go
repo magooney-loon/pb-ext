@@ -118,18 +118,20 @@ func (r *APIRegistry) autoRegisterRoute(method, path string, handler func(*core.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	handlerName := r.getHandlerName(handler)
+
 	// Create endpoint documentation automatically
 	endpoint := APIEndpoint{
 		Method:      strings.ToUpper(method),
 		Path:        path,
 		Description: r.generateDescription(method, path, handler),
 		Auth:        r.detectAuthRequirement(path),
-		Tags:        r.generateTags(path),
-		Handler:     r.getHandlerName(handler),
+		Tags:        r.generateTagsForHandler(path, handlerName),
+		Handler:     handlerName,
 	}
 
 	// Use schema analysis to set initial schemas
-	handlerName := r.getHandlerName(handler)
+	handlerName = r.getHandlerName(handler)
 	schemaAnalyzer := GetSchemaAnalyzer()
 
 	// Start with path-based analysis
@@ -164,16 +166,19 @@ func (r *APIRegistry) autoRegisterRoute(method, path string, handler func(*core.
 
 // generateDescription creates a human-readable description from path and handler
 func (r *APIRegistry) generateDescription(method, path string, handler func(*core.RequestEvent) error) string {
-	// First try to get description from handler function name
-	// Generate description based on handler function name and path
 	handlerName := r.getHandlerName(handler)
 
-	if desc := r.descriptionFromHandlerName(handlerName); desc != "" {
-		return desc
+	// First try to get description from AST parser
+	if r.astParser != nil {
+		if handlerInfo, exists := r.astParser.GetAllHandlers()[handlerName]; exists {
+			if handlerInfo.APIDescription != "" {
+				return handlerInfo.APIDescription
+			}
+		}
 	}
 
-	// Fall back to path-based description generation
-	return r.descriptionFromPath(method, path)
+	// Return NO API_DESC when no description is found
+	return "NO API_DESC"
 }
 
 // getHandlerName extracts the function name from a handler
@@ -350,6 +355,21 @@ func (r *APIRegistry) generateTags(path string) []string {
 	return tags
 }
 
+// generateTagsForHandler creates tags for a handler using AST or fallback
+func (r *APIRegistry) generateTagsForHandler(path, handlerName string) []string {
+	// First try to get tags from AST parser
+	if r.astParser != nil {
+		if handlerInfo, exists := r.astParser.GetAllHandlers()[handlerName]; exists {
+			if len(handlerInfo.APITags) > 0 {
+				return handlerInfo.APITags
+			}
+		}
+	}
+
+	// Return NO API_TAG when no tags are found
+	return []string{"NO API_TAG"}
+}
+
 // analyzeRequestSchema attempts to extract request schema using reflection
 func (r *APIRegistry) analyzeRequestSchema(handler func(*core.RequestEvent) error) map[string]interface{} {
 	if handler == nil {
@@ -359,17 +379,11 @@ func (r *APIRegistry) analyzeRequestSchema(handler func(*core.RequestEvent) erro
 	// Get handler information for analysis
 	handlerName := r.getHandlerName(handler)
 
-	// First try to get schema from AST parser
+	// Only use AST parser for schema generation
 	if r.astParser != nil {
 		if requestSchema, _ := r.astParser.GenerateAPISchema(handlerName); requestSchema != nil {
 			return requestSchema
 		}
-	}
-
-	// Fall back to pattern-based analysis
-	schema := r.generateRequestSchemaFromPattern(handlerName)
-	if schema != nil {
-		return schema
 	}
 
 	// For GET requests, usually no request body needed
@@ -385,284 +399,15 @@ func (r *APIRegistry) analyzeResponseSchema(handler func(*core.RequestEvent) err
 	// Get handler information for analysis
 	handlerName := r.getHandlerName(handler)
 
-	// First try to get schema from AST parser
+	// Only use AST parser for schema generation
 	if r.astParser != nil {
 		if _, responseSchema := r.astParser.GenerateAPISchema(handlerName); responseSchema != nil {
 			return responseSchema
 		}
 	}
 
-	// Fall back to pattern-based analysis
-	schema := r.generateResponseSchemaFromPattern(handlerName)
-	if schema != nil {
-		return schema
-	}
-
-	// Return generic response schema for unrecognized patterns
+	// Return generic response schema if AST parsing fails
 	return r.getGenericResponseSchema()
-}
-
-// generateRequestSchemaFromPattern creates request schema based on handler name patterns
-func (r *APIRegistry) generateRequestSchemaFromPattern(handlerName string) map[string]interface{} {
-	lowerName := strings.ToLower(handlerName)
-
-	// Login/Auth patterns
-	if strings.Contains(lowerName, "login") || strings.Contains(lowerName, "signin") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"identity": map[string]interface{}{
-					"type":        "string",
-					"description": "Email or username",
-					"example":     "user@example.com",
-				},
-				"password": map[string]interface{}{
-					"type":        "string",
-					"description": "User password",
-					"example":     "password123",
-				},
-			},
-			"required": []string{"identity", "password"},
-		}
-	}
-
-	// Register/Signup patterns
-	if strings.Contains(lowerName, "register") || strings.Contains(lowerName, "signup") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"email": map[string]interface{}{
-					"type":    "string",
-					"format":  "email",
-					"example": "user@example.com",
-				},
-				"password": map[string]interface{}{
-					"type":      "string",
-					"minLength": 6,
-					"example":   "password123",
-				},
-				"passwordConfirm": map[string]interface{}{
-					"type":    "string",
-					"example": "password123",
-				},
-			},
-			"required": []string{"email", "password", "passwordConfirm"},
-		}
-	}
-
-	// Create patterns
-	if strings.Contains(lowerName, "create") || strings.Contains(lowerName, "add") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"data": map[string]interface{}{
-					"type":                 "object",
-					"description":          "Record data to create",
-					"additionalProperties": true,
-				},
-			},
-			"required": []string{"data"},
-		}
-	}
-
-	// Update patterns
-	if strings.Contains(lowerName, "update") || strings.Contains(lowerName, "patch") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"data": map[string]interface{}{
-					"type":                 "object",
-					"description":          "Record data to update",
-					"additionalProperties": true,
-				},
-			},
-		}
-	}
-
-	// File upload patterns
-	if strings.Contains(lowerName, "upload") || strings.Contains(lowerName, "file") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"file": map[string]interface{}{
-					"type":        "string",
-					"format":      "binary",
-					"description": "File to upload",
-				},
-			},
-			"required": []string{"file"},
-		}
-	}
-
-	return nil
-}
-
-// generateResponseSchemaFromPattern creates response schema based on handler name patterns
-func (r *APIRegistry) generateResponseSchemaFromPattern(handlerName string) map[string]interface{} {
-	lowerName := strings.ToLower(handlerName)
-
-	// Health check patterns
-	if strings.Contains(lowerName, "health") || strings.Contains(lowerName, "status") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"status": map[string]interface{}{
-					"type":    "string",
-					"enum":    []string{"ok", "error"},
-					"example": "ok",
-				},
-				"timestamp": map[string]interface{}{
-					"type":    "string",
-					"format":  "date-time",
-					"example": "2024-01-01T00:00:00Z",
-				},
-			},
-		}
-	}
-
-	// Login/Auth patterns
-	if strings.Contains(lowerName, "login") || strings.Contains(lowerName, "signin") || strings.Contains(lowerName, "auth") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"token": map[string]interface{}{
-					"type":        "string",
-					"description": "JWT authentication token",
-					"example":     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-				},
-				"record": map[string]interface{}{
-					"type":        "object",
-					"description": "Authenticated user record",
-					"properties": map[string]interface{}{
-						"id": map[string]interface{}{
-							"type":    "string",
-							"example": "k5r4y36w2hgzm7p",
-						},
-						"email": map[string]interface{}{
-							"type":    "string",
-							"example": "user@example.com",
-						},
-						"verified": map[string]interface{}{
-							"type":    "boolean",
-							"example": true,
-						},
-					},
-				},
-			},
-		}
-	}
-
-	// List patterns
-	if strings.Contains(lowerName, "list") || strings.Contains(lowerName, "get") && strings.Contains(lowerName, "all") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"page": map[string]interface{}{
-					"type":    "integer",
-					"example": 1,
-				},
-				"perPage": map[string]interface{}{
-					"type":    "integer",
-					"example": 30,
-				},
-				"totalItems": map[string]interface{}{
-					"type":    "integer",
-					"example": 100,
-				},
-				"totalPages": map[string]interface{}{
-					"type":    "integer",
-					"example": 4,
-				},
-				"items": map[string]interface{}{
-					"type": "array",
-					"items": map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"id": map[string]interface{}{
-								"type":    "string",
-								"example": "k5r4y36w2hgzm7p",
-							},
-							"created": map[string]interface{}{
-								"type":    "string",
-								"format":  "date-time",
-								"example": "2024-01-01T00:00:00Z",
-							},
-							"updated": map[string]interface{}{
-								"type":    "string",
-								"format":  "date-time",
-								"example": "2024-01-01T00:00:00Z",
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	// Single record patterns
-	if strings.Contains(lowerName, "get") || strings.Contains(lowerName, "show") || strings.Contains(lowerName, "find") {
-		return r.getSingleRecordSchema()
-	}
-
-	// Create patterns
-	if strings.Contains(lowerName, "create") || strings.Contains(lowerName, "add") {
-		return r.getSingleRecordSchema()
-	}
-
-	// Update patterns
-	if strings.Contains(lowerName, "update") || strings.Contains(lowerName, "patch") {
-		return r.getSingleRecordSchema()
-	}
-
-	// Delete patterns
-	if strings.Contains(lowerName, "delete") || strings.Contains(lowerName, "remove") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"success": map[string]interface{}{
-					"type":    "boolean",
-					"example": true,
-				},
-			},
-		}
-	}
-
-	// Time/Clock patterns
-	if strings.Contains(lowerName, "time") || strings.Contains(lowerName, "clock") {
-		return map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"time": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"iso": map[string]interface{}{
-							"type":        "string",
-							"format":      "date-time",
-							"description": "ISO 8601 formatted time",
-							"example":     "2024-01-01T00:00:00Z",
-						},
-						"unix": map[string]interface{}{
-							"type":        "string",
-							"description": "Unix timestamp",
-							"example":     "1704067200",
-						},
-						"unix_nano": map[string]interface{}{
-							"type":        "string",
-							"description": "Unix timestamp in nanoseconds",
-							"example":     "1704067200000000000",
-						},
-						"utc": map[string]interface{}{
-							"type":        "string",
-							"description": "UTC formatted time",
-							"example":     "2024-01-01T00:00:00Z",
-						},
-					},
-				},
-			},
-		}
-	}
-
-	return nil
 }
 
 // getSingleRecordSchema returns a generic single record response schema
@@ -933,9 +678,9 @@ func GetGlobalRegistry() *APIRegistry {
 func (s *Server) RegisterAPIDocsRoutes(e *core.ServeEvent) {
 	registry := globalAPIRegistry
 
-	// OpenAPI documentation endpoint with components - NOT auto-documented
+	// OpenAPI documentation endpoint - simplified version
 	e.Router.GET("/api/docs/openapi", func(c *core.RequestEvent) error {
-		docs := registry.GetDocsWithComponents()
+		docs := registry.GetDocs()
 		return c.JSON(http.StatusOK, docs)
 	})
 }
@@ -964,25 +709,11 @@ func (r *APIRegistry) initializeASTParser() {
 		"./main.go",
 	}
 
-	var lastErr error
-	parsed := false
-
 	for _, path := range possiblePaths {
 		err := r.astParser.ParseFile(path)
 		if err == nil {
-			parsed = true
-			// Debug: log successful parsing
-			if handler, exists := r.astParser.GetHandlerByName("createUserHandler"); exists {
-				_ = handler // Successfully found handler
-			}
 			break
 		}
-		lastErr = err
-	}
-
-	if !parsed && lastErr != nil {
-		// Debug: Could add logging here if needed
-		_ = lastErr // Fall back to pattern matching
 	}
 }
 

@@ -22,14 +22,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card card-sm flex-fill">
-                        <div class="card-body">
-                            <div class="flex flex-column">
-                                <div class="txt-lg" id="api-schemas-count">0</div>
-                                <div class="txt-hint txt-sm">Schemas</div>
-                            </div>
-                        </div>
-                    </div>
+
                 </div>
 
                 <div class="mb-3">
@@ -43,10 +36,7 @@
                     <i class="ri-route-line"></i>
                     Endpoints
                 </button>
-                <button class="tab-item" data-tab="schemas">
-                    <i class="ri-file-code-line"></i>
-                    Schemas
-                </button>
+
                 <button class="tab-item" data-tab="raw">
                     <i class="ri-code-line"></i>
                     Raw Schema
@@ -65,15 +55,7 @@
                     </div>
                 </div>
 
-                <!-- Schemas Tab -->
-                <div id="schemas-tab" class="tab-content" style="display: none;">
-                    <div id="schemas-list" class="mb-3">
-                        <div class="txt-center txt-hint p-4">
-                            <i class="ri-loader-4-line ri-xl"></i>
-                            <p>Loading API schemas...</p>
-                        </div>
-                    </div>
-                </div>
+
 
                 <!-- Raw Schema Tab -->
                 <div id="raw-tab" class="tab-content" style="display: none;">
@@ -364,36 +346,6 @@
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
-
-.schema-item {
-    border: 1px solid var(--baseAlt2Color);
-    border-radius: 6px;
-    margin-bottom: 8px;
-    background: var(--baseColor);
-}
-
-.schema-header {
-    background: var(--baseAlt1Color);
-    padding: 12px 16px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px solid var(--baseAlt2Color);
-}
-
-.schema-header:hover {
-    background: var(--baseAlt2Color);
-}
-
-.schema-content {
-    padding: 16px;
-    display: none;
-}
-
-.schema-content.active {
-    display: block;
-}
 </style>
 
 <script>
@@ -503,9 +455,7 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
 
         const endpointsList = document.getElementById('endpoints-list');
-        const schemasList = document.getElementById('schemas-list');
         if (endpointsList) endpointsList.innerHTML = loadingHtml;
-        if (schemasList) schemasList.innerHTML = loadingHtml;
 
         fetch('/api/docs/openapi')
             .then(response => {
@@ -519,7 +469,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateApiStatus('success', 'Loaded');
                 populateApiOverview(data);
                 populateEndpoints(data);
-                populateSchemas(data);
                 updateRawSchema('json');
             })
             .catch(error => {
@@ -554,18 +503,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const version = document.getElementById('api-version');
         const description = document.getElementById('api-description');
         const endpointsCount = document.getElementById('api-endpoints-count');
-        const schemasCount = document.getElementById('api-schemas-count');
 
         if (title) title.textContent = schema.title || 'API Documentation';
-        if (version) version.textContent = `v${schema.version || '1.0.0'}`;
-        if (description) description.textContent = schema.description || 'No description available.';
+        if (version) version.textContent = schema.version || '1.0.0';
+        if (description) description.textContent = schema.description || 'API Documentation';
 
         const pathsCount = schema.endpoints ? schema.endpoints.length : 0;
 
-        const componentSchemasCount = schema.components?.schemas ? Object.keys(schema.components.schemas).length : 0;
-
         if (endpointsCount) endpointsCount.textContent = pathsCount;
-        if (schemasCount) schemasCount.textContent = componentSchemasCount;
     }
 
     function populateEndpoints(schema) {
@@ -696,37 +641,7 @@ document.addEventListener('DOMContentLoaded', function() {
         container.innerHTML = endpointsHtml || '<div class="txt-center txt-hint p-4">No endpoints found.</div>';
     }
 
-    function populateSchemas(schema) {
-        const container = document.getElementById('schemas-list');
-        if (!container) return;
 
-        const schemas = schema.components?.schemas;
-        if (!schemas) {
-            container.innerHTML = '<div class="txt-center txt-hint p-4">No schemas found.</div>';
-            return;
-        }
-
-        const schemasHtml = Object.entries(schemas).map(([name, schemaObj]) => {
-            return `
-                <div class="schema-item">
-                    <div class="schema-header" onclick="toggleSchema('${name}')">
-                        <div>
-                            <strong>${name}</strong>
-                            <div class="txt-sm txt-hint">${schemaObj.type || 'object'}</div>
-                        </div>
-                        <i class="ri-arrow-down-s-line"></i>
-                    </div>
-                    <div id="schema-${name}" class="schema-content">
-                        <div class="code-block">
-                            <pre><code>${syntaxHighlight(schemaObj)}</code></pre>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        container.innerHTML = schemasHtml;
-    }
 
     function updateRawSchema(format) {
         const content = document.getElementById('raw-schema-content');
@@ -771,7 +686,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function showError(message) {
-        const containers = ['endpoints-list', 'schemas-list'];
+        const containers = ['endpoints-list'];
         containers.forEach(containerId => {
             const container = document.getElementById(containerId);
             if (container) {
@@ -806,20 +721,6 @@ Check the server logs for more details.`;
     // Global functions for onclick handlers
     window.toggleEndpoint = function(operationId) {
         const content = document.getElementById(operationId);
-        const header = content.previousElementSibling;
-        const arrow = header.querySelector('.ri-arrow-down-s-line');
-
-        if (content.classList.contains('active')) {
-            content.classList.remove('active');
-            arrow.style.transform = 'rotate(0deg)';
-        } else {
-            content.classList.add('active');
-            arrow.style.transform = 'rotate(180deg)';
-        }
-    };
-
-    window.toggleSchema = function(schemaName) {
-        const content = document.getElementById(`schema-${schemaName}`);
         const header = content.previousElementSibling;
         const arrow = header.querySelector('.ri-arrow-down-s-line');
 

@@ -592,9 +592,35 @@ func (p *ASTParser) analyzeResponseArgument(arg ast.Expr, variables map[string]s
 	case *ast.CompositeLit:
 		// Composite literal with explicit type
 		if node.Type != nil {
-			return p.typeToString(node.Type)
+			typeStr := p.typeToString(node.Type)
+
+			// Special handling for map[string]any - analyze content even with explicit type
+			if typeStr == "map[string]any" || typeStr == "map[string]interface{}" {
+				schema := p.analyzeCompositeLiteralSchema(node, variables)
+				if schema != nil {
+					schemaKey := fmt.Sprintf("inline_response_%d", len(p.typeCache))
+					p.typeCache[schemaKey] = &TypeInfo{
+						Name:   schemaKey,
+						Kind:   "object",
+						Schema: schema,
+					}
+					return schemaKey
+				}
+			}
+			return typeStr
 		}
-		// Anonymous struct - try to infer from context
+		// Anonymous map literal - analyze structure and generate inline schema
+		schema := p.analyzeCompositeLiteralSchema(node, variables)
+		if schema != nil {
+			// Store the schema in a temporary cache for this response
+			schemaKey := fmt.Sprintf("inline_response_%d", len(p.typeCache))
+			p.typeCache[schemaKey] = &TypeInfo{
+				Name:   schemaKey,
+				Kind:   "object",
+				Schema: schema,
+			}
+			return schemaKey
+		}
 		return ""
 	case *ast.CallExpr:
 		// Constructor call or function call
@@ -616,6 +642,255 @@ func (p *ASTParser) analyzeResponseArgument(arg ast.Expr, variables map[string]s
 		return p.typeToString(node)
 	}
 	return ""
+}
+
+// analyzeCompositeLiteralSchema analyzes a composite literal (like map[string]any{...}) and generates schema
+func (p *ASTParser) analyzeCompositeLiteralSchema(compLit *ast.CompositeLit, variables map[string]string) map[string]interface{} {
+	if compLit.Type == nil {
+		return nil
+	}
+
+	// Check if this is a map type
+	mapType, ok := compLit.Type.(*ast.MapType)
+	if !ok {
+		return nil
+	}
+
+	// Verify it's map[string]any or similar
+	keyType := p.typeToString(mapType.Key)
+	if keyType != "string" {
+		return nil
+	}
+
+	schema := map[string]interface{}{
+		"type":       "object",
+		"properties": make(map[string]interface{}),
+	}
+
+	properties := schema["properties"].(map[string]interface{})
+
+	// Analyze each key-value pair in the composite literal
+	for _, elt := range compLit.Elts {
+		if kv, ok := elt.(*ast.KeyValueExpr); ok {
+			// Extract the key name
+			var keyName string
+			if basicLit, ok := kv.Key.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
+				keyName = strings.Trim(basicLit.Value, `"`)
+			} else {
+				continue
+			}
+
+			// Analyze the value and create property schema
+			propSchema := p.analyzeValueSchema(kv.Value, variables)
+			if propSchema != nil {
+				properties[keyName] = propSchema
+			}
+		}
+	}
+	return schema
+}
+
+// analyzeValueSchema analyzes a value expression and returns its schema
+func (p *ASTParser) analyzeValueSchema(expr ast.Expr, variables map[string]string) map[string]interface{} {
+	switch node := expr.(type) {
+	case *ast.BasicLit:
+		return p.basicLiteralToSchema(node)
+	case *ast.Ident:
+		// Variable reference or built-in
+		if varType, exists := variables[node.Name]; exists {
+			return p.goTypeToJSONSchema(varType)
+		}
+		// Handle common Go identifiers
+		switch node.Name {
+		case "true", "false":
+			return map[string]interface{}{
+				"type":    "boolean",
+				"example": node.Name == "true",
+			}
+		case "nil":
+			return map[string]interface{}{
+				"type": "null",
+			}
+		}
+		return map[string]interface{}{
+			"type": "string",
+		}
+	case *ast.CompositeLit:
+		// Handle nested composite literals
+		if mapSchema := p.analyzeCompositeLiteralSchema(node, variables); mapSchema != nil {
+			return mapSchema
+		}
+		// Handle array literals
+		if arraySchema := p.analyzeArrayLiteralSchema(node, variables); arraySchema != nil {
+			return arraySchema
+		}
+		return map[string]interface{}{
+			"type": "object",
+		}
+	case *ast.CallExpr:
+		// Function calls like time.Now(), strconv.FormatInt(), etc.
+		return p.analyzeCallExprSchema(node, variables)
+	case *ast.SelectorExpr:
+		// Field access or method calls
+		return p.analyzeSelectorExprSchema(node, variables)
+	default:
+		return map[string]interface{}{
+			"type": "string",
+		}
+	}
+}
+
+// basicLiteralToSchema converts basic literals to JSON schema
+func (p *ASTParser) basicLiteralToSchema(lit *ast.BasicLit) map[string]interface{} {
+	switch lit.Kind {
+	case token.STRING:
+		value := strings.Trim(lit.Value, `"`)
+		return map[string]interface{}{
+			"type":    "string",
+			"example": value,
+		}
+	case token.INT:
+		return map[string]interface{}{
+			"type":    "integer",
+			"example": lit.Value,
+		}
+	case token.FLOAT:
+		return map[string]interface{}{
+			"type":    "number",
+			"example": lit.Value,
+		}
+	default:
+		return map[string]interface{}{
+			"type": "string",
+		}
+	}
+}
+
+// analyzeArrayLiteralSchema analyzes array composite literals
+func (p *ASTParser) analyzeArrayLiteralSchema(compLit *ast.CompositeLit, variables map[string]string) map[string]interface{} {
+	if compLit.Type == nil {
+		return nil
+	}
+
+	// Check if this is an array/slice type
+	var elemType ast.Expr
+	switch arrayType := compLit.Type.(type) {
+	case *ast.ArrayType:
+		elemType = arrayType.Elt
+	case *ast.SliceExpr:
+		return nil // Not a literal array
+	default:
+		return nil
+	}
+
+	schema := map[string]interface{}{
+		"type":  "array",
+		"items": p.goTypeToJSONSchema(p.typeToString(elemType)),
+	}
+
+	// If we have elements, analyze the first one for a better schema
+	if len(compLit.Elts) > 0 {
+		firstElemSchema := p.analyzeValueSchema(compLit.Elts[0], variables)
+		if firstElemSchema != nil {
+			schema["items"] = firstElemSchema
+		}
+	}
+
+	return schema
+}
+
+// analyzeCallExprSchema analyzes function call expressions
+func (p *ASTParser) analyzeCallExprSchema(call *ast.CallExpr, variables map[string]string) map[string]interface{} {
+	if selectorExpr, ok := call.Fun.(*ast.SelectorExpr); ok {
+		// Method calls like time.Now().Format(), strconv.FormatInt()
+		if ident, ok := selectorExpr.X.(*ast.Ident); ok {
+			switch ident.Name {
+			case "time":
+				if selectorExpr.Sel.Name == "Now" || strings.Contains(selectorExpr.Sel.Name, "Format") {
+					return map[string]interface{}{
+						"type":    "string",
+						"format":  "date-time",
+						"example": "2024-01-01T00:00:00Z",
+					}
+				}
+			case "strconv":
+				if strings.Contains(selectorExpr.Sel.Name, "Format") {
+					return map[string]interface{}{
+						"type":    "string",
+						"example": "1704067200",
+					}
+				}
+			}
+		}
+
+		// Chain calls like now.Format(), now.Unix()
+		if strings.Contains(selectorExpr.Sel.Name, "Format") {
+			return map[string]interface{}{
+				"type":    "string",
+				"format":  "date-time",
+				"example": "2024-01-01T00:00:00Z",
+			}
+		}
+		if selectorExpr.Sel.Name == "Unix" || selectorExpr.Sel.Name == "UnixNano" {
+			return map[string]interface{}{
+				"type":    "string",
+				"example": "1704067200000000000",
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"type": "string",
+	}
+}
+
+// analyzeSelectorExprSchema analyzes selector expressions
+func (p *ASTParser) analyzeSelectorExprSchema(sel *ast.SelectorExpr, variables map[string]string) map[string]interface{} {
+	// Field access like c.Auth.Id, c.Auth.GetString()
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		switch ident.Name + "." + sel.Sel.Name {
+		case "c.Auth.Id":
+			return map[string]interface{}{
+				"type":    "string",
+				"example": "k5r4y36w2hgzm7p",
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"type": "string",
+	}
+}
+
+// goTypeToJSONSchema converts Go type strings to JSON schema
+func (p *ASTParser) goTypeToJSONSchema(goType string) map[string]interface{} {
+	switch goType {
+	case "string":
+		return map[string]interface{}{"type": "string"}
+	case "int", "int32", "int64", "uint", "uint32", "uint64":
+		return map[string]interface{}{"type": "integer"}
+	case "float32", "float64":
+		return map[string]interface{}{"type": "number"}
+	case "bool":
+		return map[string]interface{}{"type": "boolean"}
+	default:
+		if strings.HasPrefix(goType, "[]") {
+			return map[string]interface{}{
+				"type":  "array",
+				"items": p.goTypeToJSONSchema(strings.TrimPrefix(goType, "[]")),
+			}
+		}
+		if strings.HasPrefix(goType, "map[") {
+			return map[string]interface{}{
+				"type":                 "object",
+				"additionalProperties": true,
+			}
+		}
+		return map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": true,
+		}
+	}
 }
 
 // typeToString converts ast.Expr to string representation
@@ -814,7 +1089,12 @@ func (p *ASTParser) GenerateAPISchema(handlerName string) (map[string]interface{
 
 	// Generate response schema
 	if handler.ResponseType != "" {
-		if structInfo, exists := p.structs[handler.ResponseType]; exists {
+		// First check if it's an inline response schema from typeCache
+		if strings.HasPrefix(handler.ResponseType, "inline_response_") {
+			if typeInfo, exists := p.typeCache[handler.ResponseType]; exists && typeInfo.Schema != nil {
+				responseSchema = typeInfo.Schema
+			}
+		} else if structInfo, exists := p.structs[handler.ResponseType]; exists {
 			responseSchema = structInfo.JSONSchema
 		}
 	}
@@ -860,7 +1140,12 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) {
 
 		// Update response schema - completely override existing schema if we have AST data
 		if handler.ResponseType != "" {
-			if structInfo := p.findStructByName(handler.ResponseType); structInfo != nil && structInfo.JSONSchema != nil {
+			// First check if it's an inline response schema from typeCache
+			if strings.HasPrefix(handler.ResponseType, "inline_response_") {
+				if typeInfo, exists := p.typeCache[handler.ResponseType]; exists && typeInfo.Schema != nil {
+					endpoint.Response = typeInfo.Schema
+				}
+			} else if structInfo := p.findStructByName(handler.ResponseType); structInfo != nil && structInfo.JSONSchema != nil {
 				endpoint.Response = structInfo.JSONSchema
 			}
 		}

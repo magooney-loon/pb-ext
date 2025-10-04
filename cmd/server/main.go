@@ -73,7 +73,6 @@ func registerRoutes(pbApp core.App) {
 		router.GET("/api/guest-only", guestOnlyHandler).Bind(apis.RequireGuestOnly())
 		router.GET("/api/superuser", superuserHandler).Bind(apis.RequireSuperuserAuth())
 		router.GET("/api/user/:id", userProfileHandler).Bind(apis.RequireSuperuserOrOwnerAuth("id"))
-		router.GET("/api/admin/settings", adminSettingsHandler).Bind(apis.RequireSuperuserAuth())
 
 		return e.Next()
 	})
@@ -89,8 +88,6 @@ func registerJobs(app core.App) {
 	})
 }
 
-// API_DESC Get current server time in multiple formats
-// API_TAGS server,time
 func timeHandler(c *core.RequestEvent) error {
 	now := time.Now()
 	return c.JSON(http.StatusOK, map[string]any{
@@ -183,21 +180,6 @@ func userProfileHandler(c *core.RequestEvent) error {
 			"is_superuser":    isSuperuser,
 			"requested_id":    requestedID,
 			"current_user_id": currentUserID,
-		},
-		"timestamp": time.Now().Format(time.RFC3339),
-	})
-}
-
-// API_DESC Manage administrative settings and configuration
-// API_TAGS admin,settings,config,management
-func adminSettingsHandler(c *core.RequestEvent) error {
-	return c.JSON(http.StatusOK, map[string]any{
-		"message": "Admin Settings Access! ⚙️",
-		"info":    "This endpoint requires superuser authentication for admin operations",
-		"settings": map[string]any{
-			"app_name":    "PocketBase Extension",
-			"version":     "1.0.0",
-			"environment": "development",
 		},
 		"timestamp": time.Now().Format(time.RFC3339),
 	})
