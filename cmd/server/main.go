@@ -74,19 +74,22 @@ func registerRoutes(app core.App) {
 		// Enable automatic API documentation discovery
 		router := server.EnableAutoDocumentation(e)
 
-		// Register routes normally - documentation is automatically generated!
 		router.GET("/api/time", timeHandler)
-
-		// You can use POST /api/collections/users/records to create a new user
-		// See PocketBase documentation for more details: https://pocketbase.io/docs/api-records/
-		// All routes registered through this router are automatically documented!
 
 		return e.Next()
 	})
 }
 
-// timeHandler handles the /api/time endpoint
-// No configuration needed - documentation is automatically generated!
+func registerJobs(app core.App) {
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		if err := helloJob(app); err != nil {
+			return err
+		}
+
+		return e.Next()
+	})
+}
+
 func timeHandler(c *core.RequestEvent) error {
 	now := time.Now()
 	return c.JSON(http.StatusOK, map[string]any{
@@ -96,18 +99,6 @@ func timeHandler(c *core.RequestEvent) error {
 			"unix_nano": strconv.FormatInt(now.UnixNano(), 10),
 			"utc":       now.UTC().Format(time.RFC3339),
 		},
-	})
-}
-
-func registerJobs(app core.App) {
-	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-
-		// Register hello world job
-		if err := helloJob(app); err != nil {
-			return err
-		}
-
-		return e.Next()
 	})
 }
 
