@@ -40,3 +40,4 @@ coverage/
 .cache/
 .temp/
 llm/
+gemini/
