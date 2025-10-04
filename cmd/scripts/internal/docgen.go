@@ -116,16 +116,11 @@ func GenerateAPIDocsFromRuntime(serverURL, outputDir string) error {
 		return err
 	}
 
-	if err := generateAPIIndex(docs, outputDir); err != nil {
-		return err
-	}
-
 	PrintInfo("✅ API documentation generated successfully in '%s' directory", outputDir)
 	PrintInfo("📊 Generated files:")
 	PrintInfo("   • %s/api-docs.json (Complete API specification)", outputDir)
 	PrintInfo("   • %s/API-GENERATED.md (Human-readable documentation)", outputDir)
 	PrintInfo("   • %s/README.md (Overview and usage guide)", outputDir)
-	PrintInfo("   • %s/index.html (Static HTML documentation viewer)", outputDir)
 
 	return nil
 }
@@ -271,7 +266,6 @@ This directory contains automatically generated API documentation for the Pocket
 
 - **📊 JSON API**: [api-docs.json](api-docs.json) - Complete machine-readable API specification
 - **📖 Documentation**: [API-GENERATED.md](API-GENERATED.md) - Human-readable documentation
-- **🌐 Web Viewer**: [index.html](index.html) - Interactive HTML documentation
 
 ## API Information
 
@@ -327,130 +321,19 @@ That's it! No configuration needed.
 | `+"`"+`api-docs.json`+"`"+` | Complete API specification in JSON format |
 | `+"`"+`API-GENERATED.md`+"`"+` | Human-readable Markdown documentation |
 | `+"`"+`README.md`+"`"+` | This overview file |
-| `+"`"+`index.html`+"`"+` | Interactive HTML documentation viewer |
 
 ## Benefits
 
 - ✅ **Zero Configuration**: No setup or maintenance required
 - ✅ **Always Up-to-Date**: Generated from actual running code
 - ✅ **Intelligent**: Smart analysis of routes, auth, and patterns
-- ✅ **Multiple Formats**: JSON, Markdown, and HTML outputs
+- ✅ **Multiple Formats**: JSON and Markdown outputs
 - ✅ **Developer Friendly**: Standard PocketBase route registration
 
 ---
 
 *Generated automatically by PocketBase Extension API Documentation System*
 `, docs.Title, docs.BaseURL, len(docs.Endpoints), docs.Version, time.Now().Format("2006-01-02 15:04:05"))
-
-	return nil
-}
-
-// generateAPIIndex creates an interactive HTML documentation viewer
-func generateAPIIndex(docs *APIDocs, outputDir string) error {
-	indexFile := filepath.Join(outputDir, "index.html")
-
-	file, err := os.Create(indexFile)
-	if err != nil {
-		return fmt.Errorf("failed to create HTML index file: %w", err)
-	}
-	defer file.Close()
-
-	// Write basic HTML structure
-	fmt.Fprintf(file, `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>%s - API Documentation</title>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-        .container { max-width: 1000px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .header { padding: 30px; background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); color: white; text-align: center; border-radius: 8px 8px 0 0; }
-        .header h1 { margin: 0 0 10px 0; font-size: 2.5em; }
-        .content { padding: 30px; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { padding: 20px; text-align: center; background: #f8f9fa; border-radius: 8px; border: 1px solid #e5e5e5; }
-        .stat-number { font-size: 2em; font-weight: bold; color: #667eea; }
-        .stat-label { color: #666; margin-top: 5px; }
-        .endpoint { margin-bottom: 20px; border: 1px solid #e5e5e5; border-radius: 8px; }
-        .endpoint-header { padding: 15px; background: #f8f9fa; border-bottom: 1px solid #e5e5e5; }
-        .method { display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.9em; margin-right: 10px; }
-        .method.GET { background: #d1ecf1; color: #0c5460; }
-        .method.POST { background: #d4edda; color: #155724; }
-        .method.PATCH { background: #fff3cd; color: #856404; }
-        .method.DELETE { background: #f8d7da; color: #721c24; }
-        .path { font-family: monospace; font-weight: bold; }
-        .endpoint-body { padding: 15px; }
-        .description { margin-bottom: 10px; color: #666; }
-        .tags { margin-bottom: 10px; }
-        .tag { display: inline-block; padding: 2px 6px; background: #e3f2fd; color: #1565c0; border-radius: 10px; font-size: 0.8em; margin-right: 5px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>%s</h1>
-            <p>%s • Version %s</p>
-            <p>🤖 Runtime Generated Documentation</p>
-        </div>
-        <div class="content">
-            <div class="stats">
-                <div class="stat-card">
-                    <div class="stat-number">%d</div>
-                    <div class="stat-label">Endpoints</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">%s</div>
-                    <div class="stat-label">Base URL</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number"><a href="api-docs.json">JSON</a></div>
-                    <div class="stat-label">API Docs</div>
-                </div>
-            </div>`, docs.Title, docs.Title, docs.Description, docs.Version, len(docs.Endpoints), docs.BaseURL)
-
-	// Write endpoints
-	for _, endpoint := range docs.Endpoints {
-		fmt.Fprintf(file, `
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <span class="method %s">%s</span>
-                    <span class="path">%s</span>
-                    %s
-                </div>
-                <div class="endpoint-body">`,
-			endpoint.Method, endpoint.Method, endpoint.Path,
-			func() string {
-				if endpoint.Auth {
-					return `<span style="float: right; background: #ff9800; color: white; padding: 2px 6px; border-radius: 10px; font-size: 0.8em;">🔒 Auth</span>`
-				}
-				return ""
-			}())
-
-		if endpoint.Description != "" {
-			fmt.Fprintf(file, `<div class="description">%s</div>`, endpoint.Description)
-		}
-
-		if len(endpoint.Tags) > 0 {
-			fmt.Fprintf(file, `<div class="tags">`)
-			for _, tag := range endpoint.Tags {
-				fmt.Fprintf(file, `<span class="tag">%s</span>`, tag)
-			}
-			fmt.Fprintf(file, `</div>`)
-		}
-
-		fmt.Fprintf(file, `</div></div>`)
-	}
-
-	// Close HTML
-	fmt.Fprintf(file, `
-        </div>
-        <div style="text-align: center; padding: 20px; color: #666; border-top: 1px solid #e5e5e5;">
-            <p>Generated: %s</p>
-        </div>
-    </div>
-</body>
-</html>`, time.Now().Format("2006-01-02 15:04:05"))
 
 	return nil
 }
