@@ -10,6 +10,7 @@ import (
 	"time"
 
 	app "github.com/magooney-loon/pb-ext/core"
+	"github.com/magooney-loon/pb-ext/core/server"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
@@ -70,22 +71,31 @@ func registerCollections(app core.App) {
 
 func registerRoutes(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		e.Router.GET("/api/time", func(c *core.RequestEvent) error {
-			now := time.Now()
-			return c.JSON(http.StatusOK, map[string]any{
-				"time": map[string]string{
-					"iso":       now.Format(time.RFC3339),
-					"unix":      strconv.FormatInt(now.Unix(), 10),
-					"unix_nano": strconv.FormatInt(now.UnixNano(), 10),
-					"utc":       now.UTC().Format(time.RFC3339),
-				},
-			})
-		})
+		// Enable automatic API documentation discovery
+		router := server.EnableAutoDocumentation(e)
+
+		// Register routes normally - documentation is automatically generated!
+		router.GET("/api/time", timeHandler)
 
 		// You can use POST /api/collections/users/records to create a new user
 		// See PocketBase documentation for more details: https://pocketbase.io/docs/api-records/
+		// All routes registered through this router are automatically documented!
 
 		return e.Next()
+	})
+}
+
+// timeHandler handles the /api/time endpoint
+// No configuration needed - documentation is automatically generated!
+func timeHandler(c *core.RequestEvent) error {
+	now := time.Now()
+	return c.JSON(http.StatusOK, map[string]any{
+		"time": map[string]string{
+			"iso":       now.Format(time.RFC3339),
+			"unix":      strconv.FormatInt(now.Unix(), 10),
+			"unix_nano": strconv.FormatInt(now.UnixNano(), 10),
+			"utc":       now.UTC().Format(time.RFC3339),
+		},
 	})
 }
 

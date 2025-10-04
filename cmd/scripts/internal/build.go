@@ -27,9 +27,11 @@ func ValidateFrontendSetup(frontendDir string) error {
 	return nil
 }
 
-// BuildFrontend builds the frontend for development
+// BuildFrontend builds the frontend for development and generates API documentation
 func BuildFrontend(rootDir string, installDeps bool) error {
-	PrintHeader("🔨 FRONTEND BUILD")
+	// API documentation is now generated at runtime - no build-time generation needed
+	PrintStep("📚", "API documentation will be generated automatically at runtime")
+	PrintInfo("📊 Access live documentation at: http://localhost:8090/api/docs/json")
 
 	frontendDir := filepath.Join(rootDir, "frontend")
 
