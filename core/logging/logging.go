@@ -169,21 +169,7 @@ func SetupLogging(srv *server.Server) {
 				IP:         c.Request.RemoteAddr,
 			}
 
-			stats := srv.Stats()
-			stats.TotalRequests.Add(1)
-			stats.LastRequestTime.Store(time.Now().Unix())
-			if statusCode >= 400 {
-				stats.TotalErrors.Add(1)
-			}
-
-			currentAvg := float64(stats.AverageRequestTime.Load())
-			totalReqs := stats.TotalRequests.Load()
-			if totalReqs > 1 {
-				newAvg := ((currentAvg * float64(totalReqs-1)) + duration.Seconds()*1000) / float64(totalReqs)
-				stats.AverageRequestTime.Store(int64(newAvg))
-			} else {
-				stats.AverageRequestTime.Store(int64(duration.Seconds() * 1000))
-			}
+			// Stats tracking is handled by server.go to avoid duplication
 
 			// Skip metrics tracking for service worker and favicon requests
 			if !shouldExcludeFromLogging(logCtx.Path) {

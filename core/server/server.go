@@ -30,6 +30,11 @@ type ServerStats struct {
 	AverageRequestTime atomic.Int64 // nanoseconds
 }
 
+// shouldExcludeFromStats returns true if the path should be excluded from server statistics
+func shouldExcludeFromStats(path string) bool {
+	return path == "/service-worker.js" || path == "/favicon.ico"
+}
+
 // New creates a server instance. Options args used for precision setup - pocketbase.Config and pocketbase.Pocketbase instance injection.
 func New(create_options ...Option) *Server {
 	var (
@@ -100,7 +105,11 @@ func (s *Server) Start() error {
 		e.Router.BindFunc(func(c *core.RequestEvent) error {
 			start := time.Now()
 			s.stats.ActiveConnections.Add(1)
-			s.stats.TotalRequests.Add(1)
+
+			// Only count requests that aren't excluded from stats
+			if !shouldExcludeFromStats(c.Request.URL.Path) {
+				s.stats.TotalRequests.Add(1)
+			}
 
 			// Debug log the counter increment
 			/* app.Logger().Debug("Request counter incremented",
@@ -115,16 +124,21 @@ func (s *Server) Start() error {
 			s.stats.LastRequestTime.Store(time.Now().Unix())
 
 			duration := time.Since(start).Nanoseconds()
-			oldAvg := s.stats.AverageRequestTime.Load()
-			totalReqs := s.stats.TotalRequests.Load()
-			if totalReqs > 1 {
-				newAvg := (oldAvg*(int64(totalReqs)-1) + duration) / int64(totalReqs)
-				s.stats.AverageRequestTime.Store(newAvg)
-			} else {
-				s.stats.AverageRequestTime.Store(duration)
+
+			// Only update average request time for non-excluded requests
+			if !shouldExcludeFromStats(c.Request.URL.Path) {
+				oldAvg := s.stats.AverageRequestTime.Load()
+				totalReqs := s.stats.TotalRequests.Load()
+				if totalReqs > 1 {
+					newAvg := (oldAvg*(int64(totalReqs)-1) + duration) / int64(totalReqs)
+					s.stats.AverageRequestTime.Store(newAvg)
+				} else {
+					s.stats.AverageRequestTime.Store(duration)
+				}
 			}
 
-			if err != nil {
+			// Only count errors for requests that aren't excluded from stats
+			if err != nil && !shouldExcludeFromStats(c.Request.URL.Path) {
 				s.stats.TotalErrors.Add(1)
 			}
 
