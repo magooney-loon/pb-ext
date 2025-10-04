@@ -53,6 +53,8 @@ type ASTHandlerInfo struct {
 	Parameters     map[string]*ParamInfo `json:"parameters"`
 	UsesJSONDecode bool                  `json:"uses_json_decode"`
 	UsesJSONReturn bool                  `json:"uses_json_return"`
+	APIDescription string                `json:"api_description,omitempty"` // From // API_DESC comment
+	APITags        []string              `json:"api_tags,omitempty"`        // From // API_TAGS comment
 }
 
 // ParamInfo contains parameter information
@@ -327,12 +329,56 @@ func (p *ASTParser) parseHandler(funcDecl *ast.FuncDecl, packageName string) *AS
 		Parameters: make(map[string]*ParamInfo),
 	}
 
+	// Parse API directive comments
+	p.parseAPIDirectives(handlerInfo, funcDecl)
+
 	// Analyze function body for request/response types
 	if funcDecl.Body != nil {
 		p.analyzeHandlerBody(handlerInfo, funcDecl.Body)
 	}
 
 	return handlerInfo
+}
+
+// parseAPIDirectives extracts API_DESC and API_TAGS from comments above the function
+func (p *ASTParser) parseAPIDirectives(handlerInfo *ASTHandlerInfo, funcDecl *ast.FuncDecl) {
+	if funcDecl.Doc == nil {
+		return
+	}
+
+	for _, comment := range funcDecl.Doc.List {
+		commentText := strings.TrimSpace(strings.TrimPrefix(comment.Text, "//"))
+
+		// Parse API_DESC directive
+		if strings.HasPrefix(commentText, "API_DESC ") {
+			desc := strings.TrimSpace(strings.TrimPrefix(commentText, "API_DESC "))
+			if desc != "" {
+				handlerInfo.APIDescription = desc
+			}
+		}
+
+		// Parse API_TAGS directive
+		if strings.HasPrefix(commentText, "API_TAGS ") {
+			tagsStr := strings.TrimSpace(strings.TrimPrefix(commentText, "API_TAGS "))
+			if tagsStr != "" {
+				// Split by comma and clean up each tag
+				tags := strings.Split(tagsStr, ",")
+				for i, tag := range tags {
+					tags[i] = strings.TrimSpace(tag)
+				}
+				// Filter out empty tags
+				var cleanTags []string
+				for _, tag := range tags {
+					if tag != "" {
+						cleanTags = append(cleanTags, tag)
+					}
+				}
+				if len(cleanTags) > 0 {
+					handlerInfo.APITags = cleanTags
+				}
+			}
+		}
+	}
 }
 
 // analyzeHandlerBody analyzes handler function body to extract request/response info
@@ -793,6 +839,15 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) {
 	}
 
 	if handler, exists := p.handlers[handlerName]; exists {
+		// Apply API directive comments if present
+		if handler.APIDescription != "" {
+			endpoint.Description = handler.APIDescription
+		}
+
+		if len(handler.APITags) > 0 {
+			endpoint.Tags = handler.APITags
+		}
+
 		// Update request schema - completely override existing schema if we have AST data
 		if !skipRequestProcessing && handler.RequestType != "" {
 			if structInfo := p.findStructByName(handler.RequestType); structInfo != nil && structInfo.JSONSchema != nil {

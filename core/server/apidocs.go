@@ -40,9 +40,19 @@ type APIEndpoint struct {
 	Description string                 `json:"description"`
 	Request     map[string]interface{} `json:"request,omitempty"`
 	Response    map[string]interface{} `json:"response,omitempty"`
-	Auth        bool                   `json:"requires_auth"`
+	Auth        *AuthInfo              `json:"auth,omitempty"`
 	Tags        []string               `json:"tags,omitempty"`
 	Handler     string                 `json:"handler_name,omitempty"`
+}
+
+// AuthInfo represents detailed authentication requirements for an API endpoint
+type AuthInfo struct {
+	Required    bool     `json:"required"`
+	Type        string   `json:"type"`                  // "guest_only", "auth", "superuser", "superuser_or_owner"
+	Collections []string `json:"collections,omitempty"` // For RequireAuth with specific collections
+	OwnerParam  string   `json:"owner_param,omitempty"` // For RequireSuperuserOrOwnerAuth
+	Description string   `json:"description"`
+	Icon        string   `json:"icon"`
 }
 
 // APIDocs holds all API documentation
@@ -266,52 +276,10 @@ func (r *APIRegistry) descriptionFromPath(method, path string) string {
 	}
 }
 
-// detectAuthRequirement analyzes path to determine if authentication is required
-func (r *APIRegistry) detectAuthRequirement(path string) bool {
-	pathLower := strings.ToLower(path)
-
-	// PocketBase admin routes always require superuser auth
-	if strings.HasPrefix(pathLower, "/api/admins") ||
-		strings.HasPrefix(pathLower, "/api/settings") ||
-		strings.HasPrefix(pathLower, "/api/logs") ||
-		strings.HasPrefix(pathLower, "/api/health") {
-		return true
-	}
-
-	// File routes typically require auth
-	if strings.HasPrefix(pathLower, "/api/files") {
-		return true
-	}
-
-	// Common auth-related path patterns
-	authIndicators := []string{
-		"/auth/",
-		"/admin/",
-		"/protected/",
-		"/user/",
-		"/users/",
-		"/account/",
-		"/profile/",
-		"/settings/",
-		"/dashboard/",
-		"/private/",
-	}
-
-	for _, indicator := range authIndicators {
-		if strings.Contains(pathLower, indicator) {
-			return true
-		}
-	}
-
-	// PocketBase collection records - most operations require some form of auth
-	// except for public GET operations which depend on collection rules
-	if strings.Contains(pathLower, "/api/collections/") && strings.Contains(pathLower, "/records") {
-		// More nuanced: assume auth required for most collection operations
-		// This can be overridden by middleware detection
-		return true
-	}
-
-	return false
+// detectAuthRequirement returns no auth requirement - only middleware detection sets auth
+func (r *APIRegistry) detectAuthRequirement(path string) *AuthInfo {
+	// No path-based auth guessing - only rely on actual middleware detection
+	return nil
 }
 
 // generateTags creates tags based on the path structure

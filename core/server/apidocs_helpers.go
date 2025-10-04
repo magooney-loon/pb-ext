@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -35,12 +36,10 @@ func (rc *RouteChain) Bind(middlewares ...interface{}) *RouteChain {
 			args := make([]reflect.Value, len(middlewares))
 			for i, mw := range middlewares {
 				args[i] = reflect.ValueOf(mw)
-				// Detect auth middleware patterns
-				if mwType := reflect.TypeOf(mw); mwType != nil {
-					mwName := mwType.String()
-					if strings.Contains(mwName, "RequireAuth") || strings.Contains(mwName, "Auth") {
-						rc.middleware = append(rc.middleware, "auth")
-					}
+				// Detect auth middleware patterns and extract parameters
+				authType := rc.extractAuthMiddlewareType(mw)
+				if authType != "" {
+					rc.middleware = append(rc.middleware, authType)
 				}
 			}
 			bindMethod.Call(args)
@@ -67,7 +66,61 @@ func (rc *RouteChain) BindFunc(middlewareFunc func(*core.RequestEvent) error) *R
 	return rc
 }
 
-// updateEndpointAuth updates the endpoint's auth requirement based on detected middleware
+// extractAuthMiddlewareType analyzes middleware to determine auth type
+func (rc *RouteChain) extractAuthMiddlewareType(mw interface{}) string {
+	mwValue := reflect.ValueOf(mw)
+	mwType := reflect.TypeOf(mw)
+
+	if mwType == nil {
+		return ""
+	}
+
+	// Handle PocketBase hook handler wrappers
+	if strings.Contains(mwType.String(), "hook.Handler") {
+		// Try to get the function name from the handler
+		if mwValue.Kind() == reflect.Ptr && !mwValue.IsNil() {
+			elem := mwValue.Elem()
+			if elem.Kind() == reflect.Struct {
+				// Look for a field that might contain the actual function
+				for i := 0; i < elem.NumField(); i++ {
+					field := elem.Field(i)
+					if field.Kind() == reflect.Func {
+						funcName := runtime.FuncForPC(field.Pointer()).Name()
+
+						// Check for PocketBase auth function patterns
+						if strings.Contains(funcName, "RequireGuestOnly") {
+							return "guest_only"
+						} else if strings.Contains(funcName, "RequireSuperuserOrOwnerAuth") {
+							return "superuser_or_owner:id" // Default to "id" parameter
+						} else if strings.Contains(funcName, "RequireSuperuserAuth") {
+							return "superuser"
+						} else if strings.Contains(funcName, "RequireAuth") {
+							return "auth"
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Direct function detection (fallback)
+	if mwValue.Kind() == reflect.Func {
+		funcName := runtime.FuncForPC(mwValue.Pointer()).Name()
+
+		if strings.Contains(funcName, "RequireGuestOnly") {
+			return "guest_only"
+		} else if strings.Contains(funcName, "RequireSuperuserOrOwnerAuth") {
+			return "superuser_or_owner:id"
+		} else if strings.Contains(funcName, "RequireSuperuserAuth") {
+			return "superuser"
+		} else if strings.Contains(funcName, "RequireAuth") {
+			return "auth"
+		}
+	}
+
+	return ""
+}
+
 func (rc *RouteChain) updateEndpointAuth() {
 	if rc.registry == nil {
 		return
@@ -77,10 +130,61 @@ func (rc *RouteChain) updateEndpointAuth() {
 	defer rc.registry.mu.Unlock()
 
 	key := rc.method + ":" + rc.path
+
 	if endpoint, exists := rc.registry.endpoints[key]; exists {
 		for _, mw := range rc.middleware {
-			if mw == "auth" {
-				endpoint.Auth = true
+			var authInfo *AuthInfo
+
+			// Handle middleware with parameters
+			mwParts := strings.SplitN(mw, ":", 2)
+			mwType := mwParts[0]
+			mwParams := ""
+			if len(mwParts) > 1 {
+				mwParams = mwParts[1]
+			}
+
+			switch mwType {
+			case "guest_only":
+				authInfo = &AuthInfo{
+					Required:    false,
+					Type:        "guest_only",
+					Description: "Requires unauthenticated (guest) access",
+					Icon:        "👤",
+				}
+			case "auth":
+				authInfo = &AuthInfo{
+					Required:    true,
+					Type:        "auth",
+					Description: "Requires authentication",
+					Icon:        "🔒",
+				}
+				if mwParams != "" {
+					collections := strings.Split(mwParams, ",")
+					authInfo.Collections = collections
+					authInfo.Description = "Requires authentication for collections: " + strings.Join(collections, ", ")
+				}
+			case "superuser":
+				authInfo = &AuthInfo{
+					Required:    true,
+					Type:        "superuser",
+					Description: "Requires superuser authentication",
+					Icon:        "👑",
+				}
+			case "superuser_or_owner":
+				authInfo = &AuthInfo{
+					Required:    true,
+					Type:        "superuser_or_owner",
+					Description: "Requires superuser or record owner authentication",
+					Icon:        "🔐",
+				}
+				if mwParams != "" {
+					authInfo.OwnerParam = mwParams
+					authInfo.Description = fmt.Sprintf("Requires superuser or record owner authentication (owner param: %s)", mwParams)
+				}
+			}
+
+			if authInfo != nil {
+				endpoint.Auth = authInfo
 				rc.registry.endpoints[key] = endpoint
 				rc.registry.rebuildEndpoints()
 				break
@@ -476,34 +580,6 @@ func (pa *PathAnalyzer) containsTag(tags []string, tag string) bool {
 			return true
 		}
 	}
-	return false
-}
-
-// DetectAuthRequirement analyzes if a path likely requires authentication
-func (pa *PathAnalyzer) DetectAuthRequirement(path string) bool {
-	authIndicators := []string{
-		"/auth/",
-		"/admin/",
-		"/protected/",
-		"/user/",
-		"/account/",
-		"/profile/",
-		"/settings/",
-		"/dashboard/",
-	}
-
-	pathLower := strings.ToLower(path)
-	for _, indicator := range authIndicators {
-		if strings.Contains(pathLower, indicator) {
-			return true
-		}
-	}
-
-	// PocketBase collection records usually require auth
-	if strings.Contains(pathLower, "/collections/") && strings.Contains(pathLower, "/records") {
-		return true
-	}
-
 	return false
 }
 

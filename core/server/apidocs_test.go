@@ -15,7 +15,7 @@ func TestAPIEndpointStruct(t *testing.T) {
 		Description: "Get all users",
 		Request:     map[string]interface{}{"query": "string"},
 		Response:    map[string]interface{}{"users": "array"},
-		Auth:        true,
+		Auth:        &AuthInfo{Required: true, Type: "auth", Description: "Requires authentication", Icon: "🔒"},
 		Tags:        []string{"users", "api"},
 		Handler:     "getUsersHandler",
 	}
@@ -29,8 +29,8 @@ func TestAPIEndpointStruct(t *testing.T) {
 	if endpoint.Description != "Get all users" {
 		t.Errorf("Expected Description 'Get all users', got %s", endpoint.Description)
 	}
-	if !endpoint.Auth {
-		t.Error("Expected Auth to be true")
+	if endpoint.Auth == nil || !endpoint.Auth.Required {
+		t.Error("Expected Auth to be required")
 	}
 	if len(endpoint.Tags) != 2 {
 		t.Errorf("Expected 2 tags, got %d", len(endpoint.Tags))
@@ -46,8 +46,8 @@ func TestAPIEndpointZeroValues(t *testing.T) {
 	if endpoint.Method != "" {
 		t.Errorf("Expected empty Method, got %s", endpoint.Method)
 	}
-	if endpoint.Auth {
-		t.Error("Expected Auth to be false by default")
+	if endpoint.Auth != nil {
+		t.Error("Expected Auth to be nil by default")
 	}
 	if endpoint.Request != nil {
 		t.Errorf("Expected nil Request, got %v", endpoint.Request)
@@ -225,12 +225,12 @@ func TestDetectAuthRequirement(t *testing.T) {
 		expected bool
 		name     string
 	}{
-		{"/api/auth/login", true, "login endpoint"},
-		{"/api/auth/register", true, "register endpoint"},
-		{"/api/auth/refresh", true, "refresh endpoint"},
+		{"/api/auth/login", false, "login endpoint - no path-based detection"},
+		{"/api/auth/register", false, "register endpoint - no path-based detection"},
+		{"/api/auth/refresh", false, "refresh endpoint - no path-based detection"},
 		{"/api/users", false, "users endpoint"},
-		{"/api/collections/records", true, "collections endpoint"},
-		{"/api/admin/users", true, "admin endpoint"},
+		{"/api/collections/records", false, "collections endpoint - no path-based detection"},
+		{"/api/admin/users", false, "admin endpoint - no path-based detection"},
 		{"/health", false, "health endpoint"},
 		{"/api/docs", false, "docs endpoint"},
 		{"/", false, "root endpoint"},
@@ -239,8 +239,9 @@ func TestDetectAuthRequirement(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := registry.detectAuthRequirement(tc.path)
-			if result != tc.expected {
-				t.Errorf("Expected auth requirement %t for path %s, got %t", tc.expected, tc.path, result)
+			hasAuth := result != nil && result.Required
+			if hasAuth != tc.expected {
+				t.Errorf("Expected auth requirement %t for path %s, got %t", tc.expected, tc.path, hasAuth)
 			}
 		})
 	}

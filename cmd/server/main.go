@@ -10,6 +10,7 @@ import (
 	"time"
 
 	app "github.com/magooney-loon/pb-ext/core"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
@@ -67,8 +68,12 @@ func registerRoutes(pbApp core.App) {
 	pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		router := app.EnableAutoDocumentation(e)
 
-		// Simple time endpoint
 		router.GET("/api/time", timeHandler)
+		router.GET("/api/hello-auth", helloAuthHandler).Bind(apis.RequireAuth())
+		router.GET("/api/guest-only", guestOnlyHandler).Bind(apis.RequireGuestOnly())
+		router.GET("/api/superuser", superuserHandler).Bind(apis.RequireSuperuserAuth())
+		router.GET("/api/user/:id", userProfileHandler).Bind(apis.RequireSuperuserOrOwnerAuth("id"))
+		router.GET("/api/admin/settings", adminSettingsHandler).Bind(apis.RequireSuperuserAuth())
 
 		return e.Next()
 	})
@@ -84,6 +89,8 @@ func registerJobs(app core.App) {
 	})
 }
 
+// API_DESC Get current server time in multiple formats
+// API_TAGS server,time
 func timeHandler(c *core.RequestEvent) error {
 	now := time.Now()
 	return c.JSON(http.StatusOK, map[string]any{
@@ -93,6 +100,106 @@ func timeHandler(c *core.RequestEvent) error {
 			"unix_nano": strconv.FormatInt(now.UnixNano(), 10),
 			"utc":       now.UTC().Format(time.RFC3339),
 		},
+	})
+}
+
+// API_DESC Authenticated hello world
+// API_TAGS auth,hello,secure
+func helloAuthHandler(c *core.RequestEvent) error {
+	userID := c.Auth.Id
+
+	// Get user info for personalized response
+	username := "User"
+	if c.Auth.GetString("username") != "" {
+		username = c.Auth.GetString("username")
+	} else if c.Auth.GetString("email") != "" {
+		username = c.Auth.GetString("email")
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"message": "Hello Auth World! 🔒",
+		"user": map[string]any{
+			"id":            userID,
+			"username":      username,
+			"authenticated": true,
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// API_DESC Demonstrates guest-only access for unauthenticated users
+// API_TAGS guest,public,demo
+func guestOnlyHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"message":   "Guest Only Access! 👤",
+		"info":      "This endpoint requires the user to be unauthenticated (guest)",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// API_DESC Demonstrates superuser-only access for admin operations
+// API_TAGS superuser,admin,secure
+func superuserHandler(c *core.RequestEvent) error {
+	userID := c.Auth.Id
+	username := "Superuser"
+	if c.Auth.GetString("username") != "" {
+		username = c.Auth.GetString("username")
+	} else if c.Auth.GetString("email") != "" {
+		username = c.Auth.GetString("email")
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"message": "Superuser Access! 👑",
+		"info":    "This endpoint requires superuser authentication",
+		"user": map[string]any{
+			"id":       userID,
+			"username": username,
+			"role":     "superuser",
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// API_DESC Get user profile with superuser or owner access control
+// API_TAGS users,profile,owner,access-control
+func userProfileHandler(c *core.RequestEvent) error {
+	requestedID := c.Request.PathValue("id")
+	currentUserID := c.Auth.Id
+
+	isOwner := currentUserID == requestedID
+	isSuperuser := c.Auth.IsSuperuser()
+
+	accessType := "owner"
+	if isSuperuser && !isOwner {
+		accessType = "superuser"
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"message": "User Profile Access! 🔐",
+		"info":    "This endpoint requires superuser or record owner authentication",
+		"access": map[string]any{
+			"type":            accessType,
+			"is_owner":        isOwner,
+			"is_superuser":    isSuperuser,
+			"requested_id":    requestedID,
+			"current_user_id": currentUserID,
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// API_DESC Manage administrative settings and configuration
+// API_TAGS admin,settings,config,management
+func adminSettingsHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"message": "Admin Settings Access! ⚙️",
+		"info":    "This endpoint requires superuser authentication for admin operations",
+		"settings": map[string]any{
+			"app_name":    "PocketBase Extension",
+			"version":     "1.0.0",
+			"environment": "development",
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
 	})
 }
 

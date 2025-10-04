@@ -107,15 +107,7 @@
     overflow: hidden;
 }
 
-.api-endpoint-header {
-    background: var(--baseAlt1Color);
-    padding: 12px 16px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    border-bottom: 1px solid var(--baseAlt2Color);
-}
+
 
 .api-endpoint-header:hover {
     background: var(--baseAlt2Color);
@@ -157,16 +149,177 @@
     border: 1px solid var(--baseAlt2Color);
     border-radius: 6px;
     position: relative;
+    margin: 0;
+    padding: 12px;
+    overflow-x: auto;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre;
 }
 
 .code-block pre {
     margin: 0;
-
+    padding: 12px;
     overflow-x: auto;
     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
     font-size: 13px;
     line-height: 1.5;
     background: transparent;
+    white-space: pre;
+}
+
+.code-block pre code,
+.code-block code {
+    white-space: pre;
+    word-wrap: normal;
+}
+
+/* JSON syntax highlighting */
+.json-string { color: #22c55e; }
+.json-number { color: #3b82f6; }
+.json-boolean { color: #f59e0b; }
+.json-null { color: #6b7280; }
+.json-key { color: #8b5cf6; font-weight: 600; }
+
+/* Auth indicator styling */
+.auth-icon {
+    margin-left: 8px;
+    margin-right: 4px;
+    font-size: 16px;
+    opacity: 0.8;
+    transition: opacity 0.2s ease;
+}
+
+.auth-icon:hover {
+    opacity: 1;
+}
+
+/* External link icon styling */
+.external-link-icon {
+    margin-left: 8px;
+    margin-right: 4px;
+    color: #6b7280 !important;
+    font-size: 14px;
+    opacity: 0.6;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.external-link-icon:hover {
+    opacity: 1;
+    color: #3b82f6 !important;
+    transform: scale(1.1);
+}
+
+/* Auth type specific styling */
+.auth-guest-only {
+    color: #6b7280 !important;
+}
+
+.auth-auth {
+    color: #f59e0b !important;
+}
+
+.auth-superuser {
+    color: #8b5cf6 !important;
+}
+
+.auth-superuser-or-owner {
+    color: #ef4444 !important;
+}
+
+.auth-details {
+    background: var(--baseAlt1Color);
+    border: 1px solid var(--baseAlt2Color);
+    border-radius: 4px;
+    padding: 8px;
+    margin-top: 4px;
+}
+
+.auth-details .auth-type {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    font-size: 11px;
+    background: var(--baseAlt2Color);
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    color: var(--txtHintColor);
+}
+
+.auth-details.auth-none {
+    border-color: #22c55e;
+    background: rgba(34, 197, 94, 0.05);
+}
+
+.auth-icon-large {
+    font-size: 24px;
+    line-height: 1;
+}
+
+.auth-icon-large.auth-guest-only {
+    color: #6b7280;
+}
+
+.auth-icon-large.auth-auth {
+    color: #f59e0b;
+}
+
+.auth-icon-large.auth-superuser {
+    color: #8b5cf6;
+}
+
+.auth-icon-large.auth-superuser-or-owner {
+    color: #ef4444;
+}
+
+.auth-param {
+    margin: 8px 0;
+    padding: 6px;
+    background: var(--baseAlt2Color);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.auth-param-code,
+.auth-collection {
+    background: var(--baseColor);
+    border: 1px solid var(--baseAlt2Color);
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    font-size: 11px;
+    color: #8b5cf6;
+}
+
+.auth-note {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: rgba(59, 130, 246, 0.1);
+    border-left: 3px solid #3b82f6;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--txtHintColor);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.auth-note i {
+    color: #3b82f6;
+    font-size: 14px;
+}
+
+/* Enhanced endpoint header */
+.api-endpoint-header {
+    background: var(--baseAlt1Color);
+    padding: 12px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--baseAlt2Color);
+    transition: all 0.2s ease;
 }
 
 .tabs-header {
@@ -304,6 +457,32 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // JSON syntax highlighting helper
+    function syntaxHighlight(json) {
+        if (typeof json != "string") {
+            json = JSON.stringify(json, undefined, 2);
+        }
+        // Escape HTML characters but preserve formatting
+        json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        // Apply syntax highlighting while preserving whitespace and newlines
+        return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+            var cls = 'number';
+            if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                    cls = 'key';
+                } else {
+                    cls = 'string';
+                }
+            } else if (/true|false/.test(match)) {
+                cls = 'boolean';
+            } else if (/null/.test(match)) {
+                cls = 'null';
+            }
+            return '<span class="json-' + cls + '">' + match + '</span>';
+        });
+    }
+
 
 
     // Load OpenAPI schema
@@ -425,7 +604,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const path = endpoint.path || '/';
             const operationId = endpoint.handler_name || `endpoint_${index}`;
             const summary = endpoint.description || 'No description';
-            const authRequired = endpoint.requires_auth ? 'Yes' : 'No';
+            const authInfo = endpoint.auth;
+            const authRequired = authInfo && authInfo.required;
 
             return `
                 <div class="api-endpoint">
@@ -433,6 +613,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         <span class="http-method ${method}">${method.toUpperCase()}</span>
                         <span class="flex-fill txt-mono">${path}</span>
                         <span class="txt-sm txt-hint">${summary}</span>
+                        ${authRequired ? `<span class="auth-icon" title="${authInfo.description}">${authInfo.icon}</span>` : ''}
+                        <i class="ri-external-link-line external-link-icon" title="Open endpoint in new tab" onclick="event.stopPropagation(); window.open(window.location.origin + '${path}', '_blank')"></i>
                         <i class="ri-arrow-down-s-line"></i>
                     </div>
                     <div id="${operationId}" class="api-endpoint-content">
@@ -441,8 +623,50 @@ document.addEventListener('DOMContentLoaded', function() {
                             <p class="txt-sm txt-hint mt-1">${endpoint.description || summary}</p>
                         </div>
                         <div class="mb-2">
-                            <strong>Authentication Required:</strong>
-                            <span class="txt-sm ${endpoint.requires_auth ? 'txt-danger' : 'txt-success'}">${authRequired}</span>
+                            <strong>Authentication:</strong>
+                            ${authRequired ? `
+                                <div class="auth-details mt-1">
+                                    <div class="flex align-center gap-2 mb-2">
+                                        <span class="auth-icon-large auth-${authInfo.type}">${authInfo.icon}</span>
+                                        <div class="flex-fill">
+                                            <div class="txt-sm txt-bold">${authInfo.description}</div>
+                                            <div class="auth-type">${authInfo.type.replace(/_/g, ' ')}</div>
+                                        </div>
+                                    </div>
+                                    ${authInfo.collections && authInfo.collections.length > 0 ? `
+                                        <div class="auth-param">
+                                            <strong>Required Collections:</strong> ${authInfo.collections.map(c => `<code class="auth-collection">${c}</code>`).join(', ')}
+                                        </div>
+                                    ` : ''}
+                                    ${authInfo.owner_param ? `
+                                        <div class="auth-param">
+                                            <strong>Owner Parameter:</strong> <code class="auth-param-code">${authInfo.owner_param}</code>
+                                        </div>
+                                    ` : ''}
+                                    ${authInfo.type === 'guest_only' ? `
+                                        <div class="auth-note">
+                                            <i class="ri-information-line"></i>
+                                            This endpoint requires the client to be unauthenticated
+                                        </div>
+                                    ` : ''}
+                                    ${authInfo.type === 'superuser_or_owner' ? `
+                                        <div class="auth-note">
+                                            <i class="ri-information-line"></i>
+                                            Access granted to superusers or record owners
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : `
+                                <div class="auth-details auth-none mt-1">
+                                    <div class="flex align-center gap-2">
+                                        <span class="auth-icon-large">🌐</span>
+                                        <div>
+                                            <div class="txt-sm txt-bold txt-success">No authentication required</div>
+                                            <div class="auth-type">public access</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `}
                         </div>
                         ${endpoint.tags && endpoint.tags.length > 0 ? `
                             <div class="mb-2">
@@ -455,17 +679,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         ${endpoint.request ? `
                             <div class="mb-2">
                                 <strong>Request Schema:</strong>
-                                <div class="code-block mt-1">
-                                    <pre><code>${JSON.stringify(endpoint.request, null, 2)}</code></pre>
-                                </div>
+                                <pre class="code-block mt-1"><code>${syntaxHighlight(endpoint.request)}</code></pre>
                             </div>
                         ` : ''}
                         ${endpoint.response ? `
                             <div class="mb-2">
                                 <strong>Response Schema:</strong>
-                                <div class="code-block mt-1">
-                                    <pre><code>${JSON.stringify(endpoint.response, null, 2)}</code></pre>
-                                </div>
+                                <pre class="code-block mt-1"><code>${syntaxHighlight(endpoint.response)}</code></pre>
                             </div>
                         ` : ''}
                     </div>
@@ -498,7 +718,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <div id="schema-${name}" class="schema-content">
                         <div class="code-block">
-                            <pre><code>${JSON.stringify(schemaObj, null, 2)}</code></pre>
+                            <pre><code>${syntaxHighlight(schemaObj)}</code></pre>
                         </div>
                     </div>
                 </div>
@@ -517,7 +737,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Simple JSON to YAML conversion
                 content.textContent = jsonToYaml(openApiSchema);
             } else {
-                content.textContent = JSON.stringify(openApiSchema, null, 2);
+                content.innerHTML = syntaxHighlight(openApiSchema);
             }
         } catch (error) {
             content.textContent = 'Error formatting schema: ' + error.message;
