@@ -68,15 +68,15 @@
                         <div class="flex">
                             <div class="column flex-fill">
                                 <div class="txt-hint txt-sm">Desktop</div>
-                                <div>{{.AnalyticsData.DesktopPercentage}}%</div>
+                                <div>{{printf "%.1f" .AnalyticsData.DesktopPercentage}}%</div>
                             </div>
                             <div class="column flex-fill">
                                 <div class="txt-hint txt-sm">Mobile</div>
-                                <div>{{.AnalyticsData.MobilePercentage}}%</div>
+                                <div>{{printf "%.1f" .AnalyticsData.MobilePercentage}}%</div>
                             </div>
                             <div class="column flex-fill">
                                 <div class="txt-hint txt-sm">Tablet</div>
-                                <div>{{.AnalyticsData.TabletPercentage}}%</div>
+                                <div>{{printf "%.1f" .AnalyticsData.TabletPercentage}}%</div>
                             </div>
                         </div>
                     </div>
@@ -94,7 +94,7 @@
                                 <div class="txt-sm flex-fill">{{$browser}}</div>
                                 <div class="flex-fill">
                                     <div class="progress">
-                                        <div class="progress-bar" role="progressbar" style="width: {{$percent}}%" aria-valuenow="{{$percent}}" aria-valuemin="0" aria-valuemax="100"></div>
+                                        <div class="progress-bar" role="progressbar" style="width: {{printf "%.1f" $percent}}%" aria-valuenow="{{printf "%.1f" $percent}}" aria-valuemin="0" aria-valuemax="100"></div>
                                     </div>
                                 </div>
                                 <div class="txt-sm m-l-5">{{printf "%.0f" $percent}}%</div>

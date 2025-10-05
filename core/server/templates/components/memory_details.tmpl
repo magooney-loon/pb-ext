@@ -9,7 +9,7 @@
 
     <div class="card">
         <div class="card-body">
-            <div class="grid grid-sm-2 grid-xl-4 gap-base">
+            <div class="grid grid-sm-2 grid-xl-5 gap-base">
                 <div class="card view-card">
                     <div class="card-body">
                         <h6 class="txt-hint m-b-5">System Memory</h6>
@@ -73,47 +73,47 @@
                 <div class="card view-card">
                     <div class="card-body">
                         <h6 class="txt-hint m-b-5">Heap</h6>
-                        <div class="flex align-center m-b-5">
+                        <div class="flex align-center m-b-10">
                             <h4 class="m-0">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.HeapObjects 1048576)}}</h4>
                             <span class="txt-hint txt-sm m-l-5">Objects</span>
                         </div>
 
-                        <div class="txt-hint txt-sm m-t-5">
-                            GC Duration: {{printf "%.2fms" (divideFloat64 (int64 .SystemStats.RuntimeStats.LastGCDuration) 1000000)}}
+                        <div class="flex justify-between m-b-3">
+                            <span class="txt-hint txt-sm">GC Duration</span>
+                            <span class="txt-sm">{{printf "%.2fms" (divideFloat64 (int64 .SystemStats.RuntimeStats.LastGCDuration) 1000000)}}</span>
                         </div>
-                        <div class="txt-hint txt-sm">
-                            Next GC: {{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.NextGC 1048576)}}
+                        <div class="flex justify-between m-b-3">
+                            <span class="txt-hint txt-sm">Next GC</span>
+                            <span class="txt-sm">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.NextGC 1048576)}}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="txt-hint txt-sm">CGO Calls</span>
+                            <span class="txt-sm">{{.SystemStats.RuntimeStats.NumCgoCall}}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card view-card">
+                    <div class="card-body">
+                        <h6 class="txt-hint m-b-5">Heap Alloc</h6>
+                        <div class="flex align-center m-b-10">
+                            <h4 class="m-0">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.AllocatedBytes 1048576)}}</h4>
+                            <span class="txt-hint txt-sm m-l-5">Current</span>
+                        </div>
+
+                        <div class="flex justify-between m-b-3">
+                            <span class="txt-hint txt-sm">Total Allocated</span>
+                            <span class="txt-sm">{{printf "%.1f GB" (divideFloat64 .SystemStats.RuntimeStats.TotalAllocBytes 1073741824)}}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="txt-hint txt-sm">Allocation Rate</span>
+                            <span class="txt-sm txt-hint">Live tracking</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="m-t-15">
-                <div class="flex align-center m-b-10">
-                    <i class="ri-database-2-line m-r-5 txt-hint"></i>
-                    <h5 class="m-0">Heap Allocations</h5>
-                </div>
-                <div class="grid grid-3 grid-sm-3 gap-small">
-                    <div class="card card-sm view-card">
-                        <div class="card-body txt-center">
-                            <div class="txt-hint txt-sm m-b-5">Current</div>
-                            <div class="txt-lg">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.AllocatedBytes 1048576)}}</div>
-                        </div>
-                    </div>
-                    <div class="card card-sm view-card">
-                        <div class="card-body txt-center">
-                            <div class="txt-hint txt-sm m-b-5">Total</div>
-                            <div class="txt-lg">{{printf "%.1f GB" (divideFloat64 .SystemStats.RuntimeStats.TotalAllocBytes 1073741824)}}</div>
-                        </div>
-                    </div>
-                    <div class="card card-sm view-card">
-                        <div class="card-body txt-center">
-                            <div class="txt-hint txt-sm m-b-5">CGO Calls</div>
-                            <div class="txt-lg">{{.SystemStats.RuntimeStats.NumCgoCall}}</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+
         </div>
     </div>
 </div>

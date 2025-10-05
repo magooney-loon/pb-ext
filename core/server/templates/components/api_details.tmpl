@@ -1,5 +1,11 @@
 {{define "api_details"}}
-<div class="section">
+<div class="section m-t-base">
+    <header class="section-header">
+        <h4 class="section-title">
+            <i class="ri-code-box-line"></i>
+            <span id="api-header-title">API Documentation</span>
+        </h4>
+    </header>
 
     <div class="card">
         <div class="card-body">
@@ -707,11 +713,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (overview) overview.style.display = 'block';
 
         const title = document.getElementById('api-title');
+        const headerTitle = document.getElementById('api-header-title');
         const version = document.getElementById('api-version');
         const description = document.getElementById('api-description');
         const endpointsCount = document.getElementById('api-endpoints-count');
 
         if (title) title.textContent = schema.title || 'API Documentation';
+        if (headerTitle) headerTitle.textContent = schema.title || 'API Documentation';
         if (version) version.textContent = schema.version || '1.0.0';
         if (description) description.textContent = schema.description || 'API Documentation';
 

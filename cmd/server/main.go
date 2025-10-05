@@ -58,5 +58,5 @@ func initApp(devMode bool) {
 //
 // Highly advised to copy the cmd/scripts folder
 //
-// Ready for a production build on a VPS?
+// Ready for a production build deployment?
 // pb-deployer > https://github.com/magooney-loon/pb-deployer
