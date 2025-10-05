@@ -61,4 +61,4 @@ func initApp(devMode bool) {
 // streamlined fullstack dx with +Svelte5kit+
 //
 // Ready for a production build deployment?
-// pb-deployer > https://github.com/magooney-loon/pb-deployer
+// https://github.com/magooney-loon/pb-deployer
