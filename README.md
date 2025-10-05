@@ -18,7 +18,6 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 - Admin panel: `127.0.0.1:8090/_`
 - Server dashboard: `127.0.0.1:8090/_/_`
-- API Schema: `127.0.0.1:8090/api/docs/openapi`
 
 ## Authentication
 
