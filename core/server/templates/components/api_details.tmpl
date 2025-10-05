@@ -843,7 +843,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <span class="flex-fill txt-mono">${path}</span>
                         <span class="txt-sm txt-hint">${summary}</span>
                         ${authRequired ? `<span class="auth-icon" title="${authInfo.description}">${authInfo.icon}</span>` : ''}
-                        <i class="ri-external-link-line external-link-icon" title="Open endpoint in new tab" onclick="event.stopPropagation(); window.open(window.location.origin + '${path}', '_blank')"></i>
+                        <i class="ri-external-link-line external-link-icon" title="Call API endpoint" onclick="event.stopPropagation(); callApiEndpoint('${method}', '${path}', ${authRequired})"></i>
                         <i class="ri-arrow-down-s-line"></i>
                     </div>
                     <div id="${operationId}" class="api-endpoint-content">
@@ -1165,6 +1165,101 @@ Check the server logs for more details.`;
 Check the server logs for more details.`;
         }
     }
+
+    // Function to call API endpoint with authentication if needed
+    window.callApiEndpoint = function(method, path, authRequired) {
+        // If GET method and no auth required, just open in new tab
+        if (method.toUpperCase() === 'GET' && !authRequired) {
+            window.open(window.location.origin + path, '_blank');
+            return;
+        }
+
+        // For authenticated endpoints, try to get PocketBase token from localStorage
+        let token = null;
+        let authType = 'none';
+        try {
+            // Check for superuser auth first
+            const superuserAuth = localStorage.getItem('__pb_superuser_auth__');
+            if (superuserAuth) {
+                const authData = JSON.parse(superuserAuth);
+                if (authData && authData.token) {
+                    token = authData.token;
+                    authType = 'superuser';
+                }
+            }
+
+            // If no superuser auth, check for regular user auth
+            if (!token) {
+                const authKeys = Object.keys(localStorage).filter(key => key.startsWith('pb_auth_'));
+                if (authKeys.length > 0) {
+                    const authData = JSON.parse(localStorage.getItem(authKeys[0]));
+                    if (authData && authData.token) {
+                        token = authData.token;
+                        authType = 'user';
+                    }
+                }
+            }
+        } catch (e) {
+            console.log('No PocketBase auth found in localStorage');
+        }
+
+        // Prepare fetch options
+        const fetchOptions = {
+            method: method.toUpperCase(),
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        };
+
+        // Add authorization header if we have a token
+        if (token) {
+            fetchOptions.headers['Authorization'] = `Bearer ${token}`;
+        } else if (authRequired) {
+            alert('This endpoint requires authentication. Please log in to PocketBase first.');
+            return;
+        }
+
+        // Make the API call and show results in a new window
+        fetch(window.location.origin + path, fetchOptions)
+            .then(response => {
+                return response.text().then(text => {
+                    let content;
+                    try {
+                        content = JSON.stringify(JSON.parse(text), null, 2);
+                    } catch (e) {
+                        content = text;
+                    }
+
+                    const newWindow = window.open('', '_blank');
+                    newWindow.document.write(`
+                        <html>
+                            <head>
+                                <title>${method.toUpperCase()} ${path} - API Response</title>
+                                <style>
+                                    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #e1e1e1; }
+                                    .status { padding: 10px; border-radius: 4px; margin-bottom: 20px; }
+                                    .status.success { background: #1f4e3d; border: 1px solid #22c55e; }
+                                    .status.error { background: #4e1f1f; border: 1px solid #ef4444; }
+                                    pre { background: #2a2a2a; padding: 15px; border-radius: 4px; overflow: auto; }
+                                    .header { color: #9ca3af; margin-bottom: 10px; }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="header">${method.toUpperCase()} ${window.location.origin}${path}</div>
+                                <div class="status ${response.ok ? 'success' : 'error'}">
+                                    Status: ${response.status} ${response.statusText}
+                                    ${token ? ` (Authenticated as ${authType})` : ' (Not authenticated)'}
+                                </div>
+                                <pre>${content}</pre>
+                            </body>
+                        </html>
+                    `);
+                });
+            })
+            .catch(error => {
+                alert('Error calling API: ' + error.message);
+            });
+    };
 
     // Global functions for onclick handlers
     window.toggleEndpoint = function(operationId) {

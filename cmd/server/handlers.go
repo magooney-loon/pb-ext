@@ -80,6 +80,12 @@ func guestInfoHandler(c *core.RequestEvent) error {
 // API_DESC Create a new post
 // API_TAGS v2,posts,create,authenticated
 func createPostHandler(c *core.RequestEvent) error {
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{
+			"error": "Authentication required",
+		})
+	}
+
 	userID := c.Auth.Id
 	username := getUserDisplayName(c)
 
@@ -129,6 +135,12 @@ func createPostHandler(c *core.RequestEvent) error {
 // API_TAGS v2,posts,update,partial,authenticated
 func patchPostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{
+			"error": "Authentication required",
+		})
+	}
+
 	userID := c.Auth.Id
 	username := getUserDisplayName(c)
 
@@ -186,6 +198,12 @@ func patchPostHandler(c *core.RequestEvent) error {
 // API_TAGS v2-beta,posts,update,replace,superuser,owner
 func updatePostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{
+			"error": "Authentication required",
+		})
+	}
+
 	currentUserID := c.Auth.Id
 	isSuperuser := c.Auth.IsSuperuser()
 
@@ -239,6 +257,12 @@ func updatePostHandler(c *core.RequestEvent) error {
 // API_TAGS v1,posts,delete,admin,superuser
 func deletePostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{
+			"error": "Authentication required",
+		})
+	}
+
 	userID := c.Auth.Id
 	username := getUserDisplayName(c)
 
@@ -265,8 +289,14 @@ func deletePostHandler(c *core.RequestEvent) error {
 }
 
 // API_DESC Get admin dashboard statistics
-// API_TAGS deprecated,admin,statistics,dashboard,superuser
+// API_TAGS admin,statistics,dashboard,superuser
 func adminStatsHandler(c *core.RequestEvent) error {
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{
+			"error": "Authentication required",
+		})
+	}
+
 	userID := c.Auth.Id
 	username := getUserDisplayName(c)
 
@@ -314,6 +344,9 @@ func adminStatsHandler(c *core.RequestEvent) error {
 
 // getUserDisplayName extracts display name from authenticated user
 func getUserDisplayName(c *core.RequestEvent) string {
+	if c.Auth == nil {
+		return "Anonymous"
+	}
 	if c.Auth.GetString("username") != "" {
 		return c.Auth.GetString("username")
 	}

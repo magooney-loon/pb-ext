@@ -49,9 +49,9 @@ func initApp(devMode bool) {
 	}
 }
 
-// All handlers defined in cmd/server/handlers.go
-// All jobs defined in cmd/server/jobs.go
-// All collections defined in cmd/server/collections.go
+// Example handlers in cmd/server/handlers.go
+// Example cron jobs in cmd/server/jobs.go
+// Example collections in cmd/server/collections.go
 //
 // You can restructure Your project as you wish,
 // just keep this main.go in cmd/server/main.go
