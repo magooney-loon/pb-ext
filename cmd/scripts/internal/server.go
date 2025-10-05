@@ -12,7 +12,8 @@ import (
 func RunServer(rootDir string) error {
 	PrintHeader("🚀 STARTING SERVER")
 
-	cmd := exec.Command("go", "run", filepath.Join(rootDir, "cmd/server/main.go"), "--dev", "serve")
+	cmd := exec.Command("go", "run", "./cmd/server", "--dev", "serve")
+	cmd.Dir = rootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -46,7 +47,8 @@ func StartServerWithTimeout(rootDir string, timeout time.Duration) error {
 		return err
 	}
 
-	cmd := exec.Command("go", "run", filepath.Join(rootDir, "cmd/server/main.go"), "--dev", "serve")
+	cmd := exec.Command("go", "run", "./cmd/server", "--dev", "serve")
+	cmd.Dir = rootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -81,7 +83,7 @@ func CheckServerHealth(rootDir string) error {
 
 	// Check if we can compile the server
 	PrintStep("🔨", "Testing server compilation...")
-	cmd := exec.Command("go", "build", "-o", "/tmp/pb-deployer-test", filepath.Join(rootDir, "cmd/server/main.go"))
+	cmd := exec.Command("go", "build", "-o", "/tmp/pb-deployer-test", "./cmd/server")
 	cmd.Dir = rootDir
 
 	if err := cmd.Run(); err != nil {

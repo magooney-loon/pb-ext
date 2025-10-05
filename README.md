@@ -30,10 +30,12 @@ The dashboard utilizes PocketBase's superuser authentication system, ensuring th
 ```go
 package main
 
-// API_SOURCE
-
 import (
+	"flag"
+	"log"
+
 	app "github.com/magooney-loon/pb-ext/core"
+
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -77,36 +79,20 @@ func initApp(devMode bool) {
 	}
 }
 
-func registerRoutes(pbApp core.App) {
-	pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		router := app.EnableAutoDocumentation(e)
-
-		// Files marked with API_SOURCE directive are automatically discovered for AST parsing
-
-		router.GET("/api/time", timeHandler)
-
-		return e.Next()
-	})
-}
-
-// API_DESC Current server time
-// API_TAGS server,time,unix
-func timeHandler(c *core.RequestEvent) error {
-	now := time.Now()
-	return c.JSON(http.StatusOK, map[string]any{
-		"time": map[string]string{
-			"iso":       now.Format(time.RFC3339),
-			"unix":      strconv.FormatInt(now.Unix(), 10),
-			"unix_nano": strconv.FormatInt(now.UnixNano(), 10),
-			"utc":       now.UTC().Format(time.RFC3339),
-		},
-	})
-}
-
-// Check cmd/server/main.go
-	// For the full example
+// All handlers defined in cmd/server/handlers.go
+// All jobs defined in cmd/server/jobs.go
+// All collections defined in cmd/server/collections.go
+//
+// You can restructure Your project as you wish,
+// just keep this main.go in cmd/server/main.go
+//
+// Highly advised to copy the cmd/scripts folder
+//
+// Ready for a production build on a VPS?
+// pb-deployer > https://github.com/magooney-loon/pb-deployer
 ```
 
 ```bash
+go mod tidy
 go run cmd/scripts/main.go --run-only
 ```
