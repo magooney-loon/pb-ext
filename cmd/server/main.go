@@ -5,7 +5,6 @@ import (
 	"log"
 
 	app "github.com/magooney-loon/pb-ext/core"
-
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -17,14 +16,15 @@ func main() {
 }
 
 func initApp(devMode bool) {
-	var srv *app.Server
+	var opts []app.Option
+
 	if devMode {
-		srv = app.New(app.InDeveloperMode())
-		log.Println("🔧 Developer mode enabled")
+		opts = append(opts, app.InDeveloperMode())
 	} else {
-		srv = app.New(app.InNormalMode())
-		log.Println("🚀 Production mode")
+		opts = append(opts, app.InNormalMode())
 	}
+
+	srv := app.New(opts...)
 
 	app.SetupLogging(srv)
 
@@ -49,10 +49,10 @@ func initApp(devMode bool) {
 	}
 }
 
+// Example models in cmd/server/collections.go
 // Example routes in cmd/server/routes.go
 // Example handlers in cmd/server/handlers.go
 // Example cron jobs in cmd/server/jobs.go
-// Example collections in cmd/server/collections.go
 //
 // You can restructure Your project as you wish,
 // just keep this main.go in cmd/server/main.go

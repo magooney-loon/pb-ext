@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"log"
 
 	"github.com/pocketbase/pocketbase"
 )
@@ -52,6 +53,7 @@ func WithMode(developer_mode bool) Option {
 func InDeveloperMode() Option {
 	return func(opts *options) {
 		opts.developer_mode = true
+		log.Println("🔧 Developer mode")
 	}
 }
 
@@ -59,5 +61,6 @@ func InDeveloperMode() Option {
 func InNormalMode() Option {
 	return func(opts *options) {
 		opts.developer_mode = false
+		log.Println("🚀 Production mode")
 	}
 }

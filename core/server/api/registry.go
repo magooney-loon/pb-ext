@@ -199,13 +199,12 @@ func (r *APIRegistry) enhanceEndpointWithAnalysis(endpoint *APIEndpoint) {
 
 		// Only set response schema if AST didn't already provide one
 		if endpoint.Response == nil {
-			fmt.Printf("🔄 No AST schema found for %s %s, generating from path patterns\n", endpoint.Method, endpoint.Path)
 			if responseSchema, err := r.schemaGenerator.AnalyzeResponseSchema(endpoint); err == nil {
 				endpoint.Response = responseSchema
-				fmt.Printf("📋 Applied path-based schema for %s %s\n", endpoint.Method, endpoint.Path)
+				fmt.Printf("  📋 Path schema: %s %s\n", endpoint.Method, endpoint.Path)
 			}
 		} else {
-			fmt.Printf("✅ Preserving AST schema for %s %s (has %d properties)\n", endpoint.Method, endpoint.Path, len(endpoint.Response))
+			fmt.Printf("  📤 AST schema: %s %s (%d props)\n", endpoint.Method, endpoint.Path, len(endpoint.Response))
 		}
 	}
 }

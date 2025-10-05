@@ -32,11 +32,11 @@ func NewASTParser() *ASTParser {
 	}
 
 	// Automatically discover and parse files with API_SOURCE directive
-	fmt.Printf("🔍 Starting AST parser initialization and file discovery\n")
+	fmt.Printf("🔍 AST Parser: Initializing...\n")
 	if err := parser.DiscoverSourceFiles(); err != nil {
-		fmt.Printf("❌ Failed to discover source files: %v\n", err)
+		fmt.Printf("❌ AST Parser: Discovery failed - %v\n", err)
 	} else {
-		fmt.Printf("✅ AST file discovery completed - handlers: %d, structs: %d\n", len(parser.handlers), len(parser.structs))
+		fmt.Printf("✅ AST Parser: Ready - %d handlers, %d structs\n", len(parser.handlers), len(parser.structs))
 	}
 
 	return parser
@@ -355,7 +355,7 @@ func (p *ASTParser) isHandlerFunction(funcDecl *ast.FuncDecl) bool {
 		strings.Contains(paramType, "core.RequestEvent")
 
 	if isHandler {
-		fmt.Printf("🎯 Found handler function: %s with param type: %s\n", funcDecl.Name.Name, paramType)
+		fmt.Printf("🎯 Handler: %s [%s]\n", funcDecl.Name.Name, paramType)
 	}
 
 	return isHandler
@@ -386,7 +386,7 @@ func (p *ASTParser) parseHandler(funcDecl *ast.FuncDecl) *ASTHandlerInfo {
 
 // parseAPIDirectives parses API directive comments (API_DESC, API_TAGS, etc.)
 func (p *ASTParser) parseAPIDirectives(commentGroup *ast.CommentGroup, handlerInfo *ASTHandlerInfo) {
-	fmt.Printf("🔍 Parsing API directives for handler: %s\n", handlerInfo.Name)
+	fmt.Printf("🔍 Directives: %s\n", handlerInfo.Name)
 	for _, comment := range commentGroup.List {
 		text := strings.TrimSpace(comment.Text)
 
@@ -398,7 +398,7 @@ func (p *ASTParser) parseAPIDirectives(commentGroup *ast.CommentGroup, handlerIn
 
 		if strings.HasPrefix(text, "API_DESC ") {
 			handlerInfo.APIDescription = strings.TrimSpace(strings.TrimPrefix(text, "API_DESC"))
-			fmt.Printf("📝 Found API_DESC for %s: %s\n", handlerInfo.Name, handlerInfo.APIDescription)
+			fmt.Printf("  📝 DESC: %s\n", handlerInfo.APIDescription)
 		} else if strings.HasPrefix(text, "API_TAGS ") {
 			tagsStr := strings.TrimSpace(strings.TrimPrefix(text, "API_TAGS"))
 			tags := strings.Split(tagsStr, ",")
@@ -408,7 +408,7 @@ func (p *ASTParser) parseAPIDirectives(commentGroup *ast.CommentGroup, handlerIn
 					handlerInfo.APITags = append(handlerInfo.APITags, tag)
 				}
 			}
-			fmt.Printf("🏷️ Found API_TAGS for %s: %v\n", handlerInfo.Name, handlerInfo.APITags)
+			fmt.Printf("  🏷️ TAGS: %v\n", handlerInfo.APITags)
 		}
 	}
 }
@@ -436,19 +436,15 @@ func (p *ASTParser) processCallExpr(call *ast.CallExpr, handlerInfo *ASTHandlerI
 
 	// Check for JSON response calls
 	if p.isJSONResponseCall(call) {
-		fmt.Printf("🎯 Handler %s: Found JSON response call\n", handlerInfo.Name)
 		handlerInfo.UsesJSONReturn = true
 		handlerInfo.ResponseType = p.extractResponseType(call)
-		fmt.Printf("🔍 Found JSON response call, response type: '%s'\n", handlerInfo.ResponseType)
+		fmt.Printf("  📤 Response: %s\n", handlerInfo.ResponseType)
 
 		// If it's a map literal, also store the schema directly
 		if handlerInfo.ResponseType == "map[string]any" && len(call.Args) >= 2 {
 			if compLit, ok := call.Args[1].(*ast.CompositeLit); ok {
-				fmt.Printf("📊 Analyzing map literal with %d elements\n", len(compLit.Elts))
 				handlerInfo.ResponseSchema = p.analyzeMapLiteralSchema(compLit)
-				fmt.Printf("📈 Generated schema: %+v\n", handlerInfo.ResponseSchema)
-			} else {
-				fmt.Printf("❌ Second argument is not a composite literal\n")
+				fmt.Printf("  📊 Schema: %d properties\n", len(handlerInfo.ResponseSchema))
 			}
 		}
 	}
@@ -511,15 +507,11 @@ func (p *ASTParser) extractRequestType(call *ast.CallExpr) string {
 
 // extractResponseType extracts the response type from a JSON response call
 func (p *ASTParser) extractResponseType(call *ast.CallExpr) string {
-	fmt.Printf("🔍 extractResponseType: Processing call with %d arguments\n", len(call.Args))
-
 	// Look at the arguments to find the response data
 	if len(call.Args) >= 2 {
 		responseType := p.extractTypeFromExpression(call.Args[1])
-		fmt.Printf("🔍 extractResponseType: Extracted type '%s'\n", responseType)
 		return responseType
 	}
-	fmt.Printf("⚠️ extractResponseType: Not enough arguments (%d < 2)\n", len(call.Args))
 	return ""
 }
 
@@ -528,8 +520,6 @@ func (p *ASTParser) analyzeMapLiteralSchema(compLit *ast.CompositeLit) map[strin
 	if compLit == nil || len(compLit.Elts) == 0 {
 		return nil
 	}
-
-	fmt.Printf("🔍 analyzeMapLiteralSchema: Processing %d elements\n", len(compLit.Elts))
 
 	schema := map[string]interface{}{
 		"type":       "object",
@@ -553,13 +543,11 @@ func (p *ASTParser) analyzeMapLiteralSchema(compLit *ast.CompositeLit) map[strin
 				valueSchema := p.analyzeValueForSchema(kv.Value)
 				if valueSchema != nil {
 					properties[keyName] = valueSchema
-					fmt.Printf("📝 Added property '%s': %+v\n", keyName, valueSchema)
 				}
 			}
 		}
 	}
 
-	fmt.Printf("📊 Final schema has %d properties\n", len(properties))
 	return schema
 }
 
@@ -644,35 +632,22 @@ func (p *ASTParser) isMapType(expr ast.Expr) bool {
 
 // extractTypeFromExpression extracts type information from an expression
 func (p *ASTParser) extractTypeFromExpression(expr ast.Expr) string {
-	fmt.Printf("🔍 extractTypeFromExpression: Processing expression type %T\n", expr)
-
 	switch e := expr.(type) {
 	case *ast.Ident:
-		fmt.Printf("🔍 extractTypeFromExpression: Ident '%s'\n", e.Name)
 		return e.Name
 	case *ast.SelectorExpr:
-		result := p.extractTypeName(e)
-		fmt.Printf("🔍 extractTypeFromExpression: SelectorExpr -> '%s'\n", result)
-		return result
+		return p.extractTypeName(e)
 	case *ast.CompositeLit:
-		// For composite literals, check if it's a map type
+		// Handle composite literals (struct/map literals)
 		if p.isMapType(e.Type) {
-			fmt.Printf("🔍 extractTypeFromExpression: CompositeLit detected as map type\n")
 			return "map[string]any" // Special marker for map literals
 		}
-		result := p.extractTypeName(e.Type)
-		fmt.Printf("🔍 extractTypeFromExpression: CompositeLit -> '%s'\n", result)
-		return result
+		return p.extractTypeName(e.Type)
 	case *ast.UnaryExpr:
 		if e.Op == token.AND {
-			fmt.Printf("🔍 extractTypeFromExpression: UnaryExpr with & operator\n")
 			return p.extractTypeFromExpression(e.X)
 		}
-		fmt.Printf("🔍 extractTypeFromExpression: UnaryExpr with operator %s\n", e.Op.String())
-	default:
-		fmt.Printf("🔍 extractTypeFromExpression: Unhandled expression type %T\n", expr)
 	}
-	fmt.Printf("🔍 extractTypeFromExpression: Returning empty string\n")
 	return ""
 }
 
@@ -942,7 +917,7 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 	}
 
 	handlerName := ExtractHandlerNameFromPath(endpoint.Handler)
-	fmt.Printf("🔍 EnhanceEndpoint: Looking for handler '%s' (original: '%s') for endpoint %s %s\n", handlerName, endpoint.Handler, endpoint.Method, endpoint.Path)
+	fmt.Printf("🔍 Enhance: %s %s -> %s\n", endpoint.Method, endpoint.Path, handlerName)
 
 	// Get available handler names for debugging
 	availableHandlers := make([]string, 0, len(p.handlers))
@@ -950,38 +925,32 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 		availableHandlers = append(availableHandlers, name)
 	}
 
-	// Try multiple strategies to find the handler
 	var handlerInfo *ASTHandlerInfo
 	var exists bool
 
-	// Strategy 1: Exact name match
+	// Try exact match first
 	if handlerInfo, exists = p.GetHandlerByName(handlerName); exists {
-		fmt.Printf("✅ Found handler by exact name match: '%s'\n", handlerName)
+		fmt.Printf("  ✅ Exact match: %s\n", handlerName)
 	} else {
-		// Strategy 2: Route-based matching using discovered route registrations
-		handlerInfo, exists = p.findHandlerByRoute(endpoint)
-		if exists {
-			fmt.Printf("✅ Found handler by route registration: '%s'\n", handlerInfo.Name)
+		// Try matching by route registration
+		if handlerInfo, exists = p.findHandlerByRoute(endpoint); exists {
+			fmt.Printf("  ✅ Route match: %s\n", handlerInfo.Name)
 		} else {
-			// Strategy 3: Fuzzy matching for complex routing systems
-			handlerInfo, exists = p.findHandlerByFuzzyMatch(endpoint, availableHandlers)
-			if exists {
-				fmt.Printf("✅ Found handler by fuzzy matching: '%s'\n", handlerInfo.Name)
+			// Try fuzzy matching as last resort
+			if handlerInfo, exists = p.findHandlerByFuzzyMatch(endpoint, availableHandlers); exists {
+				fmt.Printf("  ✅ Fuzzy match: %s\n", handlerInfo.Name)
 			}
 		}
 	}
 
 	if exists && handlerInfo != nil {
-		fmt.Printf("✅ Found handler info for '%s': desc='%s', tags=%v\n", handlerName, handlerInfo.APIDescription, handlerInfo.APITags)
 		// Apply AST-derived information
 		if handlerInfo.APIDescription != "" {
 			endpoint.Description = handlerInfo.APIDescription
-			fmt.Printf("📝 Applied description: '%s'\n", handlerInfo.APIDescription)
 		}
 
 		if len(handlerInfo.APITags) > 0 {
 			endpoint.Tags = handlerInfo.APITags
-			fmt.Printf("🏷️ Applied tags: %v\n", handlerInfo.APITags)
 		}
 
 		// Set request/response schemas if available
@@ -992,26 +961,19 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 		}
 
 		if handlerInfo.ResponseType != "" {
-			fmt.Printf("🔍 Handler '%s' has response type: '%s'\n", handlerName, handlerInfo.ResponseType)
 			if handlerInfo.ResponseType == "map[string]any" {
 				// Handle inline map literals - try to find the actual composite literal
 				if handlerInfo.ResponseSchema != nil {
 					endpoint.Response = handlerInfo.ResponseSchema
-					fmt.Printf("✅ Applied inline map schema for '%s' with %d properties\n", handlerName, len(handlerInfo.ResponseSchema))
-				} else {
-					fmt.Printf("❌ Handler '%s' has map type but no response schema\n", handlerName)
+					fmt.Printf("  📤 Map schema: %d props\n", len(handlerInfo.ResponseSchema))
 				}
 			} else if structInfo, exists := p.GetStructByName(handlerInfo.ResponseType); exists {
 				endpoint.Response = structInfo.JSONSchema
-				fmt.Printf("✅ Applied struct schema for '%s': %s\n", handlerName, handlerInfo.ResponseType)
-			} else {
-				fmt.Printf("❌ Handler '%s' response type '%s' not found in structs\n", handlerName, handlerInfo.ResponseType)
+				fmt.Printf("  📤 Struct schema: %s\n", handlerInfo.ResponseType)
 			}
-		} else {
-			fmt.Printf("⚠️ Handler '%s' has no response type\n", handlerName)
 		}
 	} else {
-		fmt.Printf("❌ Handler '%s' not found in AST data. Available handlers: %v\n", handlerName, availableHandlers)
+		fmt.Printf("  ❌ No handler found (available: %d)\n", len(availableHandlers))
 	}
 
 	return nil
@@ -1025,15 +987,11 @@ func (p *ASTParser) findHandlerByRoute(endpoint *APIEndpoint) (*ASTHandlerInfo, 
 			// Check if method matches
 			for _, method := range handlerInfo.HTTPMethods {
 				if method == endpoint.Method {
-					fmt.Printf("🎯 Matched handler '%s' by route registration %s %s\n",
-						handlerInfo.Name, endpoint.Method, endpoint.Path)
 					return handlerInfo, true
 				}
 			}
 			// If path matches but no method info, still consider it a match
 			if len(handlerInfo.HTTPMethods) == 0 {
-				fmt.Printf("🎯 Matched handler '%s' by route path %s (no method constraint)\n",
-					handlerInfo.Name, endpoint.Path)
 				return handlerInfo, true
 			}
 		}
@@ -1052,7 +1010,6 @@ func (p *ASTParser) findHandlerByFuzzyMatch(endpoint *APIEndpoint, availableHand
 	for _, handlerName := range availableHandlers {
 		if p.handlerMatchesPathPattern(handlerName, pathSegments) {
 			if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
-				fmt.Printf("🎯 Matched handler '%s' by path pattern for %s %s\n", handlerName, endpoint.Method, endpoint.Path)
 				return handlerInfo, true
 			}
 		}
@@ -1062,7 +1019,6 @@ func (p *ASTParser) findHandlerByFuzzyMatch(endpoint *APIEndpoint, availableHand
 	for _, handlerName := range availableHandlers {
 		if p.handlerMatchesMethod(handlerName, endpoint.Method) {
 			if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
-				fmt.Printf("🎯 Matched handler '%s' by method pattern for %s %s\n", handlerName, endpoint.Method, endpoint.Path)
 				return handlerInfo, true
 			}
 		}
@@ -1071,7 +1027,6 @@ func (p *ASTParser) findHandlerByFuzzyMatch(endpoint *APIEndpoint, availableHand
 	// Strategy 3: Response pattern matching - if there's only one handler, use it
 	if len(availableHandlers) == 1 {
 		if handlerInfo, exists := p.GetHandlerByName(availableHandlers[0]); exists {
-			fmt.Printf("🎯 Using single available handler '%s' for %s %s\n", availableHandlers[0], endpoint.Method, endpoint.Path)
 			return handlerInfo, true
 		}
 	}
@@ -1080,13 +1035,11 @@ func (p *ASTParser) findHandlerByFuzzyMatch(endpoint *APIEndpoint, availableHand
 	for _, handlerName := range availableHandlers {
 		if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
 			if len(handlerInfo.ResponseSchema) > 0 {
-				fmt.Printf("🎯 Using handler '%s' with response schema for %s %s\n", handlerName, endpoint.Method, endpoint.Path)
 				return handlerInfo, true
 			}
 		}
 	}
 
-	fmt.Printf("❌ No suitable handler found using fuzzy matching for %s %s\n", endpoint.Method, endpoint.Path)
 	return nil, false
 }
 
@@ -1208,14 +1161,13 @@ func (p *ASTParser) extractHandlerReference(expr ast.Expr) string {
 
 // analyzeRouteRegistration processes a route registration to improve handler mapping
 func (p *ASTParser) analyzeRouteRegistration(routeReg *RouteRegistration) {
-	fmt.Printf("🔗 Found route registration: %s %s -> %s\n", routeReg.Method, routeReg.Path, routeReg.HandlerRef)
+	fmt.Printf("🔗 Route: %s %s -> %s\n", routeReg.Method, routeReg.Path, routeReg.HandlerRef)
 
 	// Try to find the handler function that matches this registration
 	if handlerInfo, exists := p.handlers[routeReg.HandlerRef]; exists {
 		// Update handler with route information
 		handlerInfo.HTTPMethods = append(handlerInfo.HTTPMethods, routeReg.Method)
 		handlerInfo.RoutePath = routeReg.Path
-		fmt.Printf("✅ Linked route %s %s to handler %s\n", routeReg.Method, routeReg.Path, routeReg.HandlerRef)
 	} else {
 		// Look for similar handler names
 		for handlerName, handlerInfo := range p.handlers {
@@ -1223,8 +1175,6 @@ func (p *ASTParser) analyzeRouteRegistration(routeReg *RouteRegistration) {
 				strings.Contains(strings.ToLower(routeReg.HandlerRef), strings.ToLower(handlerName)) {
 				handlerInfo.HTTPMethods = append(handlerInfo.HTTPMethods, routeReg.Method)
 				handlerInfo.RoutePath = routeReg.Path
-				fmt.Printf("✅ Linked route %s %s to similar handler %s (ref: %s)\n",
-					routeReg.Method, routeReg.Path, handlerName, routeReg.HandlerRef)
 				break
 			}
 		}
@@ -1274,7 +1224,7 @@ func (p *ASTParser) GetStructsForFinding() map[string]*StructInfo {
 
 // DiscoverSourceFiles discovers Go source files with API_SOURCE directive
 func (p *ASTParser) DiscoverSourceFiles() error {
-	fmt.Printf("🚶 Walking directory tree for API_SOURCE files\n")
+	fmt.Printf("🚶 Discovering API_SOURCE files...\n")
 	return filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors, continue walking
@@ -1291,7 +1241,7 @@ func (p *ASTParser) DiscoverSourceFiles() error {
 
 		// Check if file contains API_SOURCE directive
 		if p.fileContainsAPISourceDirective(path) {
-			fmt.Printf("📁 Found API_SOURCE file, parsing: %s\n", path)
+			fmt.Printf("  📁 %s\n", path)
 			return p.ParseFile(path)
 		}
 
@@ -1303,7 +1253,6 @@ func (p *ASTParser) DiscoverSourceFiles() error {
 func (p *ASTParser) fileContainsAPISourceDirective(filepath string) bool {
 	file, err := os.Open(filepath)
 	if err != nil {
-		fmt.Printf("⚠️ Cannot open file for API_SOURCE check: %s, error: %v\n", filepath, err)
 		return false
 	}
 	defer file.Close()
