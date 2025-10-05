@@ -1,51 +1,115 @@
 package api
 
-// API Documentation System - Main Entry Point
-//
-// This module provides automatic runtime discovery and documentation of API routes
-// using AST analysis and OpenAPI-compatible output.
-//
-// Features:
-//   - Automatic route discovery and documentation
-//   - AST-based schema generation
-//   - OpenAPI 3.0 compatible output
-//   - Middleware detection for auth requirements
-//   - Clean modular architecture
-//
-// Usage:
-//   // API_SOURCE - Mark files for AST analysis
-//
-//   func registerRoutes(app core.App) {
-//       app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-//           // Enable auto-documentation
-//           router := EnableAutoDocumentation(e)
-//
-//           // Routes are automatically documented
-//           router.GET("/api/time", timeHandler)
-//           router.POST("/api/users", createUserHandler).Bind(apis.RequireAuth())
-//
-//           return e.Next()
-//       })
-//   }
-//
-//   // API_DESC Get current server time in multiple formats
-//   // API_TAGS server,time,utilities
-//   func timeHandler(c *core.RequestEvent) error {
-//       now := time.Now()
-//       return c.JSON(http.StatusOK, map[string]any{
-//           "time": map[string]string{
-//               "iso":       now.Format(time.RFC3339),
-//               "unix":      strconv.FormatInt(now.Unix(), 10),
-//               "unix_nano": strconv.FormatInt(now.UnixNano(), 10),
-//               "utc":       now.UTC().Format(time.RFC3339),
-//           },
-//       })
-//   }
-//
-// Access:
-//   - OpenAPI JSON: http://localhost:8090/api/docs/openapi
-//   - Endpoints List: http://localhost:8090/api/docs/endpoints
-//   - Statistics: http://localhost:8090/api/docs/stats
+/// =============================================================================
+// Documentation and Examples
+// =============================================================================
+
+/*
+Example Usage:
+
+1. Basic Setup:
+   ```go
+   func init() {
+       app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+           router := EnableAutoDocumentation(e)
+
+           router.GET("/api/hello", helloHandler)
+           router.POST("/api/users", createUserHandler).Bind(apis.RequireAuth())
+
+           return e.Next()
+       })
+   }
+   ```
+
+2. Custom Configuration:
+   ```go
+   config := &APIDocsConfig{
+       Title: "My API",
+       Version: "2.0.0",
+       Description: "Custom API documentation",
+       Enabled: true,
+   }
+
+   system := InitializeWithConfig(config)
+   ```
+
+3. Multi-Version Setup (Versioned-Only):
+   ```go
+   func init() {
+       // Create version configs
+       v1Config := &APIDocsConfig{
+           Title: "My API v1",
+           Version: "1.0.0",
+           Description: "Stable API version",
+       }
+
+       v2Config := &APIDocsConfig{
+           Title: "My API v2",
+           Version: "2.0.0",
+           Description: "New API version in development",
+       }
+
+       // Initialize versioned system (no backward compatibility)
+       versions := map[string]*APIDocsConfig{
+           "v1": v1Config,
+           "v2": v2Config,
+       }
+       versionManager := InitializeVersionedSystem(versions, "v1")
+
+       app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+           // Get version-specific routers
+           v1Router, _ := versionManager.GetVersionRouter("v1", e)
+           v2Router, _ := versionManager.GetVersionRouter("v2", e)
+
+           // Version 1 routes (stable production API)
+           v1Router.GET("/api/v1/users", v1UsersHandler)
+           v1Router.POST("/api/v1/posts", v1CreatePostHandler)
+
+           // Version 2 routes (development API with new features)
+           v2Router.GET("/api/v2/users", v2UsersHandler)
+           v2Router.POST("/api/v2/posts", v2CreatePostHandler)
+           v2Router.GET("/api/v2/analytics", v2AnalyticsHandler) // New v2 feature
+
+           // No non-versioned routes - all APIs must specify version
+
+           return e.Next()
+       })
+
+       // Register version management routes
+       versionManager.RegisterWithServer(app)
+   }
+   ```
+
+4. Manual Endpoint Registration:
+   ```go
+   endpoint := APIEndpoint{
+       Method: "GET",
+       Path: "/api/custom",
+       Description: "Custom endpoint",
+       Tags: []string{"custom"},
+   }
+
+   RegisterEndpoint(endpoint)
+   ```
+
+5. AST Analysis Directives:
+   ```go
+   // API_SOURCE - Include this file in AST analysis
+
+   // API_DESC Retrieves user profile information
+   // API_TAGS users,profile,auth
+   func getUserProfile(c *core.RequestEvent) error {
+       // Implementation
+   }
+   ```
+
+6. Version Management Endpoints (Simplified):
+   ```
+   GET /api/docs/versions     - List all API versions with stats
+   GET /api/docs/v1           - Complete OpenAPI schema for v1
+   GET /api/docs/v2           - Complete OpenAPI schema for v2
+   ```
+*/
 
 import (
 	"net/http"
@@ -134,6 +198,25 @@ func EnableAutoDocumentationWithConfig(e *core.ServeEvent, config *APIDocsConfig
 	return system.CreateAutoRouter(e)
 }
 
+// EnableVersionedDocumentation creates a versioned API documentation system
+func EnableVersionedDocumentation(e *core.ServeEvent, version string, config *APIDocsConfig) (*VersionedAPIRouter, error) {
+	manager := GetGlobalVersionManager()
+
+	// Register version if it doesn't exist
+	if _, err := manager.GetVersionConfig(version); err != nil {
+		if registerErr := manager.RegisterVersion(version, config); registerErr != nil {
+			return nil, registerErr
+		}
+	}
+
+	return manager.GetVersionRouter(version, e)
+}
+
+// CreateVersionedSystem creates a new version manager with initial versions
+func CreateVersionedSystem(versions map[string]*APIDocsConfig, defaultVersion string) *APIVersionManager {
+	return InitializeVersionManager(versions, defaultVersion)
+}
+
 // GetAPIDocs returns the current API documentation from the global system
 func GetAPIDocs() *APIDocs {
 	system := GetGlobalDocumentationSystem()
@@ -190,6 +273,16 @@ func InitializeWithConfig(config *APIDocsConfig) *APIDocumentationSystem {
 	system := NewAPIDocumentationSystem(config)
 	SetGlobalDocumentationSystem(system)
 	return system
+}
+
+// InitializeVersionedSystem initializes a versioned documentation system
+func InitializeVersionedSystem(versions map[string]*APIDocsConfig, defaultVersion string) *APIVersionManager {
+	return InitializeVersionManager(versions, defaultVersion)
+}
+
+// MigrateToVersioned migrates current single-version system to versioned system
+func MigrateToVersioned(version string) *APIVersionManager {
+	return MigrateFromSingleVersion(version)
 }
 
 // =============================================================================
@@ -365,60 +458,3 @@ func ValidateConfiguration(config *APIDocsConfig) []string {
 
 	return errors
 }
-
-// =============================================================================
-// Documentation and Examples
-// =============================================================================
-
-/*
-Example Usage:
-
-1. Basic Setup:
-   ```go
-   func init() {
-       app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-           router := EnableAutoDocumentation(e)
-
-           router.GET("/api/hello", helloHandler)
-           router.POST("/api/users", createUserHandler).Bind(apis.RequireAuth())
-
-           return e.Next()
-       })
-   }
-   ```
-
-2. Custom Configuration:
-   ```go
-   config := &APIDocsConfig{
-       Title: "My API",
-       Version: "2.0.0",
-       Description: "Custom API documentation",
-       Enabled: true,
-   }
-
-   system := InitializeWithConfig(config)
-   ```
-
-3. Manual Endpoint Registration:
-   ```go
-   endpoint := APIEndpoint{
-       Method: "GET",
-       Path: "/api/custom",
-       Description: "Custom endpoint",
-       Tags: []string{"custom"},
-   }
-
-   RegisterEndpoint(endpoint)
-   ```
-
-4. AST Analysis Directives:
-   ```go
-   // API_SOURCE - Include this file in AST analysis
-
-   // API_DESC Retrieves user profile information
-   // API_TAGS users,profile,auth
-   func getUserProfile(c *core.RequestEvent) error {
-       // Implementation
-   }
-   ```
-*/

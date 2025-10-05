@@ -33,7 +33,7 @@ type PostPatchRequest struct {
 // =============================================================================
 
 // API_DESC Get current server time in multiple formats
-// API_TAGS v1,public,utility,time
+// API_TAGS public,utility,time
 func timeHandler(c *core.RequestEvent) error {
 	now := time.Now()
 	return c.JSON(http.StatusOK, map[string]any{
@@ -53,7 +53,7 @@ func timeHandler(c *core.RequestEvent) error {
 // =============================================================================
 
 // API_DESC Get information and onboarding data for guest users
-// API_TAGS v1,guest,onboarding,public
+// API_TAGS guest,onboarding,public
 func guestInfoHandler(c *core.RequestEvent) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"message": "Welcome Guest! 👋",
@@ -78,7 +78,7 @@ func guestInfoHandler(c *core.RequestEvent) error {
 // =============================================================================
 
 // API_DESC Create a new post
-// API_TAGS v2,posts,create,authenticated
+// API_TAGS posts,create,authenticated
 func createPostHandler(c *core.RequestEvent) error {
 	if c.Auth == nil {
 		return c.JSON(http.StatusUnauthorized, map[string]any{
@@ -132,7 +132,7 @@ func createPostHandler(c *core.RequestEvent) error {
 }
 
 // API_DESC Partially update a post (authenticated users can update their own posts)
-// API_TAGS v2,posts,update,partial,authenticated
+// API_TAGS posts,update,partial,authenticated
 func patchPostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
 	if c.Auth == nil {
@@ -195,7 +195,7 @@ func patchPostHandler(c *core.RequestEvent) error {
 // =============================================================================
 
 // API_DESC Fully update/replace a post (superuser or post owner)
-// API_TAGS v2-beta,posts,update,replace,superuser,owner
+// API_TAGS posts,update,replace,superuser,owner
 func updatePostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
 	if c.Auth == nil {
@@ -254,7 +254,7 @@ func updatePostHandler(c *core.RequestEvent) error {
 // =============================================================================
 
 // API_DESC Delete a post (admin only)
-// API_TAGS v1,posts,delete,admin,superuser
+// API_TAGS posts,delete,admin,superuser
 func deletePostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
 	if c.Auth == nil {

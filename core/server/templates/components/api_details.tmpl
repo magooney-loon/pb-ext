@@ -5,6 +5,14 @@
             <i class="ri-code-box-line"></i>
             <span id="api-header-title">API Documentation</span>
         </h4>
+
+        <!-- Version Selector -->
+        <div class="flex align-center gap-2">
+            <span class="txt-sm txt-hint">Version:</span>
+            <select id="version-selector" class="form-control form-control-sm" style="min-width: 120px;">
+                <option value="">Loading versions...</option>
+            </select>
+        </div>
     </header>
 
     <div class="card">
@@ -463,6 +471,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let apiComponents = null;
     let allEndpoints = [];
     let filteredEndpoints = [];
+    let availableVersions = [];
+    let currentVersion = null;
 
     // Tab switching functionality
     const tabButtons = document.querySelectorAll('#api-tabs .tab-item');
@@ -605,45 +615,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
-    // Load API stats and initialize filters
+    // Load API stats from the OpenAPI schema (no separate stats endpoint needed)
     function loadApiStats() {
-        return fetch('/api/docs/stats')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                return response.json();
-            })
-            .then(stats => {
-                apiStats = stats;
-                populateStats(stats);
-                populateFilterOptions(stats);
-                return stats;
-            })
-            .catch(error => {
-                console.error('Failed to load API stats:', error);
-                return null;
-            });
+        // Stats will be calculated from the loaded endpoints
+        return Promise.resolve(null);
     }
 
-    // Load API components
+    // Load API components from OpenAPI schema
     function loadApiComponents() {
-        return fetch('/api/docs/components')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                return response.json();
-            })
-            .then(components => {
-                apiComponents = components;
-                updateComponents('json');
-                return components;
-            })
-            .catch(error => {
-                console.error('Failed to load API components:', error);
-                return null;
-            });
+        if (!currentVersion) {
+            return Promise.reject(new Error('No version selected'));
+        }
+
+        // Components are part of the OpenAPI schema, so we'll extract them
+        // from the already loaded schema or return empty if not available
+        return Promise.resolve({
+            components: openApiSchema?.components || {}
+        }).then(data => {
+            apiComponents = data.components;
+            return apiComponents;
+        });
     }
 
     // Load OpenAPI schema
@@ -663,23 +654,47 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         `;
 
+
         const endpointsList = document.getElementById('endpoints-list');
         if (endpointsList) endpointsList.innerHTML = loadingHtml;
 
-        Promise.all([
-            fetch('/api/docs/openapi').then(r => r.json()),
-            loadApiStats(),
-            loadApiComponents()
-        ])
-            .then(([schemaData, statsData, componentsData]) => {
+        if (!currentVersion) {
+            console.error('No current version set');
+            showErrorState('No API version selected');
+            return;
+        }
+
+        const openApiUrl = `/api/docs/${currentVersion}`;
+        console.log('Loading OpenAPI schema from:', openApiUrl);
+        fetch(openApiUrl)
+            .then(r => {
+                console.log('OpenAPI response status:', r.status);
+                if (!r.ok) {
+                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                }
+                return r.json();
+            })
+            .then((schemaData) => {
+                console.log('Schema data received:', schemaData);
                 openApiSchema = schemaData;
                 allEndpoints = schemaData.endpoints || [];
                 filteredEndpoints = [...allEndpoints];
+                console.log('Loaded endpoints:', allEndpoints.length);
+
+                // Load components from the schema
+                apiComponents = schemaData.components || {};
+                console.log('Loaded components:', Object.keys(apiComponents));
+
+                // Calculate stats from endpoints
+                apiStats = calculateComprehensiveStats(allEndpoints);
+                populateStats(apiStats);
+                populateFilterOptions(apiStats);
 
                 updateApiStatus('success', 'Loaded');
                 populateApiOverview(schemaData);
                 populateEndpoints();
                 updateRawSchema('json');
+                updateComponents('json');
 
                 // Show filters
                 const filtersDiv = document.getElementById('api-filters');
@@ -1096,16 +1111,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateComponents(format) {
         const content = document.getElementById('components-content');
-        if (!content || !apiComponents) return;
+        if (!content) return;
+
+        // Use components from the loaded schema
+        const componentsToShow = apiComponents || {};
 
         try {
             if (format === 'yaml') {
-                // Simple JSON to YAML conversion
-                content.textContent = jsonToYaml(apiComponents);
+                content.textContent = jsonToYaml(componentsToShow);
             } else {
-                content.innerHTML = syntaxHighlight(apiComponents);
+                content.innerHTML = syntaxHighlight(componentsToShow);
             }
         } catch (error) {
+            console.error('Error formatting components:', error);
             content.textContent = 'Error formatting components: ' + error.message;
         }
     }
@@ -1147,7 +1165,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h4>Failed to Load API Documentation</h4>
                         <p class="txt-sm">${message}</p>
                         <div class="mt-3">
-                            <button onclick="window.open('/api/docs/openapi', '_blank')" class="btn btn-sm btn-outline">
+                            <button id="view-raw-btn" class="btn btn-sm btn-outline">
                                 <i class="ri-external-link-line"></i> View Raw
                             </button>
                         </div>
@@ -1286,8 +1304,128 @@ Check the server logs for more details.`;
         }
     };
 
-    // Load schema on page load
-    loadOpenApiSchema();
+    // Helper function to calculate stats from endpoints (same as backend)
+    function calculateComprehensiveStats(endpoints) {
+        const stats = {
+            total_endpoints: endpoints.length,
+            methods: {},
+            auth_types: {},
+            tags: {}
+        };
+
+        let authRequired = 0;
+        let pathsWithParams = 0;
+        const uniquePaths = new Set();
+
+        endpoints.forEach(endpoint => {
+            // Count methods
+            stats.methods[endpoint.method] = (stats.methods[endpoint.method] || 0) + 1;
+
+            // Count auth types
+            if (endpoint.auth && endpoint.auth.required) {
+                authRequired++;
+                stats.auth_types[endpoint.auth.type] = (stats.auth_types[endpoint.auth.type] || 0) + 1;
+            } else {
+                stats.auth_types['none'] = (stats.auth_types['none'] || 0) + 1;
+            }
+
+            // Count tags
+            endpoint.tags.forEach(tag => {
+                stats.tags[tag] = (stats.tags[tag] || 0) + 1;
+            });
+
+            // Check for path parameters
+            if (endpoint.path.includes(':') || endpoint.path.includes('{')) {
+                pathsWithParams++;
+            }
+
+            uniquePaths.add(endpoint.path);
+        });
+
+        stats.summary = {
+            auth_required: authRequired,
+            auth_not_required: endpoints.length - authRequired,
+            paths_with_params: pathsWithParams,
+            unique_paths: uniquePaths.size,
+            avg_tags_per_endpoint: endpoints.length > 0 ?
+                endpoints.reduce((sum, ep) => sum + ep.tags.length, 0) / endpoints.length : 0
+        };
+
+        return stats;
+    }
+
+    // Load available versions first
+    function loadVersions() {
+        console.log('Loading API versions...');
+        return fetch('/api/docs/versions')
+            .then(response => {
+                console.log('Versions response status:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Versions data received:', data);
+                availableVersions = Object.keys(data.versions || {});
+                currentVersion = data.default_version;
+                console.log('Available versions:', availableVersions);
+                console.log('Default version:', currentVersion);
+
+                const versionSelector = document.getElementById('version-selector');
+                if (versionSelector && availableVersions.length > 0) {
+                    versionSelector.innerHTML = '';
+
+                    availableVersions.forEach(version => {
+                        const option = document.createElement('option');
+                        option.value = version;
+                        option.textContent = `${version}${version === currentVersion ? ' (default)' : ''}`;
+                        if (version === currentVersion) {
+                            option.selected = true;
+                        }
+                        versionSelector.appendChild(option);
+                    });
+
+                    // Add version change handler
+                    versionSelector.addEventListener('change', function() {
+                        currentVersion = this.value;
+                        console.log('Version changed to:', currentVersion);
+                        if (currentVersion) {
+                            loadOpenApiSchema();
+                        }
+                    });
+                }
+
+                // Update the view raw button click handler
+                const viewRawBtn = document.getElementById('view-raw-btn');
+                if (viewRawBtn) {
+                    viewRawBtn.onclick = function() {
+                        if (currentVersion) {
+                            window.open(`/api/docs/${currentVersion}`, '_blank');
+                        }
+                    };
+                }
+            })
+            .catch(error => {
+                console.error('Failed to load versions:', error);
+                console.error('Error details:', {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name
+                });
+                // Show error state - no fallback
+                const versionSelector = document.getElementById('version-selector');
+                if (versionSelector) {
+                    versionSelector.innerHTML = '<option value="">Error loading versions</option>';
+                }
+                showErrorState('Failed to load API versions: ' + error.message);
+            });
+    }
+
+    // Load versions first, then schema
+    loadVersions().then(() => {
+        loadOpenApiSchema();
+    });
 });
 </script>
 {{end}}

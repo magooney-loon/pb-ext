@@ -168,8 +168,9 @@ func (s *Server) Start() error {
 		}
 
 		// Initialize API documentation system
-		s.RegisterAPIDocsRoutes(e)
-		app.Logger().Info("📚 AST API system initialized")
+		// NOTE: API docs routes are now handled by the version manager to prevent conflicts
+		// s.RegisterAPIDocsRoutes(e)
+		app.Logger().Info("📚 AST API system initialized (using version manager)")
 
 		// Serve static files from pb_public with improved path resolution
 		publicDirPath := "./pb_public"
@@ -232,14 +233,16 @@ func (s *Server) App() *pocketbase.PocketBase {
 }
 
 // RegisterAPIDocsRoutes initializes and registers the API documentation routes
+// NOTE: This method is disabled to prevent route conflicts with the version manager
 func (s *Server) RegisterAPIDocsRoutes(e *core.ServeEvent) {
 	// Initialize global documentation system to ensure same registry is used
 	api.GetGlobalDocumentationSystem()
 
 	// Register API documentation routes
-	e.Router.GET("/api/docs/openapi", api.OpenAPIHandler)
-	e.Router.GET("/api/docs/stats", api.StatsHandler)
-	e.Router.GET("/api/docs/components", api.ComponentsHandler)
+	// DISABLED: These routes are now handled by the version manager
+	// e.Router.GET("/api/docs/openapi", api.OpenAPIHandler)
+	// e.Router.GET("/api/docs/stats", api.StatsHandler)
+	// e.Router.GET("/api/docs/components", api.ComponentsHandler)
 }
 
 // Stats returns the current server statistics
