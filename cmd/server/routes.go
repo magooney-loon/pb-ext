@@ -13,9 +13,9 @@ import (
 // registerRoutes sets up all HTTP routes demonstrating various methods and auth types
 func registerRoutes(pbApp core.App) {
 	pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		// Files marked with API_SOURCE directive are
+		// automatically discovered for AST parsing
 		router := app.EnableAutoDocumentation(e)
-
-		// Files marked with API_SOURCE directive are automatically discovered for AST parsing
 
 		// =================================================================
 		// Public Endpoints (No Authentication Required)
@@ -70,13 +70,6 @@ func registerRoutes(pbApp core.App) {
 // ✅ PUT    - updatePostHandler
 // ✅ PATCH  - patchPostHandler
 // ✅ DELETE - deletePostHandler
-//
-// Authentication Types Demonstrated:
-// ✅ No Auth            - timeHandler
-// ✅ Guest Only         - guestInfoHandler (RequireGuestOnly)
-// ✅ Authenticated      - createPostHandler, patchPostHandler (RequireAuth)
-// ✅ Superuser or Owner - updatePostHandler (RequireSuperuserOrOwnerAuth)
-// ✅ Superuser Only     - deletePostHandler, adminStatsHandler (RequireSuperuserAuth)
 //
 // This provides a comprehensive example of RESTful API design with
 // various authentication levels and HTTP methods for demonstration purposes.
