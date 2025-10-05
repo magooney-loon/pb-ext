@@ -1,7 +1,7 @@
 package main
 
 // API_SOURCE
-// HTTP handlers demonstrating various HTTP methods and authentication types
+// Shared handlers across all API versions demonstrating HTTP methods and auth patterns
 
 import (
 	"encoding/json"
@@ -13,14 +13,13 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// PostRequest represents the request body for creating/updating posts
+// Request types
 type PostRequest struct {
 	Title   string   `json:"title"`
 	Content string   `json:"content"`
 	Tags    []string `json:"tags,omitempty"`
 }
 
-// PostPatchRequest represents the request body for partially updating posts
 type PostPatchRequest struct {
 	Title   *string   `json:"title,omitempty"`
 	Content *string   `json:"content,omitempty"`
@@ -29,7 +28,7 @@ type PostPatchRequest struct {
 }
 
 // =============================================================================
-// Public Endpoints (No Authentication Required)
+// Public Handlers (No Auth Required)
 // =============================================================================
 
 // API_DESC Get current server time in multiple formats
@@ -49,11 +48,11 @@ func timeHandler(c *core.RequestEvent) error {
 }
 
 // =============================================================================
-// Guest-Only Endpoints (Unauthenticated Users Only)
+// Guest-Only Handlers
 // =============================================================================
 
-// API_DESC Get information and onboarding data for guest users
-// API_TAGS guest,onboarding,public
+// API_DESC Get onboarding information for guest users
+// API_TAGS guest,onboarding
 func guestInfoHandler(c *core.RequestEvent) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"message": "Welcome Guest! 👋",
@@ -74,94 +73,61 @@ func guestInfoHandler(c *core.RequestEvent) error {
 }
 
 // =============================================================================
-// Authenticated User Endpoints (Any Authenticated User)
+// Authenticated User Handlers
 // =============================================================================
 
 // API_DESC Create a new post
 // API_TAGS posts,create,authenticated
 func createPostHandler(c *core.RequestEvent) error {
 	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{
-			"error": "Authentication required",
-		})
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
 	}
-
-	userID := c.Auth.Id
-	username := getUserDisplayName(c)
 
 	var req PostRequest
 	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			"error":   "Invalid JSON payload",
-			"details": err.Error(),
-		})
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid JSON payload"})
 	}
 
-	// Basic validation
-	if req.Title == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			"error": "Title is required",
-		})
+	if req.Title == "" || req.Content == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Title and content are required"})
 	}
-
-	if req.Content == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			"error": "Content is required",
-		})
-	}
-
-	// Simulate post creation
-	postID := generateID()
 
 	return c.JSON(http.StatusCreated, map[string]any{
 		"message": "Post created successfully! 📝",
 		"post": map[string]any{
-			"id":      postID,
+			"id":      generateID(),
 			"title":   req.Title,
 			"content": req.Content,
 			"tags":    req.Tags,
 			"author": map[string]any{
-				"id":       userID,
-				"username": username,
+				"id":       c.Auth.Id,
+				"username": getUserDisplayName(c),
 			},
 			"status":     "draft",
 			"created_at": time.Now().Format(time.RFC3339),
-			"updated_at": time.Now().Format(time.RFC3339),
 		},
 	})
 }
 
-// API_DESC Partially update a post (authenticated users can update their own posts)
-// API_TAGS posts,update,partial,authenticated
+// API_DESC Partially update a post
+// API_TAGS posts,update,patch,authenticated
 func patchPostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
 	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{
-			"error": "Authentication required",
-		})
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
 	}
-
-	userID := c.Auth.Id
-	username := getUserDisplayName(c)
 
 	var req PostPatchRequest
 	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			"error":   "Invalid JSON payload",
-			"details": err.Error(),
-		})
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid JSON payload"})
 	}
 
-	// Simulate ownership check (in real app, query database)
-	isOwner := true // Simulated
-
+	// Simulate ownership check (would query DB in real app)
+	isOwner := true
 	if !isOwner {
-		return c.JSON(http.StatusForbidden, map[string]any{
-			"error": "You can only update your own posts",
-		})
+		return c.JSON(http.StatusForbidden, map[string]any{"error": "You can only update your own posts"})
 	}
 
-	// Build update info
 	updates := make(map[string]any)
 	if req.Title != nil {
 		updates["title"] = *req.Title
@@ -179,51 +145,35 @@ func patchPostHandler(c *core.RequestEvent) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"message": "Post updated successfully! ✏️",
 		"post": map[string]any{
-			"id":      postID,
-			"updates": updates,
-			"author": map[string]any{
-				"id":       userID,
-				"username": username,
-			},
+			"id":         postID,
+			"updates":    updates,
 			"updated_at": time.Now().Format(time.RFC3339),
 		},
 	})
 }
 
 // =============================================================================
-// Superuser or Owner Endpoints
+// Superuser or Owner Handlers
 // =============================================================================
 
-// API_DESC Fully update/replace a post (superuser or post owner)
-// API_TAGS posts,update,replace,superuser,owner
+// API_DESC Fully update/replace a post
+// API_TAGS posts,update,put,superuser,owner
 func updatePostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
 	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{
-			"error": "Authentication required",
-		})
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
 	}
 
-	currentUserID := c.Auth.Id
 	isSuperuser := c.Auth.IsSuperuser()
-
-	// Simulate ownership check
-	postOwnerID := "example_owner_id" // In real app, get from database
-	isOwner := currentUserID == postOwnerID
+	isOwner := c.Auth.Id == "example_owner_id" // Simulated ownership check
 
 	var req PostRequest
 	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			"error":   "Invalid JSON payload",
-			"details": err.Error(),
-		})
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid JSON payload"})
 	}
 
-	// Validate required fields
 	if req.Title == "" || req.Content == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			"error": "Title and content are required",
-		})
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Title and content are required"})
 	}
 
 	accessType := "owner"
@@ -250,28 +200,15 @@ func updatePostHandler(c *core.RequestEvent) error {
 }
 
 // =============================================================================
-// Superuser Only Endpoints
+// Superuser Only Handlers
 // =============================================================================
 
-// API_DESC Delete a post (admin only)
-// API_TAGS posts,delete,admin,superuser
+// API_DESC Delete a post
+// API_TAGS posts,delete,superuser
 func deletePostHandler(c *core.RequestEvent) error {
 	postID := c.Request.PathValue("id")
 	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{
-			"error": "Authentication required",
-		})
-	}
-
-	userID := c.Auth.Id
-	username := getUserDisplayName(c)
-
-	// Simulate post existence check
-	postExists := true
-	if !postExists {
-		return c.JSON(http.StatusNotFound, map[string]any{
-			"error": "Post not found",
-		})
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -280,8 +217,8 @@ func deletePostHandler(c *core.RequestEvent) error {
 			"id": postID,
 		},
 		"deleted_by": map[string]any{
-			"id":       userID,
-			"username": username,
+			"id":       c.Auth.Id,
+			"username": getUserDisplayName(c),
 			"role":     "superuser",
 		},
 		"deleted_at": time.Now().Format(time.RFC3339),
@@ -289,16 +226,11 @@ func deletePostHandler(c *core.RequestEvent) error {
 }
 
 // API_DESC Get admin dashboard statistics
-// API_TAGS admin,statistics,dashboard,superuser
+// API_TAGS admin,stats,superuser
 func adminStatsHandler(c *core.RequestEvent) error {
 	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{
-			"error": "Authentication required",
-		})
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
 	}
-
-	userID := c.Auth.Id
-	username := getUserDisplayName(c)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"message": "Admin Dashboard 👑",
@@ -324,15 +256,10 @@ func adminStatsHandler(c *core.RequestEvent) error {
 				"timestamp": time.Now().Add(-25 * time.Minute).Format(time.RFC3339),
 				"details":   "Post: 'Getting started with Go'",
 			},
-			{
-				"action":    "post_reported",
-				"timestamp": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-				"details":   "Post flagged for review",
-			},
 		},
 		"admin": map[string]any{
-			"id":       userID,
-			"username": username,
+			"id":       c.Auth.Id,
+			"username": getUserDisplayName(c),
 		},
 		"generated_at": time.Now().Format(time.RFC3339),
 	})
@@ -342,21 +269,19 @@ func adminStatsHandler(c *core.RequestEvent) error {
 // Utility Functions
 // =============================================================================
 
-// getUserDisplayName extracts display name from authenticated user
 func getUserDisplayName(c *core.RequestEvent) string {
 	if c.Auth == nil {
 		return "Anonymous"
 	}
-	if c.Auth.GetString("username") != "" {
-		return c.Auth.GetString("username")
+	if username := c.Auth.GetString("username"); username != "" {
+		return username
 	}
-	if c.Auth.GetString("email") != "" {
-		return c.Auth.GetString("email")
+	if email := c.Auth.GetString("email"); email != "" {
+		return email
 	}
 	return "User"
 }
 
-// generateID generates a simple ID for demo purposes
 func generateID() string {
 	return fmt.Sprintf("post_%d", time.Now().UnixNano())
 }

@@ -102,13 +102,6 @@ Example Usage:
        // Implementation
    }
    ```
-
-6. Version Management Endpoints (Simplified):
-   ```
-   GET /api/docs/versions     - List all API versions with stats
-   GET /api/docs/v1           - Complete OpenAPI schema for v1
-   GET /api/docs/v2           - Complete OpenAPI schema for v2
-   ```
 */
 
 import (
@@ -278,11 +271,6 @@ func InitializeWithConfig(config *APIDocsConfig) *APIDocumentationSystem {
 // InitializeVersionedSystem initializes a versioned documentation system
 func InitializeVersionedSystem(versions map[string]*APIDocsConfig, defaultVersion string) *APIVersionManager {
 	return InitializeVersionManager(versions, defaultVersion)
-}
-
-// MigrateToVersioned migrates current single-version system to versioned system
-func MigrateToVersioned(version string) *APIVersionManager {
-	return MigrateFromSingleVersion(version)
 }
 
 // =============================================================================

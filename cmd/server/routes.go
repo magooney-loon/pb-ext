@@ -16,7 +16,8 @@ func registerRoutes(pbApp core.App) {
 	v1Config := &api.APIDocsConfig{
 		Title:       "pb-ext demo api",
 		Version:     "1.0.0",
-		Description: "Hello world stable - production version",
+		Description: "Hello world ",
+		Status:      "stable",
 		Enabled:     true,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
 			Enabled:         true,
@@ -28,9 +29,10 @@ func registerRoutes(pbApp core.App) {
 	}
 
 	v2Config := &api.APIDocsConfig{
-		Title:       "pb-ext demo api v2",
+		Title:       "pb-ext demo api",
 		Version:     "2.0.0",
-		Description: "Hello world enhanced - development version with new features",
+		Description: "Hello world twice",
+		Status:      "development",
 		Enabled:     true,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
 			Enabled:         true,
@@ -60,8 +62,9 @@ func registerRoutes(pbApp core.App) {
 			return err
 		}
 
-		// Version 1 routes (stable production API)
-		// Files marked with API_SOURCE directive are automatically discovered for AST parsing
+		// Both versions use the exact same handlers - demonstrating different HTTP methods and auth types
+
+		// Version 1 routes
 		v1Router.GET("/api/v1/time", timeHandler)
 		v1Router.GET("/api/v1/guest-info", guestInfoHandler).Bind(apis.RequireGuestOnly())
 		v1Router.POST("/api/v1/posts", createPostHandler).Bind(apis.RequireAuth())
@@ -70,19 +73,14 @@ func registerRoutes(pbApp core.App) {
 		v1Router.DELETE("/api/v1/posts/:id", deletePostHandler).Bind(apis.RequireSuperuserAuth())
 		v1Router.GET("/api/v1/admin/stats", adminStatsHandler).Bind(apis.RequireSuperuserAuth())
 
-		// Version 2 routes (development API with new features)
-		v2Router.GET("/api/v2/time", timeHandler)                                          // Enhanced time endpoint
-		v2Router.GET("/api/v2/guest-info", guestInfoHandler).Bind(apis.RequireGuestOnly()) // Reuse v1 handler
-		v2Router.POST("/api/v2/posts", createPostHandler).Bind(apis.RequireAuth())         // Enhanced posts
-		v2Router.PATCH("/api/v2/posts/:id", patchPostHandler).Bind(apis.RequireAuth())     // Enhanced patch
+		// Version 2 routes - same handlers, same functionality
+		v2Router.GET("/api/v2/time", timeHandler)
+		v2Router.GET("/api/v2/guest-info", guestInfoHandler).Bind(apis.RequireGuestOnly())
+		v2Router.POST("/api/v2/posts", createPostHandler).Bind(apis.RequireAuth())
+		v2Router.PATCH("/api/v2/posts/:id", patchPostHandler).Bind(apis.RequireAuth())
 		v2Router.PUT("/api/v2/posts/:id", updatePostHandler).Bind(apis.RequireSuperuserOrOwnerAuth("id"))
-		v2Router.DELETE("/api/v2/posts/:id", deletePostHandler).Bind(apis.RequireSuperuserAuth()) // Reuse v1 handler
+		v2Router.DELETE("/api/v2/posts/:id", deletePostHandler).Bind(apis.RequireSuperuserAuth())
 		v2Router.GET("/api/v2/admin/stats", adminStatsHandler).Bind(apis.RequireSuperuserAuth())
-		// New v2-only features (reusing existing handlers for demo)
-		v2Router.GET("/api/v2/posts/:id/analytics", adminStatsHandler).Bind(apis.RequireAuth())
-		v2Router.POST("/api/v2/bulk/posts", createPostHandler).Bind(apis.RequireAuth())
-
-		// Only versioned routes - no backward compatibility
 
 		return e.Next()
 	})

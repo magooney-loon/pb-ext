@@ -354,6 +354,7 @@ type APIDocsConfig struct {
 	Title         string               `json:"title"`
 	Version       string               `json:"version"`
 	Description   string               `json:"description"`
+	Status        string               `json:"status,omitempty"` // "stable", "development", "deprecated", "beta", etc.
 	BaseURL       string               `json:"base_url"`
 	Enabled       bool                 `json:"enabled"`
 	AutoDiscovery *AutoDiscoveryConfig `json:"auto_discovery,omitempty"`
@@ -365,6 +366,7 @@ func DefaultAPIDocsConfig() *APIDocsConfig {
 		Title:       "pb-ext API",
 		Version:     "1.0.0",
 		Description: "AST discovered API endpoints",
+		Status:      "stable",
 		BaseURL:     "/api",
 		Enabled:     true,
 		AutoDiscovery: &AutoDiscoveryConfig{

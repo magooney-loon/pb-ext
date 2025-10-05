@@ -3,7 +3,7 @@
     <header class="section-header">
         <h4 class="section-title">
             <i class="ri-code-box-line"></i>
-            <span id="api-header-title">API Documentation</span>
+            <span>API Documentation</span>
         </h4>
 
         <!-- Version Selector -->
@@ -17,32 +17,6 @@
 
     <div class="card">
         <div class="card-body">
-            <!-- API Overview -->
-            <div id="api-overview" class="mb-3" style="display: none;">
-                <div class="flex flex-gap-10 mb-3">
-                    <div class="card card-sm flex-fill">
-                        <div class="card-body">
-                            <div class="flex flex-column">
-                                <div class="txt-lg" id="api-title">API Title</div>
-                                <div class="txt-hint txt-sm" id="api-version">Version</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card card-sm flex-fill">
-                        <div class="card-body">
-                            <div class="flex flex-column">
-                                <div class="txt-lg" id="api-endpoints-count">0</div>
-                                <div class="txt-hint txt-sm">Endpoints</div>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-
-                <div class="mb-3">
-                    <p id="api-description" class="txt-sm txt-hint">API Description will appear here...</p>
-                </div>
-            </div>
 
             <!-- API Statistics and Filters -->
             <div id="api-filters" class="mb-3" style="display: none;">
@@ -75,8 +49,8 @@
                     <div class="card card-sm flex-fill">
                         <div class="card-body">
                             <div class="flex flex-column">
-                                <div class="txt-lg" id="api-health-status">●</div>
-                                <div class="txt-hint txt-sm">Health Status</div>
+                                <div class="txt-lg" id="api-endpoints-count">0</div>
+                                <div class="txt-hint txt-sm">Endpoints</div>
                             </div>
                         </div>
                     </div>
@@ -613,8 +587,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-
-
     // Load API stats from the OpenAPI schema (no separate stats endpoint needed)
     function loadApiStats() {
         // Stats will be calculated from the loaded endpoints
@@ -653,7 +625,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 <p>Loading API documentation...</p>
             </div>
         `;
-
 
         const endpointsList = document.getElementById('endpoints-list');
         if (endpointsList) endpointsList.innerHTML = loadingHtml;
@@ -723,6 +694,39 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function updateVersionStatusBadge() {
+        const statusBadge = document.getElementById('api-status-badge');
+        if (!statusBadge || !currentVersion || !availableVersions) return;
+
+        // Find current version info
+        const versionInfo = availableVersions.find(v => v.version === currentVersion);
+        if (!versionInfo) return;
+
+        const status = versionInfo.status || 'stable';
+        statusBadge.textContent = status;
+
+        // Set badge color based on status
+        statusBadge.className = 'badge badge-sm ';
+        switch (status.toLowerCase()) {
+            case 'stable':
+                statusBadge.className += 'badge-success';
+                break;
+            case 'development':
+            case 'beta':
+                statusBadge.className += 'badge-warning';
+                break;
+            case 'deprecated':
+                statusBadge.className += 'badge-danger';
+                break;
+            case 'experimental':
+            case 'alpha':
+                statusBadge.className += 'badge-info';
+                break;
+            default:
+                statusBadge.className += 'badge-secondary';
+        }
+    }
+
     function populateApiOverview(schema) {
         const overview = document.getElementById('api-overview');
         if (overview) overview.style.display = 'block';
@@ -737,6 +741,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (headerTitle) headerTitle.textContent = schema.title || 'API Documentation';
         if (version) version.textContent = schema.version || '1.0.0';
         if (description) description.textContent = schema.description || 'API Documentation';
+
+        // Update status badge based on current version info
+        updateVersionStatusBadge();
 
         const pathsCount = schema.endpoints ? schema.endpoints.length : 0;
 
@@ -771,8 +778,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const authFilter = document.getElementById('auth-filter');
         const tagFilter = document.getElementById('tag-filter');
 
-        // Populate method filter
+        // Clear and populate method filter
         if (methodFilter && stats.methods) {
+            // Clear existing options except the first "All Methods" option
+            while (methodFilter.children.length > 1) {
+                methodFilter.removeChild(methodFilter.lastChild);
+            }
+
             const sortedMethods = Object.entries(stats.methods).sort(([,a], [,b]) => b - a);
             sortedMethods.forEach(([method, count]) => {
                 const option = document.createElement('option');
@@ -782,8 +794,13 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
-        // Populate auth filter
+        // Clear and populate auth filter
         if (authFilter && stats.auth_types) {
+            // Clear existing options except the first "All Auth Types" option
+            while (authFilter.children.length > 1) {
+                authFilter.removeChild(authFilter.lastChild);
+            }
+
             const sortedAuthTypes = Object.entries(stats.auth_types).sort(([,a], [,b]) => b - a);
             sortedAuthTypes.forEach(([type, count]) => {
                 const option = document.createElement('option');
@@ -794,8 +811,13 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
-        // Populate tag filter
+        // Clear and populate tag filter
         if (tagFilter && stats.tags) {
+            // Clear existing options except the first "All Tags" option
+            while (tagFilter.children.length > 1) {
+                tagFilter.removeChild(tagFilter.lastChild);
+            }
+
             const sortedTags = Object.entries(stats.tags).sort(([,a], [,b]) => b - a);
             sortedTags.forEach(([tag, count]) => {
                 const option = document.createElement('option');
@@ -932,14 +954,26 @@ document.addEventListener('DOMContentLoaded', function() {
                         ` : ''}
                         ${endpoint.request ? `
                             <div class="mb-2">
-                                <strong>Request Schema:</strong>
-                                <pre class="code-block mt-1"><code>${syntaxHighlight(endpoint.request)}</code></pre>
+                                <div class="flex justify-between align-center mb-1">
+                                    <strong>Request Schema:</strong>
+                                    <button class="btn btn-xs btn-secondary copy-schema-btn" type="button" data-copy-target="request-${endpoint.path.replace(/[^a-zA-Z0-9]/g, '')}-${endpoint.method}">
+                                        <i class="ri-file-copy-line"></i>
+                                        Copy
+                                    </button>
+                                </div>
+                                <pre class="code-block mt-1"><code id="request-${endpoint.path.replace(/[^a-zA-Z0-9]/g, '')}-${endpoint.method}">${syntaxHighlight(endpoint.request)}</code></pre>
                             </div>
                         ` : ''}
                         ${endpoint.response ? `
                             <div class="mb-2">
-                                <strong>Response Schema:</strong>
-                                <pre class="code-block mt-1"><code>${syntaxHighlight(endpoint.response)}</code></pre>
+                                <div class="flex justify-between align-center mb-1">
+                                    <strong>Response Schema:</strong>
+                                    <button class="btn btn-xs btn-secondary copy-schema-btn" type="button" data-copy-target="response-${endpoint.path.replace(/[^a-zA-Z0-9]/g, '')}-${endpoint.method}">
+                                        <i class="ri-file-copy-line"></i>
+                                        Copy
+                                    </button>
+                                </div>
+                                <pre class="code-block mt-1"><code id="response-${endpoint.path.replace(/[^a-zA-Z0-9]/g, '')}-${endpoint.method}">${syntaxHighlight(endpoint.response)}</code></pre>
                             </div>
                         ` : ''}
                     </div>
@@ -948,6 +982,39 @@ document.addEventListener('DOMContentLoaded', function() {
         }).join('');
 
         container.innerHTML = endpointsHtml || '<div class="txt-center txt-hint p-4">No endpoints found.</div>';
+
+        // Add copy functionality for schema copy buttons
+        container.querySelectorAll('.copy-schema-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-copy-target');
+                const targetElement = document.getElementById(targetId);
+                if (targetElement) {
+                    const content = targetElement.textContent || targetElement.innerText;
+                    navigator.clipboard.writeText(content).then(() => {
+                        const originalText = this.innerHTML;
+                        this.innerHTML = '<i class="ri-check-line"></i> Copied!';
+                        this.classList.add('btn-success');
+                        this.classList.remove('btn-secondary');
+                        setTimeout(() => {
+                            this.innerHTML = originalText;
+                            this.classList.remove('btn-success');
+                            this.classList.add('btn-secondary');
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Failed to copy schema:', err);
+                        const originalText = this.innerHTML;
+                        this.innerHTML = '<i class="ri-close-line"></i> Failed';
+                        this.classList.add('btn-danger');
+                        this.classList.remove('btn-secondary');
+                        setTimeout(() => {
+                            this.innerHTML = originalText;
+                            this.classList.remove('btn-danger');
+                            this.classList.add('btn-secondary');
+                        }, 2000);
+                    });
+                }
+            });
+        });
     }
 
     // Filter and search functions
@@ -1367,7 +1434,7 @@ Check the server logs for more details.`;
             })
             .then(data => {
                 console.log('Versions data received:', data);
-                availableVersions = Object.keys(data.versions || {});
+                availableVersions = data.versions || [];
                 currentVersion = data.default_version;
                 console.log('Available versions:', availableVersions);
                 console.log('Default version:', currentVersion);
@@ -1376,11 +1443,14 @@ Check the server logs for more details.`;
                 if (versionSelector && availableVersions.length > 0) {
                     versionSelector.innerHTML = '';
 
-                    availableVersions.forEach(version => {
+                    availableVersions.forEach(versionInfo => {
                         const option = document.createElement('option');
-                        option.value = version;
-                        option.textContent = `${version}${version === currentVersion ? ' (default)' : ''}`;
-                        if (version === currentVersion) {
+                        option.value = versionInfo.version; // Use version key like "v1", "v2"
+                        // Display title, semantic version, and status like "pb-ext demo api (1.0.0) [stable]"
+                        const statusBadge = versionInfo.status ? ` [${versionInfo.status}]` : '';
+                        const displayText = `${versionInfo.config.title} (${versionInfo.config.version})${statusBadge}`;
+                        option.textContent = `${displayText}${versionInfo.version === currentVersion ? ' - default' : ''}`;
+                        if (versionInfo.version === currentVersion) {
                             option.selected = true;
                         }
                         versionSelector.appendChild(option);
@@ -1391,6 +1461,22 @@ Check the server logs for more details.`;
                         currentVersion = this.value;
                         console.log('Version changed to:', currentVersion);
                         if (currentVersion) {
+                            // Reset filter values when version changes
+                            const searchInput = document.getElementById('search-input');
+                            const methodFilter = document.getElementById('method-filter');
+                            const authFilter = document.getElementById('auth-filter');
+                            const tagFilter = document.getElementById('tag-filter');
+
+                            if (searchInput) searchInput.value = '';
+                            if (methodFilter) methodFilter.value = '';
+                            if (authFilter) authFilter.value = '';
+                            if (tagFilter) tagFilter.value = '';
+
+                            // Reset filtered endpoints and update active filters display
+                            filteredEndpoints = [...allEndpoints];
+                            updateActiveFilters();
+
+                            updateVersionStatusBadge();
                             loadOpenApiSchema();
                         }
                     });

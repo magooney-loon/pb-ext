@@ -6,30 +6,23 @@ package api
 // allowing developers to work on new versions while keeping old ones active.
 //
 // Features:
-//   - Multiple concurrent API versions
+//   - Multiple concurrent API versions with separate registries
 //   - Version-specific documentation systems
 //   - Automatic version routing
-//   - Independent configuration per version
-//   - Backward compatibility with single-version systems
+//   - Clean separation of version concerns
 //
-// Usage:
-//   // Create version manager
-//   versionManager := NewAPIVersionManager()
+// Example Usage:
+//   versions := map[string]*APIDocsConfig{
+//       "v1": v1Config,
+//       "v2": v2Config,
+//   }
+//   manager := InitializeVersionedSystem(versions, "v1")
 //
-//   // Register multiple versions
-//   v1Config := &APIDocsConfig{Title: "API v1", Version: "1.0.0"}
-//   v2Config := &APIDocsConfig{Title: "API v2", Version: "2.0.0"}
+//   v1Router, _ := manager.GetVersionRouter("v1", e)
+//   v2Router, _ := manager.GetVersionRouter("v2", e)
 //
-//   versionManager.RegisterVersion("v1", v1Config)
-//   versionManager.RegisterVersion("v2", v2Config)
-//
-//   // Use version-specific routers
-//   v1Router := versionManager.GetVersionRouter("v1", e)
-//   v2Router := versionManager.GetVersionRouter("v2", e)
-//
-//   // Routes are version-isolated
-//   v1Router.GET("/api/v1/users", v1UsersHandler)
-//   v2Router.GET("/api/v2/users", v2UsersHandler)
+//   v1Router.GET("/api/v1/users", handler)
+//   v2Router.GET("/api/v2/users", handler)
 
 import (
 	"fmt"
@@ -43,120 +36,123 @@ import (
 )
 
 // =============================================================================
-// Version Manager Core Types
+// Core Types
 // =============================================================================
 
-// APIVersionManager manages multiple API documentation systems
+// APIVersionManager manages multiple API versions with separate registries
 type APIVersionManager struct {
 	mu             sync.RWMutex
-	versions       map[string]*APIDocumentationSystem
-	defaultVersion string
-	versionConfigs map[string]*APIDocsConfig
-	createdAt      time.Time
-	lastModified   time.Time
+	versions       []string                  // ordered list of versions
+	defaultVersion string                    // default version to use
+	registries     map[string]*APIRegistry   // separate registry per version
+	configs        map[string]*APIDocsConfig // version-specific configs
+	createdAt      time.Time                 // when manager was created
+	lastModified   time.Time                 // last time versions were modified
 }
 
-// VersionInfo contains metadata about an API version
+// VersionInfo contains information about a specific API version
 type VersionInfo struct {
-	Version   string                 `json:"version"`
-	Status    string                 `json:"status"` // "active", "deprecated", "development"
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
-	Config    *APIDocsConfig         `json:"config"`
-	Stats     map[string]interface{} `json:"stats"`
-	Endpoints int                    `json:"endpoints"`
+	Version   string         `json:"version"`
+	Status    string         `json:"status"` // "stable", "development", "deprecated"
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	Config    *APIDocsConfig `json:"config"`
+	Stats     map[string]int `json:"stats"`
+	Endpoints int            `json:"endpoints"`
 }
 
-// VersionedAPIRouter wraps an AutoAPIRouter with version information
+// VersionedAPIRouter provides version-specific route registration
 type VersionedAPIRouter struct {
 	*AutoAPIRouter
-	version string
-	manager *APIVersionManager
+	version  string
+	manager  *APIVersionManager
+	registry *APIRegistry // version-specific registry
 }
 
 // =============================================================================
-// Constructor and Setup
+// Constructor Functions
 // =============================================================================
 
-// NewAPIVersionManager creates a new API version manager
+// NewAPIVersionManager creates a new version manager
 func NewAPIVersionManager() *APIVersionManager {
 	return &APIVersionManager{
-		versions:       make(map[string]*APIDocumentationSystem),
-		versionConfigs: make(map[string]*APIDocsConfig),
-		createdAt:      time.Now(),
-		lastModified:   time.Now(),
+		versions:     []string{},
+		registries:   make(map[string]*APIRegistry),
+		configs:      make(map[string]*APIDocsConfig),
+		createdAt:    time.Now(),
+		lastModified: time.Now(),
 	}
 }
 
 // NewAPIVersionManagerWithDefault creates a version manager with a default version
-func NewAPIVersionManagerWithDefault(defaultVersion string, config *APIDocsConfig) *APIVersionManager {
-	manager := NewAPIVersionManager()
-	manager.RegisterVersion(defaultVersion, config)
-	manager.SetDefaultVersion(defaultVersion)
-	return manager
+func NewAPIVersionManagerWithDefault(defaultVersion string) *APIVersionManager {
+	vm := NewAPIVersionManager()
+	vm.defaultVersion = defaultVersion
+	return vm
 }
 
 // =============================================================================
 // Version Management
 // =============================================================================
 
-// RegisterVersion registers a new API version with its configuration
+// RegisterVersion registers a new API version with its own registry
 func (vm *APIVersionManager) RegisterVersion(version string, config *APIDocsConfig) error {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 
 	// Validate version string
-	if version == "" {
-		return fmt.Errorf("version cannot be empty")
+	if err := ValidateVersionString(version); err != nil {
+		return err
 	}
 
 	// Check if version already exists
-	if _, exists := vm.versionConfigs[version]; exists {
+	if _, exists := vm.configs[version]; exists {
 		return fmt.Errorf("version %s already exists", version)
 	}
 
-	// Use provided config or create default with version
-	if config == nil {
-		config = DefaultAPIDocsConfig()
-		config.Version = version
-	} else {
-		// Ensure version in config matches the key
-		config.Version = version
-	}
+	// Create version-specific registry with shared AST parser and schema generator
+	globalSystem := GetGlobalDocumentationSystem()
+	registry := NewAPIRegistry(config, globalSystem.astParser, globalSystem.schemaGenerator)
 
-	// Store version config only - we use the global system for endpoints
-	vm.versionConfigs[version] = config
+	// Store version information
+	vm.versions = append(vm.versions, version)
+	vm.registries[version] = registry
+	vm.configs[version] = config
 	vm.lastModified = time.Now()
 
 	// Set as default if it's the first version
-	if len(vm.versionConfigs) == 1 {
+	if vm.defaultVersion == "" {
 		vm.defaultVersion = version
 	}
+
+	// Sort versions to maintain consistent ordering
+	sort.Strings(vm.versions)
 
 	return nil
 }
 
-// RemoveVersion removes an API version
+// RemoveVersion removes a version and its registry
 func (vm *APIVersionManager) RemoveVersion(version string) error {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 
-	if _, exists := vm.versionConfigs[version]; !exists {
+	// Check if version exists
+	if _, exists := vm.configs[version]; !exists {
 		return fmt.Errorf("version %s does not exist", version)
 	}
 
-	// Don't allow removing the default version if it's the only one
-	if vm.defaultVersion == version && len(vm.versionConfigs) == 1 {
-		return fmt.Errorf("cannot remove the only version")
+	// Cannot remove the default version
+	if version == vm.defaultVersion {
+		return fmt.Errorf("cannot remove default version %s", version)
 	}
 
-	delete(vm.versionConfigs, version)
+	// Remove from all maps and slices
+	delete(vm.configs, version)
+	delete(vm.registries, version)
 
-	// If we removed the default version, set a new default
-	if vm.defaultVersion == version {
-		// Pick the first available version as new default
-		for v := range vm.versionConfigs {
-			vm.defaultVersion = v
+	for i, v := range vm.versions {
+		if v == version {
+			vm.versions = append(vm.versions[:i], vm.versions[i+1:]...)
 			break
 		}
 	}
@@ -170,30 +166,48 @@ func (vm *APIVersionManager) GetVersionConfig(version string) (*APIDocsConfig, e
 	vm.mu.RLock()
 	defer vm.mu.RUnlock()
 
-	if config, exists := vm.versionConfigs[version]; exists {
+	if config, exists := vm.configs[version]; exists {
 		return config, nil
 	}
-
 	return nil, fmt.Errorf("version %s not found", version)
+}
+
+// GetVersionRegistry returns the registry for a specific version
+func (vm *APIVersionManager) GetVersionRegistry(version string) (*APIRegistry, error) {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+
+	if registry, exists := vm.registries[version]; exists {
+		return registry, nil
+	}
+	return nil, fmt.Errorf("registry for version %s not found", version)
 }
 
 // GetVersionRouter creates a versioned API router for the specified version
 func (vm *APIVersionManager) GetVersionRouter(version string, e *core.ServeEvent) (*VersionedAPIRouter, error) {
-	_, err := vm.GetVersionConfig(version)
+	// Get version-specific registry
+	registry, err := vm.GetVersionRegistry(version)
 	if err != nil {
 		return nil, err
 	}
 
-	// Use the global documentation system and tag endpoints with version
-	globalSystem := GetGlobalDocumentationSystem()
-	autoRouter := globalSystem.CreateAutoRouter(e)
+	// Create auto router with version-specific registry
+	autoRouter := &AutoAPIRouter{
+		router:   e.Router,
+		registry: registry, // Use version-specific registry!
+	}
 
 	return &VersionedAPIRouter{
 		AutoAPIRouter: autoRouter,
 		version:       version,
 		manager:       vm,
+		registry:      registry, // Store reference for easy access
 	}, nil
 }
+
+// =============================================================================
+// Version Information
+// =============================================================================
 
 // GetDefaultVersion returns the default version
 func (vm *APIVersionManager) GetDefaultVersion() string {
@@ -207,7 +221,7 @@ func (vm *APIVersionManager) SetDefaultVersion(version string) error {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 
-	if _, exists := vm.versions[version]; !exists {
+	if _, exists := vm.configs[version]; !exists {
 		return fmt.Errorf("version %s does not exist", version)
 	}
 
@@ -221,196 +235,123 @@ func (vm *APIVersionManager) GetAllVersions() []string {
 	vm.mu.RLock()
 	defer vm.mu.RUnlock()
 
-	versions := make([]string, 0, len(vm.versionConfigs))
-	for version := range vm.versionConfigs {
-		versions = append(versions, version)
-	}
-
-	sort.Strings(versions)
-	return versions
+	// Return a copy to prevent external modifications
+	result := make([]string, len(vm.versions))
+	copy(result, vm.versions)
+	return result
 }
-
-// =============================================================================
-// Version Information and Stats
-// =============================================================================
 
 // GetVersionInfo returns detailed information about a specific version
 func (vm *APIVersionManager) GetVersionInfo(version string) (*VersionInfo, error) {
 	vm.mu.RLock()
 	defer vm.mu.RUnlock()
 
-	config, exists := vm.versionConfigs[version]
+	config, exists := vm.configs[version]
 	if !exists {
 		return nil, fmt.Errorf("version %s not found", version)
 	}
 
-	// Get endpoints for this version from global registry
-	globalRegistry := GetGlobalRegistry()
-	allEndpoints := globalRegistry.GetDocs().Endpoints
-
-	var versionEndpoints []APIEndpoint
-	for _, endpoint := range allEndpoints {
-		// Check if endpoint has version tag matching our version
-		for _, tag := range endpoint.Tags {
-			if tag == "version:"+version {
-				versionEndpoints = append(versionEndpoints, endpoint)
-				break
-			}
-		}
+	registry, exists := vm.registries[version]
+	if !exists {
+		return nil, fmt.Errorf("registry for version %s not found", version)
 	}
 
-	// Determine version status
-	status := "active"
-	if len(vm.versionConfigs) > 1 {
-		// Simple heuristic: if it's not the default and there are newer versions, it might be deprecated
-		allVersions := vm.GetAllVersions()
-		if version != vm.defaultVersion && allVersions[len(allVersions)-1] != version {
-			status = "deprecated"
-		}
-		// If it's the newest version but not default, it might be in development
-		if version != vm.defaultVersion && allVersions[len(allVersions)-1] == version {
-			status = "development"
-		}
+	// Get endpoints from version-specific registry
+	docs := registry.GetDocs()
+	endpoints := docs.Endpoints
+
+	// Use configured status or default to "stable"
+	status := config.Status
+	if status == "" {
+		status = "stable"
 	}
 
 	return &VersionInfo{
 		Version:   version,
 		Status:    status,
-		CreatedAt: vm.createdAt, // This would ideally be per-version creation time
+		CreatedAt: vm.createdAt,
 		UpdatedAt: vm.lastModified,
 		Config:    config,
-		Stats:     calculateComprehensiveStats(versionEndpoints),
-		Endpoints: len(versionEndpoints),
+		Stats:     calculateVersionStats(endpoints),
+		Endpoints: len(endpoints),
 	}, nil
 }
 
 // GetAllVersionsInfo returns information about all versions
-func (vm *APIVersionManager) GetAllVersionsInfo() map[string]*VersionInfo {
+func (vm *APIVersionManager) GetAllVersionsInfo() ([]*VersionInfo, error) {
 	versions := vm.GetAllVersions()
-	info := make(map[string]*VersionInfo)
+	infos := make([]*VersionInfo, 0, len(versions))
 
 	for _, version := range versions {
-		if vInfo, err := vm.GetVersionInfo(version); err == nil {
-			info[version] = vInfo
+		info, err := vm.GetVersionInfo(version)
+		if err != nil {
+			continue // Skip versions with errors
 		}
+		infos = append(infos, info)
 	}
 
-	return info
-}
-
-// =============================================================================
-// Server Integration
-// =============================================================================
-
-// RegisterWithServer registers all version-specific documentation routes
-func (vm *APIVersionManager) RegisterWithServer(app core.App) {
-	// Register version management routes - simplified
-	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Version listing endpoint
-		e.Router.GET("/api/docs/versions", func(c *core.RequestEvent) error {
-			return vm.VersionsHandler(c)
-		})
-
-		// Simple version-specific OpenAPI endpoints
-		e.Router.GET("/api/docs/v1", func(c *core.RequestEvent) error {
-			return vm.GetVersionOpenAPI(c, "v1")
-		})
-		e.Router.GET("/api/docs/v2", func(c *core.RequestEvent) error {
-			return vm.GetVersionOpenAPI(c, "v2")
-		})
-
-		return e.Next()
-	})
-
-	// Note: Individual version systems should NOT register their own routes
-	// to avoid conflicts. The version manager handles all documentation routes.
+	return infos, nil
 }
 
 // =============================================================================
 // HTTP Handlers
 // =============================================================================
 
-// VersionsHandler returns all available API versions
-func (vm *APIVersionManager) VersionsHandler(c *core.RequestEvent) error {
-	fmt.Println("DEBUG: VersionsHandler called")
-	versionsInfo := vm.GetAllVersionsInfo()
+// RegisterWithServer registers version management endpoints
+func (vm *APIVersionManager) RegisterWithServer(app core.App) {
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		// Version listing endpoint
+		e.Router.GET("/api/docs/versions", func(c *core.RequestEvent) error {
+			return vm.VersionsHandler(c)
+		})
 
-	response := map[string]interface{}{
-		"versions":        versionsInfo,
-		"default_version": vm.GetDefaultVersion(),
-		"total_versions":  len(versionsInfo),
-		"last_modified":   vm.lastModified,
+		// Version-specific OpenAPI endpoints
+		for _, version := range vm.GetAllVersions() {
+			versionPath := fmt.Sprintf("/api/docs/%s", version)
+			e.Router.GET(versionPath, func(c *core.RequestEvent) error {
+				return vm.GetVersionOpenAPI(c, version)
+			})
+		}
+
+		return e.Next()
+	})
+}
+
+// VersionsHandler returns list of all available API versions
+func (vm *APIVersionManager) VersionsHandler(c *core.RequestEvent) error {
+	infos, err := vm.GetAllVersionsInfo()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to retrieve version information",
+		})
 	}
 
-	return c.JSON(http.StatusOK, response)
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"versions":        infos,
+		"default_version": vm.GetDefaultVersion(),
+		"total_versions":  len(infos),
+		"generated_at":    time.Now().Format(time.RFC3339),
+	})
 }
 
 // GetVersionOpenAPI returns the complete OpenAPI schema for a specific version
 func (vm *APIVersionManager) GetVersionOpenAPI(c *core.RequestEvent, version string) error {
-	fmt.Println("DEBUG: GetVersionOpenAPI called for version:", version)
-
-	config, err := vm.GetVersionConfig(version)
+	// Get version-specific registry
+	registry, err := vm.GetVersionRegistry(version)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
-			"error": "Version " + version + " not found",
+			"error": fmt.Sprintf("Version %s not found", version),
 		})
 	}
 
-	// Get all endpoints from global registry and filter by version
-	globalRegistry := GetGlobalRegistry()
-	allEndpoints := globalRegistry.GetDocs().Endpoints
-
-	var versionEndpoints []APIEndpoint
-	for _, endpoint := range allEndpoints {
-		// Check if endpoint has version tag matching our version
-		for _, tag := range endpoint.Tags {
-			if tag == "version:"+version {
-				versionEndpoints = append(versionEndpoints, endpoint)
-				break
-			}
-		}
-	}
-
-	// Create complete version-specific OpenAPI docs with generated components
-	docs := &APIDocs{
-		Title:       config.Title,
-		Version:     config.Version,
-		Description: config.Description,
-		BaseURL:     config.BaseURL,
-		Endpoints:   versionEndpoints,
-		Generated:   time.Now().Format(time.RFC3339),
-		Components:  make(map[string]interface{}),
-	}
-
-	// Generate components specifically for version-specific endpoints using a temporary generator
-	globalRegistry = GetGlobalRegistry()
-	if globalRegistry != nil && globalRegistry.astParser != nil {
-		// Create a temporary schema generator for this version's endpoints only
-		tempSchemaGenerator := NewSchemaGenerator(globalRegistry.astParser)
-
-		// Create a temporary registry with only version-specific endpoints
-		tempConfig := &APIDocsConfig{
-			Title:   config.Title,
-			Version: config.Version,
-		}
-		tempRegistry := NewAPIRegistry(tempConfig, globalRegistry.astParser, tempSchemaGenerator)
-
-		// Register only the version-specific endpoints
-		for _, endpoint := range versionEndpoints {
-			tempRegistry.RegisterEndpoint(endpoint)
-		}
-
-		// Generate components from the temporary registry
-		docs.Components = tempSchemaGenerator.GenerateComponentSchemas()
-	}
+	// Get documentation from version-specific registry
+	docs := registry.GetDocsWithComponents()
 
 	return c.JSON(http.StatusOK, docs)
 }
 
-// Backward compatibility handlers removed - use versioned endpoints only
-
 // =============================================================================
-// Versioned Router Extensions
+// VersionedAPIRouter Methods
 // =============================================================================
 
 // GetVersion returns the version of this router
@@ -423,80 +364,13 @@ func (vr *VersionedAPIRouter) GetVersionManager() *APIVersionManager {
 	return vr.manager
 }
 
-// Override HTTP method functions to automatically add version tags
-
-// GET registers a GET route and automatically adds version tag
-func (vr *VersionedAPIRouter) GET(path string, handler func(*core.RequestEvent) error) *RouteChain {
-	route := vr.AutoAPIRouter.GET(path, handler)
-	vr.addVersionTag(path, "GET")
-	return route
+// GetRegistry returns the version-specific registry
+func (vr *VersionedAPIRouter) GetRegistry() *APIRegistry {
+	return vr.registry
 }
 
-// POST registers a POST route and automatically adds version tag
-func (vr *VersionedAPIRouter) POST(path string, handler func(*core.RequestEvent) error) *RouteChain {
-	route := vr.AutoAPIRouter.POST(path, handler)
-	vr.addVersionTag(path, "POST")
-	return route
-}
-
-// PUT registers a PUT route and automatically adds version tag
-func (vr *VersionedAPIRouter) PUT(path string, handler func(*core.RequestEvent) error) *RouteChain {
-	route := vr.AutoAPIRouter.PUT(path, handler)
-	vr.addVersionTag(path, "PUT")
-	return route
-}
-
-// PATCH registers a PATCH route and automatically adds version tag
-func (vr *VersionedAPIRouter) PATCH(path string, handler func(*core.RequestEvent) error) *RouteChain {
-	route := vr.AutoAPIRouter.PATCH(path, handler)
-	vr.addVersionTag(path, "PATCH")
-	return route
-}
-
-// DELETE registers a DELETE route and automatically adds version tag
-func (vr *VersionedAPIRouter) DELETE(path string, handler func(*core.RequestEvent) error) *RouteChain {
-	route := vr.AutoAPIRouter.DELETE(path, handler)
-	vr.addVersionTag(path, "DELETE")
-	return route
-}
-
-// OPTIONS registers an OPTIONS route and automatically adds version tag
-func (vr *VersionedAPIRouter) OPTIONS(path string, handler func(*core.RequestEvent) error) *RouteChain {
-	route := vr.AutoAPIRouter.OPTIONS(path, handler)
-	vr.addVersionTag(path, "OPTIONS")
-	return route
-}
-
-// HEAD registers a HEAD route and automatically adds version tag
-func (vr *VersionedAPIRouter) HEAD(path string, handler func(*core.RequestEvent) error) *RouteChain {
-	route := vr.AutoAPIRouter.HEAD(path, handler)
-	vr.addVersionTag(path, "HEAD")
-	return route
-}
-
-// addVersionTag adds version tag to the endpoint
-func (vr *VersionedAPIRouter) addVersionTag(path, method string) {
-	// Get the global registry and add version tag to the endpoint
-	registry := GetGlobalRegistry()
-	if endpoint, exists := registry.GetEndpoint(method, path); exists {
-		// Add version tag if not already present
-		versionTag := "version:" + vr.version
-		hasVersionTag := false
-		for _, tag := range endpoint.Tags {
-			if tag == versionTag {
-				hasVersionTag = true
-				break
-			}
-		}
-		if !hasVersionTag {
-			// Create new endpoint with version tag
-			updatedEndpoint := *endpoint
-			updatedEndpoint.Tags = append(updatedEndpoint.Tags, versionTag)
-			// Re-register the endpoint with updated tags
-			registry.RegisterEndpoint(updatedEndpoint)
-		}
-	}
-}
+// Note: HTTP method handlers (GET, POST, PUT, etc.) are inherited from AutoAPIRouter
+// and will automatically use the version-specific registry set in the constructor
 
 // =============================================================================
 // Global Version Manager
@@ -513,98 +387,67 @@ func GetGlobalVersionManager() *APIVersionManager {
 }
 
 // SetGlobalVersionManager sets the global version manager
-func SetGlobalVersionManager(manager *APIVersionManager) {
-	globalVersionManager = manager
+func SetGlobalVersionManager(vm *APIVersionManager) {
+	globalVersionManager = vm
 }
 
-// InitializeVersionManager initializes the global version manager with versions
+// InitializeVersionManager creates and configures a version manager
 func InitializeVersionManager(versions map[string]*APIDocsConfig, defaultVersion string) *APIVersionManager {
-	manager := NewAPIVersionManager()
+	vm := NewAPIVersionManagerWithDefault(defaultVersion)
 
 	// Register all versions
 	for version, config := range versions {
-		if err := manager.RegisterVersion(version, config); err != nil {
-			// Log error but continue with other versions
+		if err := vm.RegisterVersion(version, config); err != nil {
+			fmt.Printf("Warning: Failed to register version %s: %v\n", version, err)
 			continue
 		}
 	}
 
-	// Set default version if specified and exists
-	if defaultVersion != "" {
-		if err := manager.SetDefaultVersion(defaultVersion); err == nil {
-			// Successfully set default
-		}
-	}
+	// Set global instance
+	SetGlobalVersionManager(vm)
 
-	SetGlobalVersionManager(manager)
-	return manager
+	return vm
 }
 
 // =============================================================================
-// Migration Utilities
+// Utility Functions
 // =============================================================================
 
-// MigrateFromSingleVersion migrates from a single global system to versioned system
-func MigrateFromSingleVersion(version string) *APIVersionManager {
-	// Get current global system config
-	currentSystem := GetGlobalDocumentationSystem()
-
-	// Create version manager
-	manager := NewAPIVersionManager()
-
-	// Extract config from current system
-	config := currentSystem.config
-	if config == nil {
-		config = DefaultAPIDocsConfig()
-	}
-	config.Version = version
-
-	// Register as a version
-	if err := manager.RegisterVersion(version, config); err == nil {
-		manager.SetDefaultVersion(version)
-	}
-
-	return manager
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-// ValidateVersionString validates a version string format
+// ValidateVersionString validates that a version string is valid
 func ValidateVersionString(version string) error {
 	if version == "" {
 		return fmt.Errorf("version cannot be empty")
 	}
 
-	// Basic validation - can be extended with semver parsing
-	if strings.Contains(version, " ") {
-		return fmt.Errorf("version cannot contain spaces")
-	}
-
-	if len(version) > 50 {
-		return fmt.Errorf("version string too long (max 50 characters)")
+	// Allow alphanumeric characters, dots, and hyphens
+	for _, char := range version {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '.' || char == '-' || char == '_') {
+			return fmt.Errorf("version contains invalid character: %c", char)
+		}
 	}
 
 	return nil
 }
 
-// CreateVersionFromTemplate creates a new version based on an existing version
-func (vm *APIVersionManager) CreateVersionFromTemplate(newVersion, templateVersion string) error {
-	// Get template version config
-	vm.mu.RLock()
-	templateConfig, exists := vm.versionConfigs[templateVersion]
-	vm.mu.RUnlock()
+// calculateVersionStats calculates statistics for a version's endpoints
+func calculateVersionStats(endpoints []APIEndpoint) map[string]int {
+	stats := make(map[string]int)
 
-	if !exists {
-		return fmt.Errorf("template version %s does not exist", templateVersion)
+	// Count by method
+	for _, endpoint := range endpoints {
+		method := strings.ToLower(endpoint.Method)
+		stats[method]++
+		stats["total"]++
+
+		// Count by auth type
+		if endpoint.Auth != nil {
+			authKey := fmt.Sprintf("auth_%s", endpoint.Auth.Type)
+			stats[authKey]++
+		} else {
+			stats["auth_none"]++
+		}
 	}
 
-	// Create new config based on template
-	newConfig := *templateConfig // Copy config
-	newConfig.Version = newVersion
-	newConfig.Title = strings.Replace(templateConfig.Title, templateVersion, newVersion, -1)
-
-	// Register new version
-	return vm.RegisterVersion(newVersion, &newConfig)
+	return stats
 }
