@@ -30,6 +30,83 @@
                 </div>
             </div>
 
+            <!-- API Statistics and Filters -->
+            <div id="api-filters" class="mb-3" style="display: none;">
+                <!-- Statistics Cards -->
+                <div class="flex flex-gap-10 mb-3">
+                    <div class="card card-sm flex-fill">
+                        <div class="card-body">
+                            <div class="flex flex-column">
+                                <div class="txt-lg" id="stats-auth-required">0</div>
+                                <div class="txt-hint txt-sm">Auth Required</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card card-sm flex-fill">
+                        <div class="card-body">
+                            <div class="flex flex-column">
+                                <div class="txt-lg" id="stats-unique-paths">0</div>
+                                <div class="txt-hint txt-sm">Unique Paths</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card card-sm flex-fill">
+                        <div class="card-body">
+                            <div class="flex flex-column">
+                                <div class="txt-lg" id="stats-total-tags">0</div>
+                                <div class="txt-hint txt-sm">Total Tags</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card card-sm flex-fill">
+                        <div class="card-body">
+                            <div class="flex flex-column">
+                                <div class="txt-lg" id="api-health-status">●</div>
+                                <div class="txt-hint txt-sm">Health Status</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search and Filters -->
+                <div class="flex flex-gap-10 mb-3">
+                    <div class="form-field">
+                        <input type="text" id="search-input" placeholder="Search endpoints..." class="form-control">
+                    </div>
+                    <div class="form-field">
+                        <select id="method-filter" class="form-control">
+                            <option value="">All Methods</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <select id="auth-filter" class="form-control">
+                            <option value="">All Auth Types</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <select id="tag-filter" class="form-control">
+                            <option value="">All Tags</option>
+                        </select>
+                    </div>
+
+                </div>
+
+                <!-- Active Filters Display -->
+                <div id="active-filters" class="mb-2" style="display: none;">
+                    <div class="flex align-center gap-2 flex-wrap">
+                        <span class="txt-sm txt-hint">Active filters:</span>
+                        <div id="filter-tags" class="flex gap-1 flex-wrap"></div>
+                    </div>
+                </div>
+
+                <!-- Results Summary -->
+                <div id="results-summary" class="mb-2" style="display: none;">
+                    <div class="txt-sm txt-hint">
+                        Showing <span id="filtered-count">0</span> of <span id="total-count">0</span> endpoints
+                    </div>
+                </div>
+            </div>
+
             <!-- Tab Navigation for API sections -->
             <div class="tabs-header" id="api-tabs">
                 <button class="tab-item active" data-tab="endpoints">
@@ -351,6 +428,9 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     let openApiSchema = null;
+    let apiStats = null;
+    let allEndpoints = [];
+    let filteredEndpoints = [];
 
     // Tab switching functionality
     const tabButtons = document.querySelectorAll('#api-tabs .tab-item');
@@ -409,6 +489,29 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Filter and search functionality
+    const searchInput = document.getElementById('search-input');
+    const methodFilter = document.getElementById('method-filter');
+    const authFilter = document.getElementById('auth-filter');
+    const tagFilter = document.getElementById('tag-filter');
+    const clearFiltersBtn = document.getElementById('clear-filters-btn');
+
+    if (searchInput) {
+        searchInput.addEventListener('input', debounce(applyFilters, 300));
+    }
+    if (methodFilter) {
+        methodFilter.addEventListener('change', applyFilters);
+    }
+    if (authFilter) {
+        authFilter.addEventListener('change', applyFilters);
+    }
+    if (tagFilter) {
+        tagFilter.addEventListener('change', applyFilters);
+    }
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', clearAllFilters);
+    }
+
     // JSON syntax highlighting helper
     function syntaxHighlight(json) {
         if (typeof json != "string") {
@@ -437,6 +540,27 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
+    // Load API stats and initialize filters
+    function loadApiStats() {
+        return fetch('/api/docs/stats')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(stats => {
+                apiStats = stats;
+                populateStats(stats);
+                populateFilterOptions(stats);
+                return stats;
+            })
+            .catch(error => {
+                console.error('Failed to load API stats:', error);
+                return null;
+            });
+    }
+
     // Load OpenAPI schema
     function loadOpenApiSchema() {
         const statusBadge = document.getElementById('api-status-badge');
@@ -457,25 +581,29 @@ document.addEventListener('DOMContentLoaded', function() {
         const endpointsList = document.getElementById('endpoints-list');
         if (endpointsList) endpointsList.innerHTML = loadingHtml;
 
-        fetch('/api/docs/openapi')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                openApiSchema = data;
+        Promise.all([
+            fetch('/api/docs/openapi').then(r => r.json()),
+            loadApiStats()
+        ])
+            .then(([schemaData, statsData]) => {
+                openApiSchema = schemaData;
+                allEndpoints = schemaData.endpoints || [];
+                filteredEndpoints = [...allEndpoints];
+
                 updateApiStatus('success', 'Loaded');
-                populateApiOverview(data);
-                populateEndpoints(data);
+                populateApiOverview(schemaData);
+                populateEndpoints();
                 updateRawSchema('json');
+
+                // Show filters
+                const filtersDiv = document.getElementById('api-filters');
+                if (filtersDiv) filtersDiv.style.display = 'block';
             })
             .catch(error => {
-                console.error('Failed to load OpenAPI schema:', error);
+                console.error('Failed to load API documentation:', error);
                 updateApiStatus('error', 'Failed to load');
 
-                let errorMessage = 'Failed to load OpenAPI schema: ' + error.message;
+                let errorMessage = 'Failed to load API documentation: ' + error.message;
                 if (error.message.includes('HTTP 404')) {
                     errorMessage = 'API documentation endpoint not found. The server might still be starting up.';
                 } else if (error.message.includes('Failed to fetch')) {
@@ -483,8 +611,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 showError(errorMessage);
-            })
-
+            });
     }
 
     function updateApiStatus(type, message) {
@@ -513,11 +640,74 @@ document.addEventListener('DOMContentLoaded', function() {
         if (endpointsCount) endpointsCount.textContent = pathsCount;
     }
 
-    function populateEndpoints(schema) {
+    function populateStats(stats) {
+        const authRequired = document.getElementById('stats-auth-required');
+        const uniquePaths = document.getElementById('stats-unique-paths');
+        const totalTags = document.getElementById('stats-total-tags');
+        const healthStatus = document.getElementById('api-health-status');
+
+        if (authRequired && stats.summary) {
+            authRequired.textContent = stats.summary.auth_required || 0;
+        }
+        if (uniquePaths && stats.summary) {
+            uniquePaths.textContent = stats.summary.unique_paths || 0;
+        }
+        if (totalTags && stats.tags) {
+            totalTags.textContent = Object.keys(stats.tags).length;
+        }
+        if (healthStatus && stats.health) {
+            const isHealthy = stats.health.status === 'healthy';
+            healthStatus.textContent = isHealthy ? '●' : '●';
+            healthStatus.style.color = isHealthy ? '#22c55e' : '#ef4444';
+            healthStatus.title = `Status: ${stats.health.status} | Enabled: ${stats.health.enabled}`;
+        }
+    }
+
+    function populateFilterOptions(stats) {
+        const methodFilter = document.getElementById('method-filter');
+        const authFilter = document.getElementById('auth-filter');
+        const tagFilter = document.getElementById('tag-filter');
+
+        // Populate method filter
+        if (methodFilter && stats.methods) {
+            Object.entries(stats.methods).forEach(([method, count]) => {
+                const option = document.createElement('option');
+                option.value = method;
+                option.textContent = `${method} (${count})`;
+                methodFilter.appendChild(option);
+            });
+        }
+
+        // Populate auth filter
+        if (authFilter && stats.auth_types) {
+            Object.entries(stats.auth_types).forEach(([type, count]) => {
+                const option = document.createElement('option');
+                option.value = type;
+                const displayName = type === 'none' ? 'No Auth' : type.replace(/_/g, ' ');
+                option.textContent = `${displayName} (${count})`;
+                authFilter.appendChild(option);
+            });
+        }
+
+        // Populate tag filter
+        if (tagFilter && stats.tags) {
+            const sortedTags = Object.entries(stats.tags).sort(([,a], [,b]) => b - a);
+            sortedTags.forEach(([tag, count]) => {
+                const option = document.createElement('option');
+                option.value = tag;
+                option.textContent = `${tag} (${count})`;
+                tagFilter.appendChild(option);
+            });
+        }
+    }
+
+    function populateEndpoints() {
         const container = document.getElementById('endpoints-list');
         if (!container) return;
 
-        if (!schema.endpoints || !Array.isArray(schema.endpoints)) {
+        updateResultsSummary();
+
+        if (!filteredEndpoints || !Array.isArray(filteredEndpoints)) {
             container.innerHTML = `
                 <div class="txt-center txt-hint p-4">
                     <i class="ri-route-line ri-2x mb-2"></i>
@@ -533,7 +723,21 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (schema.endpoints.length === 0) {
+        if (filteredEndpoints.length === 0 && allEndpoints.length > 0) {
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-search-line ri-2x mb-2"></i>
+                    <h4>No endpoints match your filters</h4>
+                    <p class="txt-sm">Try adjusting your search terms or filters.</p>
+                    <button onclick="clearAllFilters()" class="btn btn-sm btn-outline mt-2">
+                        <i class="ri-close-line"></i> Clear Filters
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        if (filteredEndpoints.length === 0) {
             container.innerHTML = `
                 <div class="txt-center txt-hint p-4">
                     <i class="ri-route-line ri-2x mb-2"></i>
@@ -544,7 +748,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const endpointsHtml = schema.endpoints.map((endpoint, index) => {
+        const endpointsHtml = filteredEndpoints.map((endpoint, index) => {
             const method = endpoint.method ? endpoint.method.toLowerCase() : 'get';
             const path = endpoint.path || '/';
             const operationId = endpoint.handler_name || `endpoint_${index}`;
@@ -641,7 +845,148 @@ document.addEventListener('DOMContentLoaded', function() {
         container.innerHTML = endpointsHtml || '<div class="txt-center txt-hint p-4">No endpoints found.</div>';
     }
 
+    // Filter and search functions
+    function applyFilters() {
+        const searchTerm = document.getElementById('search-input')?.value.toLowerCase() || '';
+        const methodValue = document.getElementById('method-filter')?.value || '';
+        const authValue = document.getElementById('auth-filter')?.value || '';
+        const tagValue = document.getElementById('tag-filter')?.value || '';
 
+        filteredEndpoints = allEndpoints.filter(endpoint => {
+            // Search filter
+            if (searchTerm && !matchesSearch(endpoint, searchTerm)) {
+                return false;
+            }
+
+            // Method filter
+            if (methodValue && endpoint.method !== methodValue) {
+                return false;
+            }
+
+            // Auth filter
+            if (authValue) {
+                const endpointAuthType = endpoint.auth?.type || 'none';
+                if (endpointAuthType !== authValue) {
+                    return false;
+                }
+            }
+
+            // Tag filter
+            if (tagValue && (!endpoint.tags || !endpoint.tags.includes(tagValue))) {
+                return false;
+            }
+
+            return true;
+        });
+
+        populateEndpoints();
+        updateActiveFilters();
+    }
+
+    function matchesSearch(endpoint, searchTerm) {
+        const searchableFields = [
+            endpoint.path,
+            endpoint.description,
+            endpoint.handler_name,
+            ...(endpoint.tags || [])
+        ];
+
+        return searchableFields.some(field =>
+            field && field.toString().toLowerCase().includes(searchTerm)
+        );
+    }
+
+    function clearAllFilters() {
+        document.getElementById('search-input').value = '';
+        document.getElementById('method-filter').value = '';
+        document.getElementById('auth-filter').value = '';
+        document.getElementById('tag-filter').value = '';
+        filteredEndpoints = [...allEndpoints];
+        populateEndpoints();
+        updateActiveFilters();
+    }
+
+    function updateActiveFilters() {
+        const activeFiltersDiv = document.getElementById('active-filters');
+        const filterTagsDiv = document.getElementById('filter-tags');
+
+        if (!activeFiltersDiv || !filterTagsDiv) return;
+
+        const filters = [];
+        const searchValue = document.getElementById('search-input')?.value;
+        const methodValue = document.getElementById('method-filter')?.value;
+        const authValue = document.getElementById('auth-filter')?.value;
+        const tagValue = document.getElementById('tag-filter')?.value;
+
+        if (searchValue) filters.push({ type: 'search', value: searchValue, label: `Search: "${searchValue}"` });
+        if (methodValue) filters.push({ type: 'method', value: methodValue, label: `Method: ${methodValue}` });
+        if (authValue) filters.push({ type: 'auth', value: authValue, label: `Auth: ${authValue.replace(/_/g, ' ')}` });
+        if (tagValue) filters.push({ type: 'tag', value: tagValue, label: `Tag: ${tagValue}` });
+
+        if (filters.length > 0) {
+            activeFiltersDiv.style.display = 'block';
+            filterTagsDiv.innerHTML = filters.map(filter => `
+                <span class="badge badge-sm badge-secondary">
+                    ${filter.label}
+                    <i class="ri-close-line cursor-pointer ml-1" onclick="clearFilter('${filter.type}')"></i>
+                </span>
+            `).join('');
+        } else {
+            activeFiltersDiv.style.display = 'none';
+        }
+    }
+
+    function updateResultsSummary() {
+        const summaryDiv = document.getElementById('results-summary');
+        const filteredCountSpan = document.getElementById('filtered-count');
+        const totalCountSpan = document.getElementById('total-count');
+
+        if (summaryDiv && filteredCountSpan && totalCountSpan) {
+            filteredCountSpan.textContent = filteredEndpoints.length;
+            totalCountSpan.textContent = allEndpoints.length;
+
+            if (filteredEndpoints.length !== allEndpoints.length) {
+                summaryDiv.style.display = 'block';
+            } else {
+                summaryDiv.style.display = 'none';
+            }
+        }
+    }
+
+    // Global function for filter removal
+    window.clearFilter = function(filterType) {
+        switch(filterType) {
+            case 'search':
+                document.getElementById('search-input').value = '';
+                break;
+            case 'method':
+                document.getElementById('method-filter').value = '';
+                break;
+            case 'auth':
+                document.getElementById('auth-filter').value = '';
+                break;
+            case 'tag':
+                document.getElementById('tag-filter').value = '';
+                break;
+        }
+        applyFilters();
+    };
+
+    // Global function for clearing all filters
+    window.clearAllFilters = clearAllFilters;
+
+    // Debounce function for search
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
 
     function updateRawSchema(format) {
         const content = document.getElementById('raw-schema-content');

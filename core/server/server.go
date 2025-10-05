@@ -10,6 +10,8 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+
+	"github.com/magooney-loon/pb-ext/core/server/api"
 )
 
 // Server wraps PocketBase with additional stats
@@ -227,6 +229,17 @@ func (s *Server) Start() error {
 // App returns the underlying PocketBase instance
 func (s *Server) App() *pocketbase.PocketBase {
 	return s.app
+}
+
+// RegisterAPIDocsRoutes initializes and registers the API documentation routes
+func (s *Server) RegisterAPIDocsRoutes(e *core.ServeEvent) {
+	// Initialize global documentation system to ensure same registry is used
+	api.GetGlobalDocumentationSystem()
+
+	// Register API documentation routes
+	e.Router.GET("/api/docs/openapi", api.OpenAPIHandler)
+	e.Router.GET("/api/docs/stats", api.StatsHandler)
+	e.Router.GET("/api/docs/components", api.ComponentsHandler)
 }
 
 // Stats returns the current server statistics

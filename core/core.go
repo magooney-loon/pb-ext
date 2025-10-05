@@ -3,6 +3,7 @@ package core
 import (
 	"github.com/magooney-loon/pb-ext/core/logging"
 	"github.com/magooney-loon/pb-ext/core/server"
+	"github.com/magooney-loon/pb-ext/core/server/api"
 )
 
 // Re-export server components
@@ -15,7 +16,7 @@ var (
 	WithMode                = server.WithMode
 	InDeveloperMode         = server.InDeveloperMode
 	InNormalMode            = server.InNormalMode
-	EnableAutoDocumentation = server.EnableAutoDocumentation
+	EnableAutoDocumentation = api.EnableAutoDocumentation
 )
 
 // Re-export server types
