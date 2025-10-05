@@ -4,5 +4,5 @@ import (
 	"embed"
 )
 
-//go:embed templates/*.tmpl templates/components/*.tmpl templates/scripts/*.tmpl
+//go:embed templates/*.tmpl templates/components/*.tmpl templates/scripts/*.tmpl templates/css/*.tmpl
 var TemplateFS embed.FS

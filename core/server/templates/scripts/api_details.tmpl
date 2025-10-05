@@ -1,0 +1,1078 @@
+{{define "api_details_js"}}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let openApiSchema = null;
+    let apiStats = null;
+    let apiComponents = null;
+    let allEndpoints = [];
+    let filteredEndpoints = [];
+    let availableVersions = [];
+    let currentVersion = null;
+
+    // Tab switching functionality
+    const tabButtons = document.querySelectorAll('#api-tabs .tab-item');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const tabName = this.getAttribute('data-tab');
+
+            // Update active states
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+                content.style.display = 'none';
+            });
+
+            this.classList.add('active');
+            const targetContent = document.getElementById(tabName + '-tab');
+            if (targetContent) {
+                targetContent.classList.add('active');
+                targetContent.style.display = 'block';
+            }
+        });
+    });
+
+    // Format switching for raw schema
+    const jsonBtn = document.getElementById('json-format-btn');
+    const yamlBtn = document.getElementById('yaml-format-btn');
+
+    if (jsonBtn && yamlBtn) {
+        jsonBtn.addEventListener('click', function() {
+            jsonBtn.classList.add('active');
+            yamlBtn.classList.remove('active');
+            updateRawSchema('json');
+        });
+
+        yamlBtn.addEventListener('click', function() {
+            yamlBtn.classList.add('active');
+            jsonBtn.classList.remove('active');
+            updateRawSchema('yaml');
+        });
+    }
+
+    // Format switching for components
+    const componentsJsonBtn = document.getElementById('components-json-format-btn');
+    const componentsYamlBtn = document.getElementById('components-yaml-format-btn');
+
+    if (componentsJsonBtn && componentsYamlBtn) {
+        componentsJsonBtn.addEventListener('click', function() {
+            componentsJsonBtn.classList.add('active');
+            componentsYamlBtn.classList.remove('active');
+            updateComponents('json');
+        });
+
+        componentsYamlBtn.addEventListener('click', function() {
+            componentsYamlBtn.classList.add('active');
+            componentsJsonBtn.classList.remove('active');
+            updateComponents('yaml');
+        });
+    }
+
+    // Copy schema functionality
+    const copyBtn = document.getElementById('copy-schema-btn');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', function() {
+            const content = document.getElementById('raw-schema-content').textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="ri-check-line"></i> Copied!';
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            });
+        });
+    }
+
+    // Copy components functionality
+    const copyComponentsBtn = document.getElementById('copy-components-btn');
+    if (copyComponentsBtn) {
+        copyComponentsBtn.addEventListener('click', function() {
+            const content = document.getElementById('components-content').textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                const originalText = copyComponentsBtn.innerHTML;
+                copyComponentsBtn.innerHTML = '<i class="ri-check-line"></i> Copied!';
+                setTimeout(() => {
+                    copyComponentsBtn.innerHTML = originalText;
+                }, 2000);
+            });
+        });
+    }
+
+    // Filter and search functionality
+    const searchInput = document.getElementById('search-input');
+    const methodFilter = document.getElementById('method-filter');
+    const authFilter = document.getElementById('auth-filter');
+    const tagFilter = document.getElementById('tag-filter');
+    const clearFiltersBtn = document.getElementById('clear-filters-btn');
+
+    if (searchInput) {
+        searchInput.addEventListener('input', debounce(applyFilters, 300));
+    }
+    if (methodFilter) {
+        methodFilter.addEventListener('change', applyFilters);
+    }
+    if (authFilter) {
+        authFilter.addEventListener('change', applyFilters);
+    }
+    if (tagFilter) {
+        tagFilter.addEventListener('change', applyFilters);
+    }
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', clearAllFilters);
+    }
+
+    // JSON syntax highlighting helper
+    function syntaxHighlight(json) {
+        if (typeof json != "string") {
+            json = JSON.stringify(json, undefined, 2);
+        }
+        // Escape HTML characters but preserve formatting
+        json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        // Apply syntax highlighting while preserving whitespace and newlines
+        return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+            var cls = 'number';
+            if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                    cls = 'key';
+                } else {
+                    cls = 'string';
+                }
+            } else if (/true|false/.test(match)) {
+                cls = 'boolean';
+            } else if (/null/.test(match)) {
+                cls = 'null';
+            }
+            return '<span class="json-' + cls + '">' + match + '</span>';
+        });
+    }
+
+    // Load API stats from the OpenAPI schema (no separate stats endpoint needed)
+    function loadApiStats() {
+        // Stats will be calculated from the loaded endpoints
+        return Promise.resolve(null);
+    }
+
+    // Load API components from OpenAPI schema
+    function loadApiComponents() {
+        if (!currentVersion) {
+            return Promise.reject(new Error('No version selected'));
+        }
+
+        // Components are part of the OpenAPI schema, so we'll extract them
+        // from the already loaded schema or return empty if not available
+        return Promise.resolve({
+            components: openApiSchema?.components || {}
+        }).then(data => {
+            apiComponents = data.components;
+            return apiComponents;
+        });
+    }
+
+    // Load OpenAPI schema
+    function loadOpenApiSchema() {
+        const statusBadge = document.getElementById('api-status-badge');
+
+        if (statusBadge) {
+            statusBadge.textContent = 'Loading...';
+            statusBadge.className = 'badge badge-sm badge-info';
+        }
+
+        // Show loading state in containers
+        const loadingHtml = `
+            <div class="txt-center txt-hint p-4">
+                <i class="ri-loader-4-line ri-xl animate-spin"></i>
+                <p>Loading API documentation...</p>
+            </div>
+        `;
+
+        const endpointsList = document.getElementById('endpoints-list');
+        if (endpointsList) endpointsList.innerHTML = loadingHtml;
+
+        if (!currentVersion) {
+            console.error('No current version set');
+            showErrorState('No API version selected');
+            return;
+        }
+
+        const openApiUrl = `/api/docs/${currentVersion}`;
+        console.log('Loading OpenAPI schema from:', openApiUrl);
+        fetch(openApiUrl)
+            .then(r => {
+                console.log('OpenAPI response status:', r.status);
+                if (!r.ok) {
+                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                }
+                return r.json();
+            })
+            .then((schemaData) => {
+                console.log('Schema data received:', schemaData);
+                openApiSchema = schemaData;
+                allEndpoints = schemaData.endpoints || [];
+                filteredEndpoints = [...allEndpoints];
+                console.log('Loaded endpoints:', allEndpoints.length);
+
+                // Load components from the schema
+                apiComponents = schemaData.components || {};
+                console.log('Loaded components:', Object.keys(apiComponents));
+
+                // Calculate stats from endpoints
+                apiStats = calculateComprehensiveStats(allEndpoints);
+                populateStats(apiStats);
+                populateFilterOptions(apiStats);
+
+                updateApiStatus('success', 'Loaded');
+                populateApiOverview(schemaData);
+                populateEndpoints();
+                updateRawSchema('json');
+                updateComponents('json');
+
+                // Show filters
+                const filtersDiv = document.getElementById('api-filters');
+                if (filtersDiv) filtersDiv.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Failed to load API documentation:', error);
+                updateApiStatus('error', 'Failed to load');
+
+                let errorMessage = 'Failed to load API documentation: ' + error.message;
+                if (error.message.includes('HTTP 404')) {
+                    errorMessage = 'API documentation endpoint not found. The server might still be starting up.';
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Network error. Please check your connection and try again.';
+                }
+
+                showError(errorMessage);
+            });
+    }
+
+    function updateApiStatus(type, message) {
+        const statusBadge = document.getElementById('api-status-badge');
+        if (statusBadge) {
+            statusBadge.textContent = message;
+            statusBadge.className = `badge badge-sm badge-${type === 'success' ? 'success' : 'danger'}`;
+        }
+    }
+
+    function updateVersionStatusBadge() {
+        const statusBadge = document.getElementById('api-status-badge');
+        if (!statusBadge || !currentVersion || !availableVersions) return;
+
+        // Find current version info
+        const versionInfo = availableVersions.find(v => v.version === currentVersion);
+        if (!versionInfo) return;
+
+        const status = versionInfo.status || 'stable';
+        statusBadge.textContent = status;
+
+        // Set badge color based on status
+        statusBadge.className = 'badge badge-sm ';
+        switch (status.toLowerCase()) {
+            case 'stable':
+                statusBadge.className += 'badge-success';
+                break;
+            case 'development':
+            case 'beta':
+                statusBadge.className += 'badge-warning';
+                break;
+            case 'deprecated':
+                statusBadge.className += 'badge-danger';
+                break;
+            case 'experimental':
+            case 'alpha':
+                statusBadge.className += 'badge-info';
+                break;
+            default:
+                statusBadge.className += 'badge-secondary';
+        }
+    }
+
+    function populateApiOverview(schema) {
+        const overview = document.getElementById('api-overview');
+        if (overview) overview.style.display = 'block';
+
+        const title = document.getElementById('api-title');
+        const headerTitle = document.getElementById('api-header-title');
+        const version = document.getElementById('api-version');
+        const description = document.getElementById('api-description');
+        const endpointsCount = document.getElementById('api-endpoints-count');
+
+        if (title) title.textContent = schema.title || 'API Documentation';
+        if (headerTitle) headerTitle.textContent = schema.title || 'API Documentation';
+        if (version) version.textContent = schema.version || '1.0.0';
+        if (description) description.textContent = schema.description || 'API Documentation';
+
+        // Update status badge based on current version info
+        updateVersionStatusBadge();
+
+        const pathsCount = schema.endpoints ? schema.endpoints.length : 0;
+
+        if (endpointsCount) endpointsCount.textContent = pathsCount;
+    }
+
+    function populateStats(stats) {
+        const authRequired = document.getElementById('stats-auth-required');
+        const uniquePaths = document.getElementById('stats-unique-paths');
+        const totalTags = document.getElementById('stats-total-tags');
+        const healthStatus = document.getElementById('api-health-status');
+
+        if (authRequired && stats.summary) {
+            authRequired.textContent = stats.summary.auth_required || 0;
+        }
+        if (uniquePaths && stats.summary) {
+            uniquePaths.textContent = stats.summary.unique_paths || 0;
+        }
+        if (totalTags && stats.tags) {
+            totalTags.textContent = Object.keys(stats.tags).length;
+        }
+        if (healthStatus && stats.health) {
+            const isHealthy = stats.health.status === 'healthy';
+            healthStatus.textContent = isHealthy ? '●' : '●';
+            healthStatus.style.color = isHealthy ? '#22c55e' : '#ef4444';
+            healthStatus.title = `Status: ${stats.health.status} | Enabled: ${stats.health.enabled}`;
+        }
+    }
+
+    function populateFilterOptions(stats) {
+        const methodFilter = document.getElementById('method-filter');
+        const authFilter = document.getElementById('auth-filter');
+        const tagFilter = document.getElementById('tag-filter');
+
+        // Clear and populate method filter
+        if (methodFilter && stats.methods) {
+            // Clear existing options except the first "All Methods" option
+            while (methodFilter.children.length > 1) {
+                methodFilter.removeChild(methodFilter.lastChild);
+            }
+
+            const sortedMethods = Object.entries(stats.methods).sort(([,a], [,b]) => b - a);
+            sortedMethods.forEach(([method, count]) => {
+                const option = document.createElement('option');
+                option.value = method;
+                option.textContent = `${method} (${count})`;
+                methodFilter.appendChild(option);
+            });
+        }
+
+        // Clear and populate auth filter
+        if (authFilter && stats.auth_types) {
+            // Clear existing options except the first "All Auth Types" option
+            while (authFilter.children.length > 1) {
+                authFilter.removeChild(authFilter.lastChild);
+            }
+
+            const sortedAuthTypes = Object.entries(stats.auth_types).sort(([,a], [,b]) => b - a);
+            sortedAuthTypes.forEach(([type, count]) => {
+                const option = document.createElement('option');
+                option.value = type;
+                const displayName = type === 'none' ? 'No Auth' : type.replace(/_/g, ' ');
+                option.textContent = `${displayName} (${count})`;
+                authFilter.appendChild(option);
+            });
+        }
+
+        // Clear and populate tag filter
+        if (tagFilter && stats.tags) {
+            // Clear existing options except the first "All Tags" option
+            while (tagFilter.children.length > 1) {
+                tagFilter.removeChild(tagFilter.lastChild);
+            }
+
+            const sortedTags = Object.entries(stats.tags).sort(([,a], [,b]) => b - a);
+            sortedTags.forEach(([tag, count]) => {
+                const option = document.createElement('option');
+                option.value = tag;
+                option.textContent = `${tag} (${count})`;
+                tagFilter.appendChild(option);
+            });
+        }
+    }
+
+    function populateEndpoints() {
+        const container = document.getElementById('endpoints-list');
+        if (!container) return;
+
+        updateResultsSummary();
+
+        if (!filteredEndpoints || !Array.isArray(filteredEndpoints)) {
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-route-line ri-2x mb-2"></i>
+                    <h4>No API endpoints discovered</h4>
+                    <p class="txt-sm">This could mean:</p>
+                    <ul class="txt-sm txt-left" style="display: inline-block; margin-top: 8px;">
+                        <li>• No custom routes have been registered yet</li>
+                        <li>• Auto-discovery is disabled</li>
+                        <li>• Routes are registered after the documentation system</li>
+                    </ul>
+                </div>
+            `;
+            return;
+        }
+
+        if (filteredEndpoints.length === 0 && allEndpoints.length > 0) {
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-search-line ri-2x mb-2"></i>
+                    <h4>No endpoints match your filters</h4>
+                    <p class="txt-sm">Try adjusting your search terms or filters.</p>
+                    <button onclick="clearAllFilters()" class="btn btn-sm btn-outline mt-2">
+                        <i class="ri-close-line"></i> Clear Filters
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        if (filteredEndpoints.length === 0) {
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-route-line ri-2x mb-2"></i>
+                    <h4>No endpoints available</h4>
+                    <p class="txt-sm">The API documentation system is working, but no endpoints have been registered yet.</p>
+                </div>
+            `;
+            return;
+        }
+
+        const endpointsHtml = filteredEndpoints.map((endpoint, index) => {
+            const method = endpoint.method ? endpoint.method.toLowerCase() : 'get';
+            const path = endpoint.path || '/';
+            const operationId = endpoint.handler_name || `endpoint_${index}`;
+            const summary = endpoint.description || 'No description';
+            const authInfo = endpoint.auth;
+            const authRequired = authInfo && authInfo.required;
+
+            return `
+                <div class="api-endpoint">
+                    <div class="api-endpoint-header" onclick="toggleEndpoint('${operationId}')">
+                        <span class="http-method ${method}">${method.toUpperCase()}</span>
+                        <span class="flex-fill txt-mono">${path}</span>
+                        <span class="txt-sm txt-hint">${summary}</span>
+                        ${authRequired ? `<span class="auth-icon" title="${authInfo.description}">${authInfo.icon}</span>` : ''}
+                        <i class="ri-external-link-line external-link-icon" title="Call API endpoint" onclick="event.stopPropagation(); callApiEndpoint('${method}', '${path}', ${authRequired})"></i>
+                        <i class="ri-arrow-down-s-line"></i>
+                    </div>
+                    <div id="${operationId}" class="api-endpoint-content">
+                        <div class="mb-2">
+                            <strong>Description:</strong>
+                            <p class="txt-sm txt-hint mt-1">${endpoint.description || summary}</p>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Authentication:</strong>
+                            ${authRequired ? `
+                                <div class="auth-details mt-1">
+                                    <div class="flex align-center gap-2 mb-2">
+                                        <span class="auth-icon-large auth-${authInfo.type}">${authInfo.icon}</span>
+                                        <div class="flex-fill">
+                                            <div class="txt-sm txt-bold">${authInfo.description}</div>
+                                            <div class="auth-type">${authInfo.type.replace(/_/g, ' ')}</div>
+                                        </div>
+                                    </div>
+                                    ${authInfo.collections && authInfo.collections.length > 0 ? `
+                                        <div class="auth-param">
+                                            <strong>Required Collections:</strong> ${authInfo.collections.map(c => `<code class="auth-collection">${c}</code>`).join(', ')}
+                                        </div>
+                                    ` : ''}
+                                    ${authInfo.owner_param ? `
+                                        <div class="auth-param">
+                                            <strong>Owner Parameter:</strong> <code class="auth-param-code">${authInfo.owner_param}</code>
+                                        </div>
+                                    ` : ''}
+                                    ${authInfo.type === 'guest_only' ? `
+                                        <div class="auth-note">
+                                            <i class="ri-information-line"></i>
+                                            This endpoint requires the client to be unauthenticated
+                                        </div>
+                                    ` : ''}
+                                    ${authInfo.type === 'superuser_or_owner' ? `
+                                        <div class="auth-note">
+                                            <i class="ri-information-line"></i>
+                                            Access granted to superusers or record owners
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : `
+                                <div class="auth-details auth-none mt-1">
+                                    <div class="flex align-center gap-2">
+                                        <span class="auth-icon-large">🌐</span>
+                                        <div>
+                                            <div class="txt-sm txt-bold txt-success">No authentication required</div>
+                                            <div class="auth-type">public access</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `}
+                        </div>
+                        ${endpoint.tags && endpoint.tags.length > 0 ? `
+                            <div class="mb-2">
+                                <strong>Tags:</strong>
+                                <div class="flex gap-1 mt-1">
+                                    ${endpoint.tags.map(tag => `<span class="badge badge-sm">${tag}</span>`).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${endpoint.request ? `
+                            <div class="mb-2">
+                                <div class="flex justify-between align-center mb-1">
+                                    <strong>Request Schema:</strong>
+                                    <button class="btn btn-xs btn-secondary copy-schema-btn" type="button" data-copy-target="request-${endpoint.path.replace(/[^a-zA-Z0-9]/g, '')}-${endpoint.method}">
+                                        <i class="ri-file-copy-line"></i>
+                                        Copy
+                                    </button>
+                                </div>
+                                <pre class="code-block mt-1"><code id="request-${endpoint.path.replace(/[^a-zA-Z0-9]/g, '')}-${endpoint.method}">${syntaxHighlight(endpoint.request)}</code></pre>
+                            </div>
+                        ` : ''}
+                        ${endpoint.response ? `
+                            <div class="mb-2">
+                                <div class="flex justify-between align-center mb-1">
+                                    <strong>Response Schema:</strong>
+                                    <button class="btn btn-xs btn-secondary copy-schema-btn" type="button" data-copy-target="response-${endpoint.path.replace(/[^a-zA-Z0-9]/g, '')}-${endpoint.method}">
+                                        <i class="ri-file-copy-line"></i>
+                                        Copy
+                                    </button>
+                                </div>
+                                <pre class="code-block mt-1"><code id="response-${endpoint.path.replace(/[^a-zA-Z0-9]/g, '')}-${endpoint.method}">${syntaxHighlight(endpoint.response)}</code></pre>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = endpointsHtml || '<div class="txt-center txt-hint p-4">No endpoints found.</div>';
+
+        // Add copy functionality for schema copy buttons
+        container.querySelectorAll('.copy-schema-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-copy-target');
+                const targetElement = document.getElementById(targetId);
+                if (targetElement) {
+                    const content = targetElement.textContent || targetElement.innerText;
+                    navigator.clipboard.writeText(content).then(() => {
+                        const originalText = this.innerHTML;
+                        this.innerHTML = '<i class="ri-check-line"></i> Copied!';
+                        this.classList.add('btn-success');
+                        this.classList.remove('btn-secondary');
+                        setTimeout(() => {
+                            this.innerHTML = originalText;
+                            this.classList.remove('btn-success');
+                            this.classList.add('btn-secondary');
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Failed to copy schema:', err);
+                        const originalText = this.innerHTML;
+                        this.innerHTML = '<i class="ri-close-line"></i> Failed';
+                        this.classList.add('btn-danger');
+                        this.classList.remove('btn-secondary');
+                        setTimeout(() => {
+                            this.innerHTML = originalText;
+                            this.classList.remove('btn-danger');
+                            this.classList.add('btn-secondary');
+                        }, 2000);
+                    });
+                }
+            });
+        });
+    }
+
+    // Filter and search functions
+    function applyFilters() {
+        const searchTerm = document.getElementById('search-input')?.value.toLowerCase() || '';
+        const methodValue = document.getElementById('method-filter')?.value || '';
+        const authValue = document.getElementById('auth-filter')?.value || '';
+        const tagValue = document.getElementById('tag-filter')?.value || '';
+
+        filteredEndpoints = allEndpoints.filter(endpoint => {
+            // Search filter
+            if (searchTerm && !matchesSearch(endpoint, searchTerm)) {
+                return false;
+            }
+
+            // Method filter
+            if (methodValue && endpoint.method !== methodValue) {
+                return false;
+            }
+
+            // Auth filter
+            if (authValue) {
+                const endpointAuthType = endpoint.auth?.type || 'none';
+                if (endpointAuthType !== authValue) {
+                    return false;
+                }
+            }
+
+            // Tag filter
+            if (tagValue && (!endpoint.tags || !endpoint.tags.includes(tagValue))) {
+                return false;
+            }
+
+            return true;
+        });
+
+        populateEndpoints();
+        updateActiveFilters();
+    }
+
+    function matchesSearch(endpoint, searchTerm) {
+        const searchableFields = [
+            endpoint.path,
+            endpoint.description,
+            endpoint.handler_name,
+            ...(endpoint.tags || [])
+        ];
+
+        return searchableFields.some(field =>
+            field && field.toString().toLowerCase().includes(searchTerm)
+        );
+    }
+
+    function clearAllFilters() {
+        document.getElementById('search-input').value = '';
+        document.getElementById('method-filter').value = '';
+        document.getElementById('auth-filter').value = '';
+        document.getElementById('tag-filter').value = '';
+        filteredEndpoints = [...allEndpoints];
+        populateEndpoints();
+        updateActiveFilters();
+    }
+
+    function updateActiveFilters() {
+        const activeFiltersDiv = document.getElementById('active-filters');
+        const filterTagsDiv = document.getElementById('filter-tags');
+
+        if (!activeFiltersDiv || !filterTagsDiv) return;
+
+        const filters = [];
+        const searchValue = document.getElementById('search-input')?.value;
+        const methodValue = document.getElementById('method-filter')?.value;
+        const authValue = document.getElementById('auth-filter')?.value;
+        const tagValue = document.getElementById('tag-filter')?.value;
+
+        if (searchValue) filters.push({ type: 'search', value: searchValue, label: `Search: "${searchValue}"` });
+        if (methodValue) filters.push({ type: 'method', value: methodValue, label: `Method: ${methodValue}` });
+        if (authValue) filters.push({ type: 'auth', value: authValue, label: `Auth: ${authValue.replace(/_/g, ' ')}` });
+        if (tagValue) filters.push({ type: 'tag', value: tagValue, label: `Tag: ${tagValue}` });
+
+        if (filters.length > 0) {
+            activeFiltersDiv.style.display = 'block';
+            filterTagsDiv.innerHTML = filters.map(filter => `
+                <span class="badge badge-sm badge-secondary">
+                    ${filter.label}
+                    <i class="ri-close-line cursor-pointer ml-1" onclick="clearFilter('${filter.type}')"></i>
+                </span>
+            `).join('');
+        } else {
+            activeFiltersDiv.style.display = 'none';
+        }
+    }
+
+    function updateResultsSummary() {
+        const summaryDiv = document.getElementById('results-summary');
+        const filteredCountSpan = document.getElementById('filtered-count');
+        const totalCountSpan = document.getElementById('total-count');
+
+        if (summaryDiv && filteredCountSpan && totalCountSpan) {
+            filteredCountSpan.textContent = filteredEndpoints.length;
+            totalCountSpan.textContent = allEndpoints.length;
+
+            if (filteredEndpoints.length !== allEndpoints.length) {
+                summaryDiv.style.display = 'block';
+            } else {
+                summaryDiv.style.display = 'none';
+            }
+        }
+    }
+
+    // Global function for filter removal
+    window.clearFilter = function(filterType) {
+        switch(filterType) {
+            case 'search':
+                document.getElementById('search-input').value = '';
+                break;
+            case 'method':
+                document.getElementById('method-filter').value = '';
+                break;
+            case 'auth':
+                document.getElementById('auth-filter').value = '';
+                break;
+            case 'tag':
+                document.getElementById('tag-filter').value = '';
+                break;
+        }
+        applyFilters();
+    };
+
+    // Global function for clearing all filters
+    window.clearAllFilters = clearAllFilters;
+
+    // Debounce function for search
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    function updateRawSchema(format) {
+        const content = document.getElementById('raw-schema-content');
+        if (!content || !openApiSchema) return;
+
+        try {
+            if (format === 'yaml') {
+                // Simple JSON to YAML conversion
+                content.textContent = jsonToYaml(openApiSchema);
+            } else {
+                content.innerHTML = syntaxHighlight(openApiSchema);
+            }
+        } catch (error) {
+            content.textContent = 'Error formatting schema: ' + error.message;
+        }
+    }
+
+    function updateComponents(format) {
+        const content = document.getElementById('components-content');
+        if (!content) return;
+
+        // Use components from the loaded schema
+        const componentsToShow = apiComponents || {};
+
+        try {
+            if (format === 'yaml') {
+                content.textContent = jsonToYaml(componentsToShow);
+            } else {
+                content.innerHTML = syntaxHighlight(componentsToShow);
+            }
+        } catch (error) {
+            console.error('Error formatting components:', error);
+            content.textContent = 'Error formatting components: ' + error.message;
+        }
+    }
+
+    function jsonToYaml(obj, indent = 0) {
+        const spaces = '  '.repeat(indent);
+        let yaml = '';
+
+        for (const [key, value] of Object.entries(obj)) {
+            if (value === null) {
+                yaml += `${spaces}${key}: null\n`;
+            } else if (typeof value === 'object' && !Array.isArray(value)) {
+                yaml += `${spaces}${key}:\n${jsonToYaml(value, indent + 1)}`;
+            } else if (Array.isArray(value)) {
+                yaml += `${spaces}${key}:\n`;
+                value.forEach(item => {
+                    if (typeof item === 'object') {
+                        yaml += `${spaces}  -\n${jsonToYaml(item, indent + 2)}`;
+                            } else {
+                                yaml += `${spaces}  - ${JSON.stringify(item)}\n`;
+                            }
+                        });
+                    } else {
+                        yaml += `${spaces}${key}: ${JSON.stringify(value)}\n`;
+                    }
+                }
+
+                return yaml;
+            }
+
+            function showError(message) {
+                const containers = ['endpoints-list'];
+                containers.forEach(containerId => {
+                    const container = document.getElementById(containerId);
+                    if (container) {
+                        container.innerHTML = `
+                            <div class="txt-center txt-danger p-4">
+                                <i class="ri-error-warning-line ri-2x mb-2"></i>
+                                <h4>Failed to Load API Documentation</h4>
+                                <p class="txt-sm">${message}</p>
+                                <div class="mt-3">
+                                    <button id="view-raw-btn" class="btn btn-sm btn-outline">
+                                        <i class="ri-external-link-line"></i> View Raw
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+
+                const rawContent = document.getElementById('raw-schema-content');
+                if (rawContent) {
+                    rawContent.textContent = `Error: ${message}
+
+        This usually means:
+        - The API documentation endpoint is not available
+        - There's a network connectivity issue
+        - The server is still starting up
+
+        Check the server logs for more details.`;
+                }
+
+                const componentsContent = document.getElementById('components-content');
+                if (componentsContent) {
+                    componentsContent.textContent = `Error: ${message}
+
+        Check the server logs for more details.`;
+                }
+            }
+
+            // Function to call API endpoint with authentication if needed
+            window.callApiEndpoint = function(method, path, authRequired) {
+                // If GET method and no auth required, just open in new tab
+                if (method.toUpperCase() === 'GET' && !authRequired) {
+                    window.open(window.location.origin + path, '_blank');
+                    return;
+                }
+
+                // For authenticated endpoints, try to get PocketBase token from localStorage
+                let token = null;
+                let authType = 'none';
+                try {
+                    // Check for superuser auth first
+                    const superuserAuth = localStorage.getItem('__pb_superuser_auth__');
+                    if (superuserAuth) {
+                        const authData = JSON.parse(superuserAuth);
+                        if (authData && authData.token) {
+                            token = authData.token;
+                            authType = 'superuser';
+                        }
+                    }
+
+                    // If no superuser auth, check for regular user auth
+                    if (!token) {
+                        const authKeys = Object.keys(localStorage).filter(key => key.startsWith('pb_auth_'));
+                        if (authKeys.length > 0) {
+                            const authData = JSON.parse(localStorage.getItem(authKeys[0]));
+                            if (authData && authData.token) {
+                                token = authData.token;
+                                authType = 'user';
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log('No PocketBase auth found in localStorage');
+                }
+
+                // Prepare fetch options
+                const fetchOptions = {
+                    method: method.toUpperCase(),
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                };
+
+                // Add authorization header if we have a token
+                if (token) {
+                    fetchOptions.headers['Authorization'] = `Bearer ${token}`;
+                } else if (authRequired) {
+                    alert('This endpoint requires authentication. Please log in to PocketBase first.');
+                    return;
+                }
+
+                // Make the API call and show results in a new window
+                fetch(window.location.origin + path, fetchOptions)
+                    .then(response => {
+                        return response.text().then(text => {
+                            let content;
+                            try {
+                                content = JSON.stringify(JSON.parse(text), null, 2);
+                            } catch (e) {
+                                content = text;
+                            }
+
+                            const newWindow = window.open('', '_blank');
+                            newWindow.document.write(`
+                                <html>
+                                    <head>
+                                        <title>${method.toUpperCase()} ${path} - API Response</title>
+                                        <style>
+                                            body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #e1e1e1; }
+                                            .status { padding: 10px; border-radius: 4px; margin-bottom: 20px; }
+                                            .status.success { background: #1f4e3d; border: 1px solid #22c55e; }
+                                            .status.error { background: #4e1f1f; border: 1px solid #ef4444; }
+                                            pre { background: #2a2a2a; padding: 15px; border-radius: 4px; overflow: auto; }
+                                            .header { color: #9ca3af; margin-bottom: 10px; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <div class="header">${method.toUpperCase()} ${window.location.origin}${path}</div>
+                                        <div class="status ${response.ok ? 'success' : 'error'}">
+                                            Status: ${response.status} ${response.statusText}
+                                            ${token ? ` (Authenticated as ${authType})` : ' (Not authenticated)'}
+                                        </div>
+                                        <pre>${content}</pre>
+                                    </body>
+                                </html>
+                            `);
+                        });
+                    })
+                    .catch(error => {
+                        alert('Error calling API: ' + error.message);
+                    });
+            };
+
+            // Global functions for onclick handlers
+            window.toggleEndpoint = function(operationId) {
+                const content = document.getElementById(operationId);
+                const header = content.previousElementSibling;
+                const arrow = header.querySelector('.ri-arrow-down-s-line');
+
+                if (content.classList.contains('active')) {
+                    content.classList.remove('active');
+                    arrow.style.transform = 'rotate(0deg)';
+                } else {
+                    content.classList.add('active');
+                    arrow.style.transform = 'rotate(180deg)';
+                }
+            };
+
+            // Helper function to calculate stats from endpoints (same as backend)
+            function calculateComprehensiveStats(endpoints) {
+                const stats = {
+                    total_endpoints: endpoints.length,
+                    methods: {},
+                    auth_types: {},
+                    tags: {}
+                };
+
+                let authRequired = 0;
+                let pathsWithParams = 0;
+                const uniquePaths = new Set();
+
+                endpoints.forEach(endpoint => {
+                    // Count methods
+                    stats.methods[endpoint.method] = (stats.methods[endpoint.method] || 0) + 1;
+
+                    // Count auth types
+                    if (endpoint.auth && endpoint.auth.required) {
+                        authRequired++;
+                        stats.auth_types[endpoint.auth.type] = (stats.auth_types[endpoint.auth.type] || 0) + 1;
+                    } else {
+                        stats.auth_types['none'] = (stats.auth_types['none'] || 0) + 1;
+                    }
+
+                    // Count tags
+                    endpoint.tags.forEach(tag => {
+                        stats.tags[tag] = (stats.tags[tag] || 0) + 1;
+                    });
+
+                    // Check for path parameters
+                    if (endpoint.path.includes(':') || endpoint.path.includes('{')) {
+                        pathsWithParams++;
+                    }
+
+                    uniquePaths.add(endpoint.path);
+                });
+
+                stats.summary = {
+                    auth_required: authRequired,
+                    auth_not_required: endpoints.length - authRequired,
+                    paths_with_params: pathsWithParams,
+                    unique_paths: uniquePaths.size,
+                    avg_tags_per_endpoint: endpoints.length > 0 ?
+                        endpoints.reduce((sum, ep) => sum + ep.tags.length, 0) / endpoints.length : 0
+                };
+
+                return stats;
+            }
+
+            // Load available versions first
+            function loadVersions() {
+                console.log('Loading API versions...');
+                return fetch('/api/docs/versions')
+                    .then(response => {
+                        console.log('Versions response status:', response.status);
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Versions data received:', data);
+                        availableVersions = data.versions || [];
+                        currentVersion = data.default_version;
+                        console.log('Available versions:', availableVersions);
+                        console.log('Default version:', currentVersion);
+
+                        const versionSelector = document.getElementById('version-selector');
+                        if (versionSelector && availableVersions.length > 0) {
+                            versionSelector.innerHTML = '';
+
+                            availableVersions.forEach(versionInfo => {
+                                const option = document.createElement('option');
+                                option.value = versionInfo.version; // Use version key like "v1", "v2"
+                                // Display title, semantic version, and status like "pb-ext demo api (1.0.0) [stable]"
+                                const statusBadge = versionInfo.status ? ` [${versionInfo.status}]` : '';
+                                const displayText = `${versionInfo.config.title} (${versionInfo.config.version})${statusBadge}`;
+                                option.textContent = `${displayText}${versionInfo.version === currentVersion ? ' - default' : ''}`;
+                                if (versionInfo.version === currentVersion) {
+                                    option.selected = true;
+                                }
+                                versionSelector.appendChild(option);
+                            });
+
+                            // Add version change handler
+                            versionSelector.addEventListener('change', function() {
+                                currentVersion = this.value;
+                                console.log('Version changed to:', currentVersion);
+                                if (currentVersion) {
+                                    // Reset filter values when version changes
+                                    const searchInput = document.getElementById('search-input');
+                                    const methodFilter = document.getElementById('method-filter');
+                                    const authFilter = document.getElementById('auth-filter');
+                                    const tagFilter = document.getElementById('tag-filter');
+
+                                    if (searchInput) searchInput.value = '';
+                                    if (methodFilter) methodFilter.value = '';
+                                    if (authFilter) authFilter.value = '';
+                                    if (tagFilter) tagFilter.value = '';
+
+                                    // Reset filtered endpoints and update active filters display
+                                    filteredEndpoints = [...allEndpoints];
+                                    updateActiveFilters();
+
+                                    updateVersionStatusBadge();
+                                    loadOpenApiSchema();
+                                }
+                            });
+                        }
+
+                        // Update the view raw button click handler
+                        const viewRawBtn = document.getElementById('view-raw-btn');
+                        if (viewRawBtn) {
+                            viewRawBtn.onclick = function() {
+                                if (currentVersion) {
+                                    window.open(`/api/docs/${currentVersion}`, '_blank');
+                                }
+                            };
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Failed to load versions:', error);
+                        console.error('Error details:', {
+                            message: error.message,
+                            stack: error.stack,
+                            name: error.name
+                        });
+                        // Show error state - no fallback
+                        const versionSelector = document.getElementById('version-selector');
+                        if (versionSelector) {
+                            versionSelector.innerHTML = '<option value="">Error loading versions</option>';
+                        }
+                        showErrorState('Failed to load API versions: ' + error.message);
+                    });
+            }
+
+            // Load versions first, then schema
+            loadVersions().then(() => {
+                loadOpenApiSchema();
+            });
+        });
+        </script>
+        {{end}}

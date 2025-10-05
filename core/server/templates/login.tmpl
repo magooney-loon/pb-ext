@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>pb-ext://dashboard/auth</title>
+    <link rel="shortcut icon" type="image/png" href="../_/images/favicon/favicon.png">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #00ff41;
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.4;
+            overflow: hidden;
+        }
+
+        .terminal {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #111111;
+            border: 1px solid #333;
+            border-radius: 4px;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
+            height: calc(100vh - 40px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .terminal-header {
+            background: #1a1a1a;
+            border-bottom: 1px solid #333;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .dot.red { background: #ff5f56; }
+        .dot.yellow { background: #ffbd2e; }
+        .dot.green { background: #27ca3f; }
+
+        .terminal-title {
+            flex: 1;
+            text-align: center;
+            color: #666;
+        }
+
+        .terminal-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #000;
+        }
+
+        .prompt {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .prompt-symbol {
+            color: #00ff41;
+            margin-right: 8px;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: #00ff41;
+            animation: blink 1s infinite;
+            margin-left: 4px;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .ascii-art {
+            color: #00ff41;
+            margin-bottom: 20px;
+            font-size: 11px;
+            line-height: 1.1;
+            white-space: pre;
+        }
+
+        .status-line {
+            margin: 4px 0;
+            display: flex;
+            align-items: center;
+        }
+
+        .status-loading {
+            color: #ffff00;
+        }
+
+        .status-error {
+            color: #ff4444;
+        }
+
+        .status-success {
+            color: #00ff41;
+        }
+
+        .status-info {
+            color: #44aaff;
+        }
+
+        .spinner-dots::after {
+            content: '';
+            display: inline-block;
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes dots {
+            0% { content: ''; }
+            25% { content: '.'; }
+            50% { content: '..'; }
+            75% { content: '...'; }
+            100% { content: ''; }
+        }
+
+        .command {
+            color: #ffffff;
+            background: #222;
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-size: 11px;
+        }
+
+        .path {
+            color: #44aaff;
+        }
+
+        .error-code {
+            color: #ff4444;
+            font-weight: bold;
+        }
+
+        .success-code {
+            color: #00ff41;
+            font-weight: bold;
+        }
+
+        .btn-terminal {
+            background: transparent;
+            border: 1px solid #333;
+            color: #00ff41;
+            padding: 8px 16px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 2px;
+            margin: 4px 8px 4px 0;
+            transition: all 0.2s;
+        }
+
+        .btn-terminal:hover {
+            border-color: #00ff41;
+            background: rgba(0, 255, 65, 0.1);
+        }
+
+        .btn-terminal:active {
+            background: rgba(0, 255, 65, 0.2);
+        }
+
+        .debug-section {
+            margin-top: 20px;
+            border-top: 1px solid #333;
+            padding-top: 20px;
+        }
+
+        .debug-content {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            padding: 12px;
+            margin-top: 8px;
+            font-size: 10px;
+            color: #666;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .typewriter {
+            overflow: hidden;
+            border-right: 2px solid #00ff41;
+            white-space: nowrap;
+            animation: typing 2s steps(30, end), blink-caret 0.75s step-end infinite;
+        }
+
+        @keyframes typing {
+            from { width: 0; }
+            to { width: 100%; }
+        }
+
+        @keyframes blink-caret {
+            from, to { border-color: transparent; }
+            50% { border-color: #00ff41; }
+        }
+
+        .matrix-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+            opacity: 0.03;
+        }
+    </style>
+</head>
+<body>
+    <canvas class="matrix-bg" id="matrixCanvas"></canvas>
+
+    <div class="terminal">
+        <div class="terminal-header">
+            <div class="terminal-dots">
+                <div class="dot red"></div>
+                <div class="dot yellow"></div>
+                <div class="dot green"></div>
+            </div>
+            <div class="terminal-title">pb-ext://dashboard/auth — zsh</div>
+        </div>
+
+        <div class="terminal-body">
+            <div class="ascii-art">
+ ██▓███   ▄▄▄▄       ▓█████ ▒██   ██▒▄▄▄█████▓
+▓██░  ██▒▓█████▄     ▓█   ▀ ▒▒ █ █ ▒░▓  ██▒ ▓▒
+▓██░ ██▓▒▒██▒ ▄██    ▒███   ░░  █   ░▒ ▓██░ ▒░
+▒██▄█▓▒ ▒▒██░█▀      ▒▓█  ▄  ░ █ █ ▒ ░ ▓██▓ ░
+▒██▒ ░  ░░▓█  ▀█▓    ░▒████▒▒██▒ ▒██▒  ▒██▒ ░
+▒▓▒░ ░  ░░▒▓███▀▒    ░░ ▒░ ░▒▒ ░ ░▓ ░  ▒ ░░
+░▒ ░     ▒░▒   ░      ░ ░  ░░░   ░▒ ░    ░
+░░       ░    ░        ░    ░    ░    ░
+         ░             ░  ░ ░    ░
+              ░
+            </div>
+
+            <div class="prompt">
+                <span class="prompt-symbol">$</span>
+                <span>pb-ext health --auth-check</span>
+                <span class="cursor"></span>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loading-section">
+                <div class="status-line status-loading">
+                    <span>[INFO] Initializing authentication subsystem<span class="spinner-dots"></span></span>
+                </div>
+                <div class="status-line status-info">
+                    <span>[SCAN] Checking localStorage for admin tokens...</span>
+                </div>
+                <div class="status-line status-info">
+                    <span>[PROC] Validating superuser credentials...</span>
+                </div>
+            </div>
+
+            <!-- Error State -->
+            <div id="error-section" class="hidden">
+                <div class="status-line status-error">
+                    <span>[<span class="error-code">ERR</span>] Authentication failed: <span class="error-code">401 UNAUTHORIZED</span></span>
+                </div>
+                <div class="status-line status-info">
+                    <span>[INFO] Superuser access required for dashboard</span>
+                </div>
+                <div class="status-line">
+                    <span class="prompt-symbol">$</span>
+                    <span>Available commands:</span>
+                </div>
+                <div style="margin-left: 24px;">
+                    <div class="status-line">
+                        <button class="btn-terminal" onclick="window.open('{{.PBAdminURL}}', '_blank')">
+                            admin-login --redirect
+                        </button>
+                        <span style="color: #666;">// Open PocketBase admin panel</span>
+                    </div>
+                    <div class="status-line">
+                        <button class="btn-terminal" onclick="retryAuth()">
+                            auth-retry --force
+                        </button>
+                        <span style="color: #666;">// Retry authentication check</span>
+                    </div>
+                    <div class="status-line">
+                        <button class="btn-terminal" onclick="toggleDebug()">
+                            debug-log --show
+                        </button>
+                        <span style="color: #666;">// Show authentication debug info</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Success State -->
+            <div id="success-section" class="hidden">
+                <div class="status-line status-success">
+                    <span>[<span class="success-code">OK</span>] Authentication successful</span>
+                </div>
+                <div class="status-line status-info">
+                    <span>[INIT] Loading health dashboard<span class="spinner-dots"></span></span>
+                </div>
+                <div class="status-line status-success">
+                    <span>[RDIR] Redirecting to <span class="path">/_/_/</span></span>
+                </div>
+            </div>
+
+            <!-- Debug Section -->
+            <div id="debug-section" class="debug-section hidden">
+                <div class="status-line">
+                    <span class="prompt-symbol">$</span>
+                    <span class="command">tail -f /var/log/pb-ext/auth.log</span>
+                </div>
+                <div class="debug-content" id="debug-content"></div>
+            </div>
+
+            <!-- Bottom prompt -->
+            <div style="margin-top: auto; padding-top: 20px;">
+                <div class="prompt">
+                    <span class="prompt-symbol">$</span>
+                    <span id="current-command">Waiting for authentication...</span>
+                    <span class="cursor"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Matrix rain effect
+        function initMatrix() {
+            const canvas = document.getElementById('matrixCanvas');
+            const ctx = canvas.getContext('2d');
+
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789@#$%^&*()*&^%+-/~{[|`]}';
+            const charArray = chars.split('');
+
+            const fontSize = 10;
+            const columns = canvas.width / fontSize;
+
+            const drops = [];
+            for (let x = 0; x < columns; x++) {
+                drops[x] = 1;
+            }
+
+            function draw() {
+                ctx.fillStyle = 'rgba(10, 10, 10, 0.04)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#00ff41';
+                ctx.font = fontSize + 'px monospace';
+
+                for (let i = 0; i < drops.length; i++) {
+                    const text = charArray[Math.floor(Math.random() * charArray.length)];
+                    ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+                    if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                        drops[i] = 0;
+                    }
+                    drops[i]++;
+                }
+            }
+
+            setInterval(draw, 35);
+        }
+
+        // Debug logging
+        function showDebug(message) {
+            const debugContent = document.getElementById('debug-content');
+            const timestamp = new Date().toISOString().substr(11, 12);
+            debugContent.textContent += `${timestamp} | ${message}\n`;
+            debugContent.scrollTop = debugContent.scrollHeight;
+        }
+
+        // Toggle debug section
+        function toggleDebug() {
+            const debugSection = document.getElementById('debug-section');
+            const isHidden = debugSection.classList.contains('hidden');
+
+            if (isHidden) {
+                debugSection.classList.remove('hidden');
+                document.getElementById('current-command').textContent = 'debug-log --active';
+            } else {
+                debugSection.classList.add('hidden');
+                document.getElementById('current-command').textContent = 'Waiting for authentication...';
+            }
+        }
+
+        // Show error state
+        function showError() {
+            document.getElementById('loading-section').classList.add('hidden');
+            document.getElementById('error-section').classList.remove('hidden');
+            document.getElementById('current-command').textContent = 'auth-retry --required';
+        }
+
+        // Show success state
+        function showSuccess() {
+            document.getElementById('loading-section').classList.add('hidden');
+            document.getElementById('error-section').classList.add('hidden');
+            document.getElementById('success-section').classList.remove('hidden');
+            document.getElementById('current-command').textContent = 'exec dashboard --loading';
+        }
+
+        // Retry authentication
+        function retryAuth() {
+            showDebug('User requested auth retry');
+            document.getElementById('current-command').textContent = 'pb-ext health --auth-check --force';
+            setTimeout(() => location.reload(), 500);
+        }
+
+        // Initialize matrix effect
+        initMatrix();
+
+        document.addEventListener('DOMContentLoaded', function() {
+            showDebug('AUTH: Starting authentication process...');
+
+            // Simulate some loading delay for effect
+            setTimeout(() => {
+                const possibleTokenKeys = [
+                    '__pb_superuser_auth__',
+                    '_pb_superuser_auth_',
+                    'pocketbase_superuser_auth',
+                    'pb_superuser_auth'
+                ];
+
+                showDebug(`TOKEN: Checking keys: ${possibleTokenKeys.join(', ')}`);
+
+                let foundSuperuserToken = false;
+                for (const tokenKey of possibleTokenKeys) {
+                    const token = localStorage.getItem(tokenKey);
+                    if (token) {
+                        showDebug(`TOKEN: Found token with key: ${tokenKey}`);
+                        foundSuperuserToken = true;
+
+                        try {
+                            const tokenObj = JSON.parse(token);
+                            showDebug(`TOKEN: Parsed as JSON successfully`);
+
+                            if (tokenObj && tokenObj.token) {
+                                showDebug(`TOKEN: Using token.token property`);
+                                tryAuth(tokenObj.token);
+                                return;
+                            }
+                        } catch (e) {
+                            showDebug(`TOKEN: Not JSON, using raw string`);
+                            tryAuth(token);
+                            return;
+                        }
+                    }
+                }
+
+                if (!foundSuperuserToken) {
+                    showDebug('TOKEN: No superuser tokens found, scanning localStorage...');
+
+                    let pbTokenFound = false;
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+
+                        if (key && (key.includes('pb') || key.includes('pocketbase')) && key.includes('auth')) {
+                            pbTokenFound = true;
+                            const value = localStorage.getItem(key);
+                            showDebug(`TOKEN: Checking potential token: ${key}`);
+
+                            try {
+                                const parsed = JSON.parse(value);
+                                if (parsed && parsed.token) {
+                                    const record = parsed.record || {};
+                                    if (record.collectionName === '_superusers' ||
+                                        key.includes('superuser') ||
+                                        key.includes('admin')) {
+                                        showDebug('TOKEN: Found valid superuser token!');
+                                        tryAuth(parsed.token);
+                                        return;
+                                    } else {
+                                        showDebug('TOKEN: Not a superuser token, skipping');
+                                    }
+                                }
+                            } catch (e) {
+                                if (key.includes('superuser') || key.includes('admin')) {
+                                    tryAuth(value);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!pbTokenFound) {
+                        showDebug('TOKEN: No PocketBase tokens found in localStorage');
+                    } else {
+                        showDebug('TOKEN: Found PB tokens but none were superuser tokens');
+                    }
+                }
+
+                showDebug('AUTH: No valid authentication found');
+                showError();
+            }, 1500);
+        });
+
+        function tryAuth(tokenValue) {
+            showDebug(`HTTP: Attempting auth with token: ${tokenValue.substring(0, 20)}...`);
+            document.getElementById('current-command').textContent = 'curl -H "Authorization: Bearer ..."';
+
+            fetch(window.location.href, {
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer ' + tokenValue,
+                    'Accept': 'text/html'
+                }
+            })
+            .then(response => {
+                showDebug(`HTTP: Response status: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.text();
+            })
+            .then(html => {
+                // Check if we're still on the login page (authentication failed)
+                if (html.includes('pb-ext://dashboard/auth') || html.includes('Authentication Required')) {
+                    showDebug('AUTH: Authentication failed - still on login page');
+                    showError();
+                    return;
+                }
+
+                showDebug('AUTH: Success! Loading dashboard...');
+                showSuccess();
+
+                setTimeout(() => {
+                    document.open();
+                    document.write(html);
+                    document.close();
+                }, 2000);
+            })
+            .catch(error => {
+                showDebug(`HTTP: Error - ${error.message}`);
+                showError();
+            });
+        }
+    </script>
+</body>
+</html>
