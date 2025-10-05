@@ -30,7 +30,7 @@ go mod init my-pb-project
 
 ### 3. Create main.go file
 
-Create a file named `main.go` in your project root and copy the following code:
+Create a file named `main.go` in `cmd/server` and copy the following code:
 
 ```go
 // Check cmd/server/main.go
