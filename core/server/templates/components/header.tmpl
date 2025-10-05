@@ -1,58 +1,71 @@
 {{define "header"}}
 <div class="section">
     <header class="section-header">
-        <div class="flex flex-gap-10">
-            <div class="flex-fill">
-                <div class="flex flex-gap-5 align-center">
-                    <span class="badge badge-sm {{if eq .Status "Healthy"}}badge-success{{else}}badge-danger{{end}} m-r-5">
-                        {{.Status}}
-                    </span>
-                    <h4 class="section-title m-0">{{.SystemStats.Hostname}}</h4>
-                </div>
-                <div class="txt-hint txt-sm m-t-5">
-                    <div class="flex flex-gap-5 flex-wrap">
-                        <div>{{.SystemStats.Platform}} {{.SystemStats.OS}} {{.SystemStats.KernelVersion}}</div>
-                        <div class="txt-nowrap">Up: {{.UptimeDuration}}</div>
+        <h4 class="section-title">
+           <span class="badge badge-sm {{if eq .Status "Healthy"}}badge-success{{else}}badge-danger{{end}} align-center">
+                            {{if eq .Status "Healthy"}}
+                                <i class="ri-shield-check-line"></i>
+                                <span>{{.Status}}</span>
+                            {{else}}
+                                <i class="ri-error-warning-line"></i>
+                                <span>{{.Status}}</span>
+                            {{end}}
+                        </span>
+           Uptime: {{.UptimeDuration}} | {{.SystemStats.Hostname}} | {{.SystemStats.Platform}} {{.SystemStats.OS}} {{.SystemStats.KernelVersion}}
+        </h4>
+    </header>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="flex flex-gap-20">
+                <div class="flex-fill">
+                    <div class="flex flex-gap-5 align-center m-b-10">
+
+
+                    </div>
+                    <div class="txt-hint txt-sm">
+                        <div></div>
                     </div>
                 </div>
-            </div>
-            <div class="flex gap-5">
-                <div class="card card-sm" style="min-width: 85px;">
-                    <div class="card-body">
-                        <div class="flex flex-column align-center">
-                            <div class="txt-lg">{{printf "%.1f/s" .RequestRate}}</div>
-                            <div class="txt-hint txt-sm">Requests</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="card card-sm" style="min-width: 85px;">
-                    <div class="card-body">
-                        <div class="flex flex-column align-center">
-                            <div class="txt-lg" style="color: {{if gt .ServerStats.TotalErrors.Load 0}}var(--dangerColor){{else}}var(--successColor){{end}}">
-                                {{printf "%.2f%%" (errorRate .ServerStats.TotalErrors.Load .ServerStats.TotalRequests.Load)}}
+
+                <div class="flex gap-5">
+                    <div class="card card-sm view-card" style="min-width: 85px;">
+                        <div class="card-body">
+                            <div class="flex flex-column align-center">
+                                <div class="txt-lg">{{printf "%.1f/s" .RequestRate}}</div>
+                                <div class="txt-hint txt-sm">Requests</div>
                             </div>
-                            <div class="txt-hint txt-sm">Errors</div>
                         </div>
                     </div>
-                </div>
-                <div class="card card-sm" style="min-width: 85px;">
-                    <div class="card-body">
-                        <div class="flex flex-column align-center">
-                            <div class="txt-lg">{{printf "%.1f ms" .AvgRequestTimeMs}}</div>
-                            <div class="txt-hint txt-sm">Avg Response</div>
+                    <div class="card card-sm view-card" style="min-width: 85px;">
+                        <div class="card-body">
+                            <div class="flex flex-column align-center">
+                                <div class="txt-lg" style="color: {{if gt .ServerStats.TotalErrors.Load 0}}var(--dangerColor){{else}}var(--successColor){{end}}">
+                                    {{printf "%.2f%%" (errorRate .ServerStats.TotalErrors.Load .ServerStats.TotalRequests.Load)}}
+                                </div>
+                                <div class="txt-hint txt-sm">Errors</div>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class="card card-sm" style="min-width: 85px;">
-                    <div class="card-body">
-                        <div class="flex flex-column align-center">
-                            <div class="txt-lg">{{.ServerStats.ActiveConnections.Load}}</div>
-                            <div class="txt-hint txt-sm">Active</div>
+                    <div class="card card-sm view-card" style="min-width: 85px;">
+                        <div class="card-body">
+                            <div class="flex flex-column align-center">
+                                <div class="txt-lg">{{printf "%.1f ms" .AvgRequestTimeMs}}</div>
+                                <div class="txt-hint txt-sm">Avg Response</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card card-sm view-card" style="min-width: 85px;">
+                        <div class="card-body">
+                            <div class="flex flex-column align-center">
+                                <div class="txt-lg">{{.ServerStats.ActiveConnections.Load}}</div>
+                                <div class="txt-hint txt-sm">Active</div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-    </header>
+    </div>
 </div>
 {{end}}

@@ -6,79 +6,83 @@
             CPU Details
         </h4>
     </header>
-    
+
     <div class="card">
         <div class="card-body">
             {{$firstCPU := index .SystemStats.CPUInfo 0}}
-            <div class="flex flex-gap-10 m-b-10 flex-wrap">
-                <div class="flex-fill m-r-10 m-b-5">
-                    <div class="txt-lg">{{$firstCPU.ModelName}}</div>
-                    <div class="txt-hint txt-sm m-t-5">
+            <div class="flex flex-gap-20 m-b-10">
+                <div class="flex-fill">
+                    <div class="txt-lg m-b-10">{{$firstCPU.ModelName}}</div>
+                    <div class="txt-hint txt-sm m-b-15">
                         {{len .SystemStats.CPUInfo}} Cores @ {{printf "%.1f" $firstCPU.Frequency}} MHz
                     </div>
-                </div>
-                <div class="flex align-center flex-gap-10">
-                    <div class="txt-center">
-                        <div class="txt-hint txt-sm">Temperature</div>
-                        <div class="txt-lg">
-                            {{if gt $firstCPU.Temperature 0.0}}
-                                {{printf "%.1f°C" $firstCPU.Temperature}}
-                            {{else}}
-                                {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
-                            {{end}}
+
+                    <div class="flex align-center flex-gap-10 m-b-15">
+                        <div class="txt-center">
+                            <div class="txt-hint txt-sm">Temperature</div>
+                            <div class="txt-lg">
+                                {{if gt $firstCPU.Temperature 0.0}}
+                                    {{printf "%.1f°C" $firstCPU.Temperature}}
+                                {{else}}
+                                    {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
+                                {{end}}
+                            </div>
+                        </div>
+                        <div class="txt-center">
+                            <div class="txt-hint txt-sm">System Temp</div>
+                            <div class="txt-lg">{{printf "%.1f°C" (getSystemTemp .SystemStats)}}</div>
                         </div>
                     </div>
-                    <div class="txt-center">
-                        <div class="txt-hint txt-sm">System Temp</div>
-                        <div class="txt-lg">{{printf "%.1f°C" (getSystemTemp .SystemStats)}}</div>
+
+                    <div class="flex flex-gap-10">
+                        <div class="card card-sm view-card" style="min-width: 100px;">
+                            <div class="card-body txt-center">
+                                <div class="txt-hint txt-sm m-b-5">Avg Usage</div>
+                                <div class="txt-lg" style="color: {{if gt (avgCPUUsage .SystemStats.CPUInfo) 90.0}}var(--dangerColor){{else if gt (avgCPUUsage .SystemStats.CPUInfo) 70.0}}var(--warningColor){{else}}var(--successColor){{end}}">
+                                    {{printf "%.1f%%" (avgCPUUsage .SystemStats.CPUInfo)}}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card card-sm view-card" style="min-width: 80px;">
+                            <div class="card-body txt-center">
+                                <div class="txt-hint txt-sm m-b-5">Physical</div>
+                                <div class="txt-lg">{{$firstCPU.Cores}}</div>
+                            </div>
+                        </div>
+                        <div class="card card-sm view-card" style="min-width: 80px;">
+                            <div class="card-body txt-center">
+                                <div class="txt-hint txt-sm m-b-5">Logical</div>
+                                <div class="txt-lg">{{len .SystemStats.CPUInfo}}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="min-width: 400px;">
+                    <div class="txt-hint txt-sm m-b-10">Core Usage</div>
+                    <div class="grid grid-4 grid-sm-5 grid-xl-6 gap-xs">
+                        {{range $index, $cpu := .SystemStats.CPUInfo}}
+                        <div class="txt-center" style="min-width: 50px;">
+                            <div class="txt-xs txt-hint m-b-2">{{$index}}</div>
+                            <div class="progress" style="height: 6px;">
+                                <div class="progress-bar {{if gt $cpu.Usage 90.0}}danger{{else if gt $cpu.Usage 70.0}}warning{{else}}success{{end}}"
+                                    role="progressbar"
+                                    style="width: {{printf "%.1f%%" $cpu.Usage}}"
+                                    aria-valuenow="{{printf "%.1f" $cpu.Usage}}"
+                                    aria-valuemin="0"
+                                    aria-valuemax="100"></div>
+                            </div>
+                            <div class="txt-xs m-t-2" style="color: {{if gt $cpu.Usage 90.0}}var(--dangerColor){{else if gt $cpu.Usage 70.0}}var(--warningColor){{else}}var(--successColor){{end}}">
+                                {{printf "%.0f%%" $cpu.Usage}}
+                            </div>
+                        </div>
+                        {{end}}
                     </div>
                 </div>
             </div>
 
-            <div class="grid grid-3 grid-sm-3 m-b-15 gap-small">
-                <div class="card card-sm view-card">
-                    <div class="card-body txt-center">
-                        <div class="txt-hint txt-sm m-b-5">Avg Usage</div>
-                        <div class="txt-lg" style="color: {{if gt (avgCPUUsage .SystemStats.CPUInfo) 90.0}}var(--dangerColor){{else if gt (avgCPUUsage .SystemStats.CPUInfo) 70.0}}var(--warningColor){{else}}var(--successColor){{end}}">
-                            {{printf "%.1f%%" (avgCPUUsage .SystemStats.CPUInfo)}}
-                        </div>
-                    </div>
-                </div>
-                <div class="card card-sm view-card">
-                    <div class="card-body txt-center">
-                        <div class="txt-hint txt-sm m-b-5">Physical</div>
-                        <div class="txt-lg">{{$firstCPU.Cores}}</div>
-                    </div>
-                </div>
-                <div class="card card-sm view-card">
-                    <div class="card-body txt-center">
-                        <div class="txt-hint txt-sm m-b-5">Logical</div>
-                        <div class="txt-lg">{{len .SystemStats.CPUInfo}}</div>
-                    </div>
-                </div>
-            </div>
 
-            <div class="grid grid-2 grid-sm-3 grid-xl-4 gap-small">
-                {{range $index, $cpu := .SystemStats.CPUInfo}}
-                <div>
-                    <div class="flex justify-between txt-sm m-b-5">
-                        <span class="txt-hint">Core {{$index}}</span>
-                        <span style="color: {{if gt $cpu.Usage 90.0}}var(--dangerColor){{else if gt $cpu.Usage 70.0}}var(--warningColor){{else}}var(--successColor){{end}}">
-                            {{printf "%.1f%%" $cpu.Usage}}
-                        </span>
-                    </div>
-                    <div class="progress">
-                        <div class="progress-bar {{if gt $cpu.Usage 90.0}}danger{{else if gt $cpu.Usage 70.0}}warning{{else}}success{{end}}" 
-                            role="progressbar" 
-                            style="width: {{printf "%.1f%%" $cpu.Usage}}" 
-                            aria-valuenow="{{printf "%.1f" $cpu.Usage}}" 
-                            aria-valuemin="0" 
-                            aria-valuemax="100"></div>
-                    </div>
-                </div>
-                {{end}}
-            </div>
         </div>
     </div>
 </div>
-{{end}} 
+{{end}}
