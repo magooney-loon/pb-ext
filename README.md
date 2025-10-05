@@ -6,7 +6,7 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 ## Core Features
 
-- **API Schema**: Automatic discovery openapi style and docs generation
+- **API Schema**: Automatic endpoint openapi style docs UI generation
 - **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and runtime stats
 - **Structured Logging**: Comprehensive logging with error tracking and request tracing
 - **Visitor Analytics**: Track and analyze visitor statistics, page views, device types, and browsers
@@ -79,16 +79,18 @@ func initApp(devMode bool) {
 	}
 }
 
-// All handlers defined in cmd/server/handlers.go
-// All jobs defined in cmd/server/jobs.go
-// All collections defined in cmd/server/collections.go
+// Example routes in cmd/server/routes.go
+// Example handlers in cmd/server/handlers.go
+// Example cron jobs in cmd/server/jobs.go
+// Example collections in cmd/server/collections.go
 //
 // You can restructure Your project as you wish,
 // just keep this main.go in cmd/server/main.go
 //
-// Highly advised to copy the cmd/scripts folder
+// Consider using the cmd/scripts commands for
+// streamlined fullstack dx with +Svelte5kit+
 //
-// Ready for a production build on a VPS?
+// Ready for a production build deployment?
 // pb-deployer > https://github.com/magooney-loon/pb-deployer
 ```
 

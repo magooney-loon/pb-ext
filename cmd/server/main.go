@@ -49,6 +49,7 @@ func initApp(devMode bool) {
 	}
 }
 
+// Example routes in cmd/server/routes.go
 // Example handlers in cmd/server/handlers.go
 // Example cron jobs in cmd/server/jobs.go
 // Example collections in cmd/server/collections.go
@@ -56,7 +57,8 @@ func initApp(devMode bool) {
 // You can restructure Your project as you wish,
 // just keep this main.go in cmd/server/main.go
 //
-// Highly advised to copy the cmd/scripts folder
+// Consider using the cmd/scripts commands for
+// streamlined fullstack dx with +Svelte5kit+
 //
 // Ready for a production build deployment?
 // pb-deployer > https://github.com/magooney-loon/pb-deployer
