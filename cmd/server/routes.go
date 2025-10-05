@@ -1,7 +1,7 @@
 package main
 
 // API_SOURCE
-// Route definitions showcasing all HTTP methods and authentication types
+// Route definitions
 
 import (
 	"github.com/magooney-loon/pb-ext/core/server/api"
@@ -11,8 +11,8 @@ import (
 )
 
 func registerRoutes(pbApp core.App) {
-	// Initialize multi-version API system
-	// Create configurations for different API versions
+	// Initialize versioned API system
+	// Create configs for API versions
 	v1Config := &api.APIDocsConfig{
 		Title:       "pb-ext demo api",
 		Version:     "1.0.0",
@@ -20,11 +20,7 @@ func registerRoutes(pbApp core.App) {
 		Status:      "stable",
 		Enabled:     true,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
-			Enabled:         true,
-			AnalyzeHandlers: true,
-			GenerateTags:    true,
-			DetectAuth:      true,
-			IncludeInternal: false,
+			Enabled: true,
 		},
 	}
 
@@ -33,13 +29,9 @@ func registerRoutes(pbApp core.App) {
 		Version:     "2.0.0",
 		Description: "Hello world twice",
 		Status:      "development",
-		Enabled:     true,
+		Enabled:     false,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
-			Enabled:         true,
-			AnalyzeHandlers: true,
-			GenerateTags:    true,
-			DetectAuth:      true,
-			IncludeInternal: false,
+			Enabled: false,
 		},
 	}
 

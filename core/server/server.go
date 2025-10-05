@@ -209,8 +209,7 @@ func (s *Server) Start() error {
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			// Match PocketBase's log format for additional URLs
-			log.Println("├─ Extended:  http://127.0.0.1:8090/_/_")
-			log.Println("└─ API Schema: http://127.0.0.1:8090/api/docs/openapi")
+			log.Println("└─ pb-ext Dashboard:  http://127.0.0.1:8090/_/_")
 		}()
 		return e.Next()
 	})

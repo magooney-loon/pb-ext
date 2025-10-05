@@ -19,64 +19,39 @@
         <div class="card-body">
 
             <!-- API Statistics and Filters -->
-            <div id="api-filters" class="mb-3" style="display: none;">
-                <!-- Statistics Cards -->
-                <div class="flex flex-gap-10 mb-3">
-                    <div class="card card-sm flex-fill">
-                        <div class="card-body">
-                            <div class="flex flex-column">
-                                <div class="txt-lg" id="stats-auth-required">0</div>
-                                <div class="txt-hint txt-sm">Auth Required</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card card-sm flex-fill">
-                        <div class="card-body">
-                            <div class="flex flex-column">
-                                <div class="txt-lg" id="stats-unique-paths">0</div>
-                                <div class="txt-hint txt-sm">Unique Paths</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card card-sm flex-fill">
-                        <div class="card-body">
-                            <div class="flex flex-column">
-                                <div class="txt-lg" id="stats-total-tags">0</div>
-                                <div class="txt-hint txt-sm">Total Tags</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card card-sm flex-fill">
-                        <div class="card-body">
-                            <div class="flex flex-column">
-                                <div class="txt-lg" id="api-endpoints-count">0</div>
-                                <div class="txt-hint txt-sm">Endpoints</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Search and Filters -->
+            <div id="api-filters" class="m-t-base ml-2" style="display: none;">
+                <!-- Search and Filters with Integrated Statistics -->
                 <div class="flex flex-gap-10 mb-3">
                     <div class="form-field">
+                        <label class="form-label txt-sm">
+                            <span id="api-endpoints-count" class="txt-primary txt-bold">0</span> Endpoints
+                        </label>
                         <input type="text" id="search-input" placeholder="Search endpoints..." class="form-control">
                     </div>
                     <div class="form-field">
+                        <label class="form-label txt-sm">
+                            <span id="stats-unique-paths" class="txt-primary txt-bold">0</span> Unique Paths
+                        </label>
                         <select id="method-filter" class="form-control">
                             <option value="">All Methods</option>
                         </select>
                     </div>
                     <div class="form-field">
+                        <label class="form-label txt-sm">
+                            <span id="stats-auth-required" class="txt-primary txt-bold">0</span> Auth Required
+                        </label>
                         <select id="auth-filter" class="form-control">
                             <option value="">All Auth Types</option>
                         </select>
                     </div>
                     <div class="form-field">
+                        <label class="form-label txt-sm">
+                            <span id="stats-total-tags" class="txt-primary txt-bold">0</span> Total Tags
+                        </label>
                         <select id="tag-filter" class="form-control">
                             <option value="">All Tags</option>
                         </select>
                     </div>
-
                 </div>
 
                 <!-- Active Filters Display -->

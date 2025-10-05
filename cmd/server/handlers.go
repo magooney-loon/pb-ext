@@ -1,7 +1,7 @@
 package main
 
 // API_SOURCE
-// Shared handlers across all API versions demonstrating HTTP methods and auth patterns
+// Shared handlers demonstrating HTTP methods and auth patterns
 
 import (
 	"encoding/json"

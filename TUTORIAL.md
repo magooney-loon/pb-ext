@@ -101,72 +101,12 @@ Create a file `pb_public/index.html` with basic content:
 </html>
 ```
 
-Once you restart your server, you can access your website at `http://127.0.0.1:8090/`. PocketBase automatically serves the `index.html` file from the `pb_public` folder as the root route.
-
-### 7. Adding Custom Collections
-
-To add your own collections, follow the same pattern as our example. Create a new function for each collection:
-
-```go
-func myCustomCollection(app core.App) error {
-    // Check if collection exists
-    existingCollection, _ := app.FindCollectionByNameOrId("my_collection")
-    if existingCollection != nil {
-        app.Logger().Info("My collection already exists")
-        return nil
-    }
-
-    // Create new collection
-    collection := core.NewBaseCollection("my_collection")
-
-    // Add your fields here
-    collection.Fields.Add(&core.TextField{
-        Name:     "title",
-        Required: true,
-        Max:      100,
-    })
-
-    // Save the collection
-    if err := app.Save(collection); err != nil {
-        return err
-    }
-
-    return nil
-}
-```
-
-Then add it to your `registerCollections` function:
-
-```go
-func registerCollections(app core.App) {
-    app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-        if err := exampleCollection(e.App); err != nil {
-            app.Logger().Error("Failed to create example collection", "error", err)
-        }
-        if err := myCustomCollection(e.App); err != nil {
-            app.Logger().Error("Failed to create my collection", "error", err)
-        }
-        return e.Next()
-    })
-}
-```
-
 For more details on available field types and collection options, refer to the [PocketBase documentation](https://pocketbase.io/docs/collections/).
+
+For more information on using PocketBase as a Go framework, refer to the [PocketBase documentation](https://pocketbase.io/docs/go-overview/).
 
 ## Access your application
 
 - PocketBase Admin panel: `http://127.0.0.1:8090/_`
 - pb-ext Dashboard: `http://127.0.0.1:8090/_/_`
-- Default example route: `http://127.0.0.1:8090/api/time`
 - Your website: `http://127.0.0.1:8090/`
-
-## Next Steps
-
-Now that you have pb-ext running, you can:
-
-1. Use the PocketBase Admin UI to create collections and manage your data
-2. Use the pb-ext dashboard to monitor your server health and visitor analytics
-3. Extend your application with additional routes and functionality
-4. Build your frontend in the `pb_public` folder
-
-For more information on using PocketBase as a Go framework, refer to the [PocketBase documentation](https://pocketbase.io/docs/go-overview/).

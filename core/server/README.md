@@ -22,237 +22,263 @@ Server
 └── Template System      # Embedded UI templates
 ```
 
-## Core Types
+## Quick Start
 
-### Server & Configuration
+### Basic Server Setup
+
 ```go
-type Server struct {
-    app       *pocketbase.PocketBase
-    stats     *ServerStats
-    analytics *Analytics
-    options   *options
-}
+package main
 
-type ServerStats struct {
-    StartTime          time.Time
-    TotalRequests      atomic.Uint64
-    ActiveConnections  atomic.Int32
-    LastRequestTime    atomic.Int64
-    TotalErrors        atomic.Uint64
-    AverageRequestTime atomic.Int64
-}
+import (
+    "flag"
+    "log"
 
-type Option func(*options)
-```
-
-### Analytics System
-```go
-type Analytics struct {
-    app           *pocketbase.PocketBase
-    buffer        []PageView
-    flushInterval time.Duration
-    batchSize     int
-    knownVisitors map[string]time.Time
-    sessionWindow time.Duration
-}
-
-type PageView struct {
-    Path        string    `json:"path"`
-    Method      string    `json:"method"`
-    IP          string    `json:"ip"`
-    UserAgent   string    `json:"user_agent"`
-    Referrer    string    `json:"referrer"`
-    Duration    int64     `json:"duration_ms"`
-    Timestamp   time.Time `json:"timestamp"`
-    VisitorID   string    `json:"visitor_id"`
-    DeviceType  string    `json:"device_type"`
-    Browser     string    `json:"browser"`
-    OS          string    `json:"os"`
-    Country     string    `json:"country"`
-    UTMSource   string    `json:"utm_source"`
-    UTMMedium   string    `json:"utm_medium"`
-    UTMCampaign string    `json:"utm_campaign"`
-    IsNewVisit  bool      `json:"is_new_visit"`
-    QueryParams string    `json:"query_params"`
-}
-
-type AnalyticsData struct {
-    UniqueVisitors          int                `json:"unique_visitors"`
-    NewVisitors            int                `json:"new_visitors"`
-    ReturningVisitors      int                `json:"returning_visitors"`
-    TotalPageViews         int                `json:"total_page_views"`
-    ViewsPerVisitor        float64            `json:"views_per_visitor"`
-    TodayPageViews         int                `json:"today_page_views"`
-    YesterdayPageViews     int                `json:"yesterday_page_views"`
-    TopDeviceType          string             `json:"top_device_type"`
-    TopDevicePercentage    float64            `json:"top_device_percentage"`
-    DesktopPercentage      float64            `json:"desktop_percentage"`
-    MobilePercentage       float64            `json:"mobile_percentage"`
-    TabletPercentage       float64            `json:"tablet_percentage"`
-    TopBrowser             string             `json:"top_browser"`
-    BrowserBreakdown       map[string]float64 `json:"browser_breakdown"`
-    TopPages               []PageStat         `json:"top_pages"`
-    RecentVisits           []RecentVisit      `json:"recent_visits"`
-    RecentVisitCount       int                `json:"recent_visit_count"`
-    HourlyActivityPercentage float64          `json:"hourly_activity_percentage"`
-}
-
-type PageStat struct {
-    Path  string `json:"path"`
-    Views int    `json:"views"`
-}
-
-type RecentVisit struct {
-    Time       time.Time `json:"time"`
-    Path       string    `json:"path"`
-    DeviceType string    `json:"device_type"`
-    Browser    string    `json:"browser"`
-    OS         string    `json:"os"`
-}
-```
-
-### Error Handling
-```go
-type ServerError struct {
-    Type       string // Error category
-    Message    string // Human-readable message
-    Op         string // Operation name
-    StatusCode int    // HTTP status code
-    Err        error  // Original error
-}
-
-// Error type constants
-const (
-    ErrTypeHTTP       = "http_error"
-    ErrTypeRouting    = "routing_error"
-    ErrTypeAuth       = "auth_error"
-    ErrTypeTemplate   = "template_error"
-    ErrTypeConfig     = "config_error"
-    ErrTypeDatabase   = "database_error"
-    ErrTypeMiddleware = "middleware_error"
-    ErrTypeInternal   = "internal_error"
+    app "github.com/magooney-loon/pb-ext/core"
+    "github.com/pocketbase/pocketbase/core"
 )
-```
 
-### Health Monitoring
-```go
-type HealthResponse struct {
-    Status        string       `json:"status"`
-    ServerStats   *ServerStats `json:"server_stats"`
-    SystemStats   interface{}  `json:"system_stats"`
-    LastCheckTime time.Time    `json:"last_check_time"`
+func main() {
+    devMode := flag.Bool("dev", false, "Run in developer mode")
+    flag.Parse()
+
+    // Create server with options
+    var opts []app.Option
+    if *devMode {
+        opts = append(opts, app.InDeveloperMode())
+    } else {
+        opts = append(opts, app.InNormalMode())
+    }
+
+    srv := app.New(opts...)
+
+    // Setup application components
+    app.SetupLogging(srv)
+    registerRoutes(srv.App())
+
+    // Setup recovery middleware
+    srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
+        app.SetupRecovery(srv.App(), e)
+        return e.Next()
+    })
+
+    // Start the server
+    if err := srv.Start(); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
-## Configuration Options
+### Configuration Options
 
-### Functional Options Pattern
+The server supports flexible configuration through functional options:
+
 ```go
-// WithConfig sets PocketBase configuration
-func WithConfig(config *pocketbase.Config) Option
-
-// WithPocketbase uses existing PocketBase instance  
-func WithPocketbase(pocketbase *pocketbase.PocketBase) Option
-
-// WithMode sets developer mode
-func WithMode(developer_mode bool) Option
-
-// InDeveloperMode enables developer mode
-func InDeveloperMode() Option
-
-// InNormalMode disables developer mode
-func InNormalMode() Option
+// Different ways to initialize the server
+srv := app.New()                                    // Default config
+srv := app.New(app.InDeveloperMode())              // Developer mode
+srv := app.New(app.InNormalMode())                 // Production mode
+srv := app.New(app.WithConfig(customConfig))       // Custom PocketBase config
+srv := app.New(app.WithPocketbase(existingApp))    // Use existing PocketBase instance
 ```
 
-## Main Components
+## Core Features
 
-### Server Core
-- **Purpose**: Enhanced PocketBase wrapper with production features
-- **Features**: Request tracking, middleware integration, static file serving
-- **Key Methods**: `New()`, `Start()`, `App()`, `Stats()`
+### 1. Analytics System
 
-### Analytics System
-- **Purpose**: Comprehensive visitor and usage analytics
-- **Features**: Page view tracking, visitor identification, device/browser detection
-- **Processing**: Background buffering and batching for performance
-- **Storage**: PocketBase collections for persistence
+Comprehensive visitor and usage analytics with zero configuration:
 
-### Health Monitor  
-- **Purpose**: Real-time system and application health dashboard
-- **Features**: CPU, memory, disk usage, request metrics, temperature monitoring
-- **UI**: Template-based dashboard with authentication
-- **Access**: `/_/_` endpoint for superuser access
+**Automatic Tracking**
+- Page views and unique visitors
+- Device type classification (desktop/mobile/tablet)
+- Browser and OS detection
+- Geographic location (country-level)
+- UTM campaign parameters
+- Session management and return visitor detection
 
-### Error System
-- **Purpose**: Structured error handling with HTTP status mapping
-- **Features**: Error categorization, unwrapping support, type checking
-- **Categories**: HTTP, routing, auth, template, config, database, internal
+**Performance Optimized**
+- Background buffering and batching
+- Configurable flush intervals
+- Minimal performance impact on requests
 
-### Template System
-- **Purpose**: Embedded UI templates for health dashboard
-- **Features**: Component-based templates, custom template functions
-- **Components**: Header, metrics, CPU details, memory details, visitor analytics
+**Dashboard Integration**
+- Real-time visitor statistics
+- Device and browser breakdowns
+- Popular pages tracking
+- Recent visitor activity
+
+### 2. Health Monitoring
+
+Real-time system and application health monitoring:
+
+**System Metrics**
+- CPU usage and load averages
+- Memory consumption and availability
+- Disk space utilization
+- Network connection counts
+- Temperature sensors (when available)
+
+**Application Stats**
+- Request counts and error rates
+- Average response times
+- Active connections
+- Uptime tracking
+
+**Secure Dashboard**
+- Accessible at `/_/_` endpoint
+- Requires superuser authentication
+- Live updating metrics
+- Responsive design for mobile monitoring
+
+### 3. Error Handling
+
+Structured error handling with automatic HTTP status mapping:
+
+```go
+// Errors are automatically categorized and logged
+// Types include: http, routing, auth, template, config, database, internal
+// Proper HTTP status codes are automatically assigned
+```
+
+### 4. Request Recovery
+
+Built-in panic recovery with detailed logging:
+
+```go
+srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
+    app.SetupRecovery(srv.App(), e)
+    return e.Next()
+})
+```
 
 ## Usage Patterns
 
-### Basic Server Setup
+### Full Application Setup
+
 ```go
-server := New()
-server.Start()
+func initApp(devMode bool) {
+    // Configure server options
+    var opts []app.Option
+    if devMode {
+        opts = append(opts, app.InDeveloperMode())
+    } else {
+        opts = append(opts, app.InNormalMode())
+    }
+
+    // Create and configure server
+    srv := app.New(opts...)
+    app.SetupLogging(srv)
+
+    // Register application components
+    registerCollections(srv.App())  // Your database models
+    registerRoutes(srv.App())       // Your API routes
+    registerJobs(srv.App())         // Your background jobs
+
+    // Setup middleware and start
+    srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
+        app.SetupRecovery(srv.App(), e)
+        return e.Next()
+    })
+
+    if err := srv.Start(); err != nil {
+        srv.App().Logger().Error("Fatal application error",
+            "error", err,
+            "uptime", srv.Stats().StartTime,
+            "total_requests", srv.Stats().TotalRequests.Load(),
+            "active_connections", srv.Stats().ActiveConnections.Load(),
+        )
+        log.Fatal(err)
+    }
+}
 ```
 
-### Custom Configuration
+### Accessing Server Statistics
+
 ```go
-server := New(
-    WithConfig(&pocketbase.Config{DefaultDev: true}),
-    InDeveloperMode(),
-)
+// Get real-time server statistics
+stats := srv.Stats()
+fmt.Printf("Total requests: %d\n", stats.TotalRequests.Load())
+fmt.Printf("Active connections: %d\n", stats.ActiveConnections.Load())
+fmt.Printf("Uptime: %v\n", time.Since(stats.StartTime))
 ```
 
-### With Existing PocketBase
+### Custom PocketBase Integration
+
 ```go
-app := pocketbase.New()
-server := New(WithPocketbase(app))
+// Use with existing PocketBase instance
+existingApp := pocketbase.New()
+// ... configure your PocketBase app
+srv := app.New(app.WithPocketbase(existingApp))
 ```
 
-## Endpoints
+## Project Structure
 
-### Health & Monitoring
-- **Health Dashboard**: `GET /_/_` (superuser auth required)
-- **Analytics Data**: Available through dashboard interface
+The server module works best with a structured project layout:
 
-### API Integration
-- **OpenAPI Docs**: `GET /api/docs/openapi`  
-- **API Statistics**: `GET /api/docs/stats`
-- **API Components**: `GET /api/docs/components`
+```
+cmd/server/
+├── main.go           # Application entry point
+├── collections.go    # Database model definitions
+├── routes.go         # API route registration
+├── handlers.go       # Request handlers
+└── jobs.go          # Background job definitions
+```
 
-## Features
+## Monitoring Endpoints
 
-- ✅ **Zero Configuration**: Works with PocketBase defaults
-- ✅ **Request Analytics**: Track visitors, devices, browsers, pages
-- ✅ **Real-time Monitoring**: System metrics with live dashboard
-- ✅ **Error Handling**: Structured errors with HTTP status codes
-- ✅ **Template System**: Embedded UI components and scripts
-- ✅ **Static File Serving**: Enhanced path resolution
-- ✅ **Performance Optimized**: Background processing with batching
-- ✅ **Thread Safe**: Atomic counters and proper mutex usage
-- ✅ **Production Ready**: Comprehensive logging and error handling
+### Health Dashboard
+- **URL**: `/_/_`
+- **Auth**: Superuser required
+- **Features**: Real-time metrics, system stats, visitor analytics, API docs
 
-## Analytics Features
+### API Documentation (if using versioned API system)
+- **OpenAPI Docs**: `/api/v1/docs/openapi`
+- **API Statistics**: `/api/v1/docs/stats`
+- **Version Management**: `/api/versions`
 
-- **Visitor Tracking**: Anonymous visitor identification with session management
-- **Device Detection**: Desktop/mobile/tablet classification
-- **Browser Analysis**: User agent parsing for browser/OS identification  
-- **UTM Tracking**: Marketing campaign parameter capture
-- **Geographic Data**: Country-level location tracking
-- **Performance Metrics**: Request duration and error rate tracking
-- **Real-time Stats**: Live visitor counts and activity percentages
+## Analytics Dashboard Features
 
-## Health Dashboard Features
+**Visitor Insights**
+- Unique vs returning visitors
+- Real-time visitor counts
+- Session duration tracking
+- Geographic distribution
 
-- **System Metrics**: CPU usage, memory consumption, disk space
-- **Application Stats**: Request counts, error rates, response times  
-- **Temperature Monitoring**: System and disk temperature sensors
-- **Network Activity**: Connection counts and request patterns
-- **Uptime Tracking**: Server start time and running duration
-- **Authentication**: Secure superuser access with localStorage token handling
+**Device Analytics**
+- Desktop/mobile/tablet breakdown
+- Browser market share
+- Operating system distribution
+- Screen resolution patterns
+
+**Performance Tracking**
+- Popular pages and endpoints
+- Request duration metrics
+- Error rate monitoring
+- Peak usage patterns
+
+## Production Deployment
+
+The server module is designed for production use with:
+
+- **Zero Configuration**: Works with sensible defaults
+- **Performance Optimized**: Background processing and efficient batching
+- **Thread Safe**: Atomic counters and proper synchronization
+- **Comprehensive Logging**: Structured logs with request context
+- **Error Recovery**: Automatic panic recovery with detailed reporting
+- **Health Monitoring**: Built-in system and application monitoring
+
+For production deployments, consider using:
+- [pb-deployer](https://github.com/magooney-loon/pb-deployer) for streamlined deployment
+
+## Development Workflow
+
+**Developer Mode Benefits:**
+- Enhanced error messages
+- Debug logging enabled
+- Hot reload support
+- Development-specific middleware
+
+**Production Mode:**
+- Optimized performance
+- Minimal logging
+- Security-focused defaults
+- Production middleware stack
