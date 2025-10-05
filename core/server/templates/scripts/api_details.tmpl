@@ -274,30 +274,112 @@ document.addEventListener('DOMContentLoaded', function() {
     // =============================================================================
 
     const TabController = {
+        currentTab: 'endpoints',
+        isTabSwitching: false,
+
         init() {
             document.querySelectorAll('#api-tabs .tab-item').forEach(button => {
-                button.addEventListener('click', (e) => this.switchTab(e.target));
+                button.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.switchTab(e.target);
+                });
             });
         },
 
         switchTab(button) {
-            const tabName = button.getAttribute('data-tab');
+            // Prevent rapid tab switching
+            if (this.isTabSwitching) return;
 
-            // Update button states
+            const tabName = button.getAttribute('data-tab');
+            if (tabName === this.currentTab) return;
+
+            this.isTabSwitching = true;
+
+            // Update button states first
             document.querySelectorAll('#api-tabs .tab-item').forEach(btn =>
                 btn.classList.remove('active'));
             button.classList.add('active');
 
-            // Update content visibility
+            // Hide all content with a slight delay to prevent flashing
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
                 content.style.display = 'none';
             });
 
-            const targetContent = document.getElementById(`${tabName}-tab`);
-            if (targetContent) {
-                targetContent.classList.add('active');
-                targetContent.style.display = 'block';
+            // Use requestAnimationFrame to ensure DOM updates are complete
+            requestAnimationFrame(() => {
+                const targetContent = document.getElementById(`${tabName}-tab`);
+                if (targetContent) {
+                    targetContent.style.display = 'block';
+
+                    // Force reflow to ensure display change is applied
+                    targetContent.offsetHeight;
+
+                    targetContent.classList.add('active');
+
+                    // Safety check - ensure content is visible
+                    setTimeout(() => {
+                        if (targetContent.style.display !== 'block' || !targetContent.classList.contains('active')) {
+                            console.warn(`Tab content not properly displayed, fixing: ${tabName}`);
+                            targetContent.style.display = 'block';
+                            targetContent.classList.add('active');
+                        }
+
+                        // Refresh content for specific tabs that need it
+                        this.refreshTabContent(tabName);
+                    }, 50);
+                }
+
+                this.currentTab = tabName;
+
+                // Allow tab switching again after a small delay
+                setTimeout(() => {
+                    this.isTabSwitching = false;
+                }, 100);
+            });
+        },
+
+        refreshTabContent(tabName) {
+            switch (tabName) {
+                case 'raw':
+                    // Refresh raw schema content
+                    const rawContent = document.getElementById('raw-schema-content');
+                    if (APIState.openApiSchema) {
+                        const formatBtn = document.querySelector('#raw-tab .btn.active');
+                        const format = formatBtn?.getAttribute('data-format') || 'json';
+                        APILoader.updateRawSchema(format);
+                    } else if (rawContent && (rawContent.textContent === 'Loading schema...' || !rawContent.textContent.trim())) {
+                        rawContent.textContent = 'No schema data available. Try refreshing the page.';
+                    }
+                    break;
+
+                case 'components':
+                    // Refresh components content
+                    const componentsContent = document.getElementById('components-content');
+                    if (APIState.apiComponents && Object.keys(APIState.apiComponents).length > 0) {
+                        const formatBtn = document.querySelector('#components-tab .btn.active');
+                        const format = formatBtn?.getAttribute('data-format') || 'json';
+                        APILoader.updateComponents(format);
+                    } else if (componentsContent && (componentsContent.textContent === 'Loading components...' || !componentsContent.textContent.trim())) {
+                        componentsContent.textContent = 'No components available in this API schema.';
+                    }
+                    break;
+
+                case 'endpoints':
+                    // Refresh endpoints if needed
+                    const endpointsList = document.getElementById('endpoints-list');
+                    if (APIState.filteredEndpoints.length === 0 && APIState.allEndpoints.length > 0) {
+                        EndpointRenderer.render();
+                    } else if (endpointsList && APIState.allEndpoints.length === 0 && endpointsList.innerHTML.includes('Loading')) {
+                        endpointsList.innerHTML = `
+                            <div class="txt-center txt-hint p-4">
+                                <i class="ri-route-line ri-2x mb-2"></i>
+                                <h4>No endpoints available</h4>
+                                <p class="txt-sm">No API endpoints have been discovered yet.</p>
+                            </div>
+                        `;
+                    }
+                    break;
             }
         }
     };
@@ -896,7 +978,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         updateRawSchema(format) {
             const content = document.getElementById('raw-schema-content');
-            if (!content || !APIState.openApiSchema) return;
+            if (!content) {
+                console.warn('Raw schema content element not found');
+                return;
+            }
+
+            if (!APIState.openApiSchema) {
+                content.textContent = 'No schema data available. Try refreshing the page or selecting a different version.';
+                return;
+            }
 
             try {
                 if (format === 'yaml') {
@@ -904,24 +994,44 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     content.innerHTML = SchemaProcessor.syntaxHighlight(APIState.openApiSchema);
                 }
+
+                // Ensure content is visible
+                if (!content.textContent && !content.innerHTML) {
+                    content.textContent = 'Failed to render schema content. Please try switching formats or refreshing.';
+                }
             } catch (error) {
+                console.error('Error formatting schema:', error);
                 content.textContent = `Error formatting schema: ${error.message}`;
             }
         },
 
         updateComponents(format) {
             const content = document.getElementById('components-content');
-            if (!content) return;
+            if (!content) {
+                console.warn('Components content element not found');
+                return;
+            }
 
             const components = APIState.apiComponents || {};
 
             try {
+                if (Object.keys(components).length === 0) {
+                    content.textContent = 'No components defined in this API schema.';
+                    return;
+                }
+
                 if (format === 'yaml') {
                     content.textContent = SchemaProcessor.jsonToYaml(components);
                 } else {
                     content.innerHTML = SchemaProcessor.syntaxHighlight(components);
                 }
+
+                // Ensure content is visible
+                if (!content.textContent && !content.innerHTML) {
+                    content.textContent = 'Failed to render components content. Please try switching formats or refreshing.';
+                }
             } catch (error) {
+                console.error('Error formatting components:', error);
                 content.textContent = `Error formatting components: ${error.message}`;
             }
         },
@@ -948,14 +1058,16 @@ document.addEventListener('DOMContentLoaded', function() {
             const yamlBtn = document.getElementById('yaml-format-btn');
 
             if (jsonBtn && yamlBtn) {
-                jsonBtn.addEventListener('click', () => {
-                    this.updateFormatButtons(jsonBtn, yamlBtn);
-                    APILoader.updateRawSchema('json');
+                jsonBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (jsonBtn.classList.contains('active')) return;
+                    this.switchFormat(jsonBtn, yamlBtn, 'json', 'raw');
                 });
 
-                yamlBtn.addEventListener('click', () => {
-                    this.updateFormatButtons(yamlBtn, jsonBtn);
-                    APILoader.updateRawSchema('yaml');
+                yamlBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (yamlBtn.classList.contains('active')) return;
+                    this.switchFormat(yamlBtn, jsonBtn, 'yaml', 'raw');
                 });
             }
         },
@@ -965,16 +1077,47 @@ document.addEventListener('DOMContentLoaded', function() {
             const yamlBtn = document.getElementById('components-yaml-format-btn');
 
             if (jsonBtn && yamlBtn) {
-                jsonBtn.addEventListener('click', () => {
-                    this.updateFormatButtons(jsonBtn, yamlBtn);
-                    APILoader.updateComponents('json');
+                jsonBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (jsonBtn.classList.contains('active')) return;
+                    this.switchFormat(jsonBtn, yamlBtn, 'json', 'components');
                 });
 
-                yamlBtn.addEventListener('click', () => {
-                    this.updateFormatButtons(yamlBtn, jsonBtn);
-                    APILoader.updateComponents('yaml');
+                yamlBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (yamlBtn.classList.contains('active')) return;
+                    this.switchFormat(yamlBtn, jsonBtn, 'yaml', 'components');
                 });
             }
+        },
+
+        switchFormat(activeBtn, inactiveBtn, format, contentType) {
+            // Update button states
+            this.updateFormatButtons(activeBtn, inactiveBtn);
+
+            // Add loading state
+            const contentElement = document.getElementById(`${contentType === 'raw' ? 'raw-schema' : 'components'}-content`);
+            if (contentElement) {
+                contentElement.style.opacity = '0.5';
+            }
+
+            // Use requestAnimationFrame to ensure smooth transition
+            requestAnimationFrame(() => {
+                try {
+                    if (contentType === 'raw') {
+                        APILoader.updateRawSchema(format);
+                    } else {
+                        APILoader.updateComponents(format);
+                    }
+                } catch (error) {
+                    console.error(`Failed to update ${contentType} format:`, error);
+                } finally {
+                    // Remove loading state
+                    if (contentElement) {
+                        contentElement.style.opacity = '1';
+                    }
+                }
+            });
         },
 
         updateFormatButtons(activeBtn, inactiveBtn) {
