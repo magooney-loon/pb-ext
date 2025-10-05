@@ -750,7 +750,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Populate method filter
         if (methodFilter && stats.methods) {
-            Object.entries(stats.methods).forEach(([method, count]) => {
+            const sortedMethods = Object.entries(stats.methods).sort(([,a], [,b]) => b - a);
+            sortedMethods.forEach(([method, count]) => {
                 const option = document.createElement('option');
                 option.value = method;
                 option.textContent = `${method} (${count})`;
@@ -760,7 +761,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Populate auth filter
         if (authFilter && stats.auth_types) {
-            Object.entries(stats.auth_types).forEach(([type, count]) => {
+            const sortedAuthTypes = Object.entries(stats.auth_types).sort(([,a], [,b]) => b - a);
+            sortedAuthTypes.forEach(([type, count]) => {
                 const option = document.createElement('option');
                 option.value = type;
                 const displayName = type === 'none' ? 'No Auth' : type.replace(/_/g, ' ');
