@@ -17,29 +17,18 @@
 
     <div class="card">
         <div class="card-body">
-            <div class="flex flex-gap-20">
-                <div class="flex-fill">
-                    <div class="flex flex-gap-5 align-center m-b-10">
-
-
-                    </div>
-                    <div class="txt-hint txt-sm">
-                        <div></div>
-                    </div>
-                </div>
-
                 <div class="flex gap-5">
-                    <div class="card card-sm view-card" style="min-width: 85px;">
+                    <div class="card card-sm view-card">
                         <div class="card-body">
-                            <div class="flex flex-column align-center">
+                            <div class="flex flex-column">
                                 <div class="txt-lg">{{printf "%.1f/s" .RequestRate}}</div>
                                 <div class="txt-hint txt-sm">Requests</div>
                             </div>
                         </div>
                     </div>
-                    <div class="card card-sm view-card" style="min-width: 85px;">
+                    <div class="card card-sm view-card">
                         <div class="card-body">
-                            <div class="flex flex-column align-center">
+                            <div class="flex flex-column">
                                 <div class="txt-lg" style="color: {{if gt .ServerStats.TotalErrors.Load 0}}var(--dangerColor){{else}}var(--successColor){{end}}">
                                     {{printf "%.2f%%" (errorRate .ServerStats.TotalErrors.Load .ServerStats.TotalRequests.Load)}}
                                 </div>
@@ -47,24 +36,23 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card card-sm view-card" style="min-width: 85px;">
+                    <div class="card card-sm view-card" >
                         <div class="card-body">
-                            <div class="flex flex-column align-center">
+                            <div class="flex flex-column">
                                 <div class="txt-lg">{{printf "%.1f ms" .AvgRequestTimeMs}}</div>
                                 <div class="txt-hint txt-sm">Avg Response</div>
                             </div>
                         </div>
                     </div>
-                    <div class="card card-sm view-card" style="min-width: 85px;">
+                    <div class="card card-sm view-card">
                         <div class="card-body">
-                            <div class="flex flex-column align-center">
+                            <div class="flex flex-column">
                                 <div class="txt-lg">{{.ServerStats.ActiveConnections.Load}}</div>
                                 <div class="txt-hint txt-sm">Active</div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
         </div>
     </div>
 </div>

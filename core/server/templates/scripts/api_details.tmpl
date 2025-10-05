@@ -284,6 +284,37 @@ document.addEventListener('DOMContentLoaded', function() {
                     this.switchTab(e.target);
                 });
             });
+
+            // Ensure a default tab is always selected
+            this.initializeDefaultTab();
+        },
+
+        initializeDefaultTab() {
+            // Check if any tab is currently active
+            const activeButton = document.querySelector('#api-tabs .tab-item.active');
+            const activeContent = document.querySelector('.tab-content.active');
+
+            if (!activeButton || !activeContent) {
+                // No active tab found, activate the default one
+                const defaultButton = document.querySelector('#api-tabs .tab-item[data-tab="endpoints"]');
+                const defaultContent = document.getElementById('endpoints-tab');
+
+                if (defaultButton && defaultContent) {
+                    // Clear any existing active states
+                    document.querySelectorAll('#api-tabs .tab-item').forEach(btn => btn.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.remove('active');
+                        content.style.display = 'none';
+                    });
+
+                    // Activate default tab
+                    defaultButton.classList.add('active');
+                    defaultContent.classList.add('active');
+                    defaultContent.style.display = 'block';
+
+                    this.currentTab = 'endpoints';
+                }
+            }
         },
 
         switchTab(button) {
@@ -291,52 +322,107 @@ document.addEventListener('DOMContentLoaded', function() {
             if (this.isTabSwitching) return;
 
             const tabName = button.getAttribute('data-tab');
+            if (!tabName) {
+                console.error('Tab button missing data-tab attribute');
+                return;
+            }
+
             if (tabName === this.currentTab) return;
 
             this.isTabSwitching = true;
 
-            // Update button states first
+            // Find target content first - if it doesn't exist, abort
+            const targetContent = document.getElementById(`${tabName}-tab`);
+            if (!targetContent) {
+                console.error(`Tab content not found: ${tabName}-tab`);
+                this.isTabSwitching = false;
+                return;
+            }
+
+            // Store current active button for fallback
+            const currentActiveButton = document.querySelector('#api-tabs .tab-item.active');
+
+            try {
+                // Update button states - only remove active after confirming target exists
+                document.querySelectorAll('#api-tabs .tab-item').forEach(btn =>
+                    btn.classList.remove('active'));
+                button.classList.add('active');
+
+                // Hide all content
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                    content.style.display = 'none';
+                });
+
+                // Use requestAnimationFrame to ensure DOM updates are complete
+                requestAnimationFrame(() => {
+                    try {
+                        targetContent.style.display = 'block';
+
+                        // Force reflow to ensure display change is applied
+                        targetContent.offsetHeight;
+
+                        targetContent.classList.add('active');
+
+                        // Verify the switch was successful
+                        setTimeout(() => {
+                            if (targetContent.style.display !== 'block' || !targetContent.classList.contains('active')) {
+                                console.warn(`Tab content not properly displayed, fixing: ${tabName}`);
+                                targetContent.style.display = 'block';
+                                targetContent.classList.add('active');
+                            }
+
+                            // Update current tab and refresh content
+                            this.currentTab = tabName;
+                            this.refreshTabContent(tabName);
+
+                            // Allow tab switching again
+                            this.isTabSwitching = false;
+                        }, 50);
+
+                    } catch (error) {
+                        console.error('Error showing tab content:', error);
+                        this.recoverFromTabSwitchError(currentActiveButton, this.currentTab);
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error switching tabs:', error);
+                this.recoverFromTabSwitchError(currentActiveButton, this.currentTab);
+            }
+        },
+
+        recoverFromTabSwitchError(fallbackButton, fallbackTabName) {
+            console.warn('Recovering from tab switch error');
+
+            // Restore previous active button
             document.querySelectorAll('#api-tabs .tab-item').forEach(btn =>
                 btn.classList.remove('active'));
-            button.classList.add('active');
 
-            // Hide all content with a slight delay to prevent flashing
+            if (fallbackButton) {
+                fallbackButton.classList.add('active');
+            } else {
+                // Fallback to endpoints tab
+                const endpointsButton = document.querySelector('#api-tabs .tab-item[data-tab="endpoints"]');
+                if (endpointsButton) {
+                    endpointsButton.classList.add('active');
+                    fallbackTabName = 'endpoints';
+                }
+            }
+
+            // Show the fallback content
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
                 content.style.display = 'none';
             });
 
-            // Use requestAnimationFrame to ensure DOM updates are complete
-            requestAnimationFrame(() => {
-                const targetContent = document.getElementById(`${tabName}-tab`);
-                if (targetContent) {
-                    targetContent.style.display = 'block';
+            const fallbackContent = document.getElementById(`${fallbackTabName}-tab`);
+            if (fallbackContent) {
+                fallbackContent.style.display = 'block';
+                fallbackContent.classList.add('active');
+            }
 
-                    // Force reflow to ensure display change is applied
-                    targetContent.offsetHeight;
-
-                    targetContent.classList.add('active');
-
-                    // Safety check - ensure content is visible
-                    setTimeout(() => {
-                        if (targetContent.style.display !== 'block' || !targetContent.classList.contains('active')) {
-                            console.warn(`Tab content not properly displayed, fixing: ${tabName}`);
-                            targetContent.style.display = 'block';
-                            targetContent.classList.add('active');
-                        }
-
-                        // Refresh content for specific tabs that need it
-                        this.refreshTabContent(tabName);
-                    }, 50);
-                }
-
-                this.currentTab = tabName;
-
-                // Allow tab switching again after a small delay
-                setTimeout(() => {
-                    this.isTabSwitching = false;
-                }, 100);
-            });
+            this.isTabSwitching = false;
         },
 
         refreshTabContent(tabName) {
@@ -530,10 +616,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 select.removeChild(select.lastChild);
             }
 
-            Object.keys(methods).forEach(method => {
+            Object.entries(methods).sort(([,a], [,b]) => b - a).forEach(([method, count]) => {
                 const option = document.createElement('option');
                 option.value = method.toLowerCase();
-                option.textContent = `${method} (${methods[method]})`;
+                option.textContent = `${method} (${count})`;
                 select.appendChild(option);
             });
         },
@@ -554,10 +640,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 'guest_only': 'Guest Only'
             };
 
-            Object.keys(authTypes).forEach(authType => {
+            Object.entries(authTypes).sort(([,a], [,b]) => b - a).forEach(([authType, count]) => {
                 const option = document.createElement('option');
                 option.value = authType;
-                option.textContent = `${authLabels[authType] || authType} (${authTypes[authType]})`;
+                option.textContent = `${authLabels[authType] || authType} (${count})`;
                 select.appendChild(option);
             });
         },
@@ -570,10 +656,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 select.removeChild(select.lastChild);
             }
 
-            Object.keys(tags).forEach(tag => {
+            Object.entries(tags).sort(([,a], [,b]) => b - a).forEach(([tag, count]) => {
                 const option = document.createElement('option');
                 option.value = tag;
-                option.textContent = `${tag} (${tags[tag]})`;
+                option.textContent = `${tag} (${count})`;
                 select.appendChild(option);
             });
         },
