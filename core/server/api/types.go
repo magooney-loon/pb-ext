@@ -107,12 +107,22 @@ type ASTParser struct {
 
 // FileParseResult stores parsing results with metadata
 type FileParseResult struct {
-	ModTime  time.Time
-	Structs  map[string]*StructInfo
-	Handlers map[string]*ASTHandlerInfo
-	Imports  map[string]string
-	Errors   []ParseError
-	ParsedAt time.Time
+	ModTime            time.Time
+	Structs            map[string]*StructInfo
+	Handlers           map[string]*ASTHandlerInfo
+	Imports            map[string]string
+	RouteRegistrations []*RouteRegistration
+	Errors             []ParseError
+	ParsedAt           time.Time
+}
+
+// RouteRegistration represents a discovered route registration in the code
+type RouteRegistration struct {
+	Method     string          `json:"method"`
+	Path       string          `json:"path"`
+	HandlerRef string          `json:"handler_ref"`
+	CallExpr   *ast.CallExpr   `json:"-"`
+	Location   *SourceLocation `json:"location,omitempty"`
 }
 
 // ParseError represents a parsing error with context
@@ -181,6 +191,7 @@ type ASTHandlerInfo struct {
 	APIDescription string                 `json:"api_description"`
 	APITags        []string               `json:"api_tags"`
 	HTTPMethods    []string               `json:"http_methods"`
+	RoutePath      string                 `json:"route_path,omitempty"`
 	Middleware     []string               `json:"middleware,omitempty"`
 	Documentation  *Documentation         `json:"documentation,omitempty"`
 	Complexity     int                    `json:"complexity"`

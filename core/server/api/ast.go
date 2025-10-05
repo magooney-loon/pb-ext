@@ -72,12 +72,13 @@ func (p *ASTParser) ParseFile(filename string) error {
 
 	// Create parse result
 	result := &FileParseResult{
-		ModTime:  p.getFileModTime(filename),
-		Structs:  make(map[string]*StructInfo),
-		Handlers: make(map[string]*ASTHandlerInfo),
-		Imports:  make(map[string]string),
-		Errors:   []ParseError{},
-		ParsedAt: time.Now(),
+		ModTime:            p.getFileModTime(filename),
+		Structs:            make(map[string]*StructInfo),
+		Handlers:           make(map[string]*ASTHandlerInfo),
+		Imports:            make(map[string]string),
+		RouteRegistrations: []*RouteRegistration{},
+		Errors:             []ParseError{},
+		ParsedAt:           time.Now(),
 	}
 
 	// Extract information from the AST
@@ -121,6 +122,11 @@ func (p *ASTParser) mergeParseResult(result *FileParseResult) {
 	// Merge handlers
 	for name, handlerInfo := range result.Handlers {
 		p.handlers[name] = handlerInfo
+	}
+
+	// Process route registrations to improve handler mapping
+	for _, routeReg := range result.RouteRegistrations {
+		p.analyzeRouteRegistration(routeReg)
 	}
 
 	// Merge imports
@@ -325,11 +331,16 @@ func (p *ASTParser) extractHandlers(file *ast.File, result *FileParseResult) {
 				}
 			}
 		}
+		// Also look for route registrations
+		if callExpr, ok := n.(*ast.CallExpr); ok {
+			if routeReg := p.parseRouteRegistration(callExpr); routeReg != nil {
+				result.RouteRegistrations = append(result.RouteRegistrations, routeReg)
+			}
+		}
 		return true
 	})
 }
 
-// isHandlerFunction checks if a function is an HTTP handler
 // isHandlerFunction checks if a function declaration is a handler function
 func (p *ASTParser) isHandlerFunction(funcDecl *ast.FuncDecl) bool {
 	if funcDecl.Type == nil || len(funcDecl.Type.Params.List) != 1 {
@@ -939,7 +950,28 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 		availableHandlers = append(availableHandlers, name)
 	}
 
-	if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
+	// Try multiple strategies to find the handler
+	var handlerInfo *ASTHandlerInfo
+	var exists bool
+
+	// Strategy 1: Exact name match
+	if handlerInfo, exists = p.GetHandlerByName(handlerName); exists {
+		fmt.Printf("✅ Found handler by exact name match: '%s'\n", handlerName)
+	} else {
+		// Strategy 2: Route-based matching using discovered route registrations
+		handlerInfo, exists = p.findHandlerByRoute(endpoint)
+		if exists {
+			fmt.Printf("✅ Found handler by route registration: '%s'\n", handlerInfo.Name)
+		} else {
+			// Strategy 3: Fuzzy matching for complex routing systems
+			handlerInfo, exists = p.findHandlerByFuzzyMatch(endpoint, availableHandlers)
+			if exists {
+				fmt.Printf("✅ Found handler by fuzzy matching: '%s'\n", handlerInfo.Name)
+			}
+		}
+	}
+
+	if exists && handlerInfo != nil {
 		fmt.Printf("✅ Found handler info for '%s': desc='%s', tags=%v\n", handlerName, handlerInfo.APIDescription, handlerInfo.APITags)
 		// Apply AST-derived information
 		if handlerInfo.APIDescription != "" {
@@ -983,6 +1015,231 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 	}
 
 	return nil
+}
+
+// findHandlerByRoute finds a handler by matching against discovered route registrations
+func (p *ASTParser) findHandlerByRoute(endpoint *APIEndpoint) (*ASTHandlerInfo, bool) {
+	// Look for handlers that have matching route information
+	for _, handlerInfo := range p.handlers {
+		if handlerInfo.RoutePath == endpoint.Path {
+			// Check if method matches
+			for _, method := range handlerInfo.HTTPMethods {
+				if method == endpoint.Method {
+					fmt.Printf("🎯 Matched handler '%s' by route registration %s %s\n",
+						handlerInfo.Name, endpoint.Method, endpoint.Path)
+					return handlerInfo, true
+				}
+			}
+			// If path matches but no method info, still consider it a match
+			if len(handlerInfo.HTTPMethods) == 0 {
+				fmt.Printf("🎯 Matched handler '%s' by route path %s (no method constraint)\n",
+					handlerInfo.Name, endpoint.Path)
+				return handlerInfo, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// findHandlerByFuzzyMatch tries to find a handler using various matching strategies
+func (p *ASTParser) findHandlerByFuzzyMatch(endpoint *APIEndpoint, availableHandlers []string) (*ASTHandlerInfo, bool) {
+	if len(availableHandlers) == 0 {
+		return nil, false
+	}
+
+	// Strategy 1: Path-based matching - find handler that matches the endpoint path pattern
+	pathSegments := strings.Split(strings.Trim(endpoint.Path, "/"), "/")
+	for _, handlerName := range availableHandlers {
+		if p.handlerMatchesPathPattern(handlerName, pathSegments) {
+			if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
+				fmt.Printf("🎯 Matched handler '%s' by path pattern for %s %s\n", handlerName, endpoint.Method, endpoint.Path)
+				return handlerInfo, true
+			}
+		}
+	}
+
+	// Strategy 2: Method-based matching - find handler that matches the HTTP method
+	for _, handlerName := range availableHandlers {
+		if p.handlerMatchesMethod(handlerName, endpoint.Method) {
+			if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
+				fmt.Printf("🎯 Matched handler '%s' by method pattern for %s %s\n", handlerName, endpoint.Method, endpoint.Path)
+				return handlerInfo, true
+			}
+		}
+	}
+
+	// Strategy 3: Response pattern matching - if there's only one handler, use it
+	if len(availableHandlers) == 1 {
+		if handlerInfo, exists := p.GetHandlerByName(availableHandlers[0]); exists {
+			fmt.Printf("🎯 Using single available handler '%s' for %s %s\n", availableHandlers[0], endpoint.Method, endpoint.Path)
+			return handlerInfo, true
+		}
+	}
+
+	// Strategy 4: First handler with response schema - prefer handlers with actual response data
+	for _, handlerName := range availableHandlers {
+		if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
+			if len(handlerInfo.ResponseSchema) > 0 {
+				fmt.Printf("🎯 Using handler '%s' with response schema for %s %s\n", handlerName, endpoint.Method, endpoint.Path)
+				return handlerInfo, true
+			}
+		}
+	}
+
+	fmt.Printf("❌ No suitable handler found using fuzzy matching for %s %s\n", endpoint.Method, endpoint.Path)
+	return nil, false
+}
+
+// handlerMatchesPathPattern checks if a handler name matches the endpoint path pattern
+func (p *ASTParser) handlerMatchesPathPattern(handlerName string, pathSegments []string) bool {
+	handlerLower := strings.ToLower(handlerName)
+
+	// Check if handler name contains any path segments
+	for _, segment := range pathSegments {
+		if segment == "" || strings.HasPrefix(segment, ":") || strings.HasPrefix(segment, "{") {
+			continue
+		}
+
+		segmentLower := strings.ToLower(segment)
+		if strings.Contains(handlerLower, segmentLower) {
+			return true
+		}
+
+		// Also check without common suffixes/prefixes
+		cleanSegment := strings.TrimSuffix(strings.TrimPrefix(segmentLower, "api"), "s")
+		if cleanSegment != "" && strings.Contains(handlerLower, cleanSegment) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// handlerMatchesMethod checks if a handler name suggests it handles a specific HTTP method
+func (p *ASTParser) handlerMatchesMethod(handlerName string, method string) bool {
+	handlerLower := strings.ToLower(handlerName)
+	methodLower := strings.ToLower(method)
+
+	// Direct method name matching
+	if strings.Contains(handlerLower, methodLower) {
+		return true
+	}
+
+	// Common method patterns
+	methodPatterns := map[string][]string{
+		"get":    {"get", "fetch", "retrieve", "find", "list", "show", "read"},
+		"post":   {"post", "create", "add", "insert", "new", "register"},
+		"put":    {"put", "update", "replace", "modify", "edit", "change"},
+		"patch":  {"patch", "update", "modify", "edit", "partial"},
+		"delete": {"delete", "remove", "destroy", "drop", "clear"},
+	}
+
+	if patterns, exists := methodPatterns[methodLower]; exists {
+		for _, pattern := range patterns {
+			if strings.Contains(handlerLower, pattern) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// parseRouteRegistration detects route registration patterns in function calls
+func (p *ASTParser) parseRouteRegistration(call *ast.CallExpr) *RouteRegistration {
+	if call.Fun == nil || len(call.Args) < 2 {
+		return nil
+	}
+
+	// Detect patterns like router.GET("/path", handler) or router.POST("/path", handlerVar)
+	var method, path, handlerRef string
+
+	// Extract method from function call
+	if selExpr, ok := call.Fun.(*ast.SelectorExpr); ok {
+		method = strings.ToUpper(selExpr.Sel.Name)
+		if !isHTTPMethod(method) {
+			return nil
+		}
+	} else {
+		return nil
+	}
+
+	// Extract path from first argument (should be a string literal)
+	if pathLit, ok := call.Args[0].(*ast.BasicLit); ok && pathLit.Kind.String() == "STRING" {
+		path = strings.Trim(pathLit.Value, `"`)
+	} else {
+		return nil
+	}
+
+	// Extract handler reference from second argument
+	if len(call.Args) >= 2 {
+		handlerRef = p.extractHandlerReference(call.Args[1])
+	}
+
+	if method != "" && path != "" && handlerRef != "" {
+		return &RouteRegistration{
+			Method:     method,
+			Path:       path,
+			HandlerRef: handlerRef,
+			CallExpr:   call,
+		}
+	}
+
+	return nil
+}
+
+// extractHandlerReference extracts the handler reference from an AST expression
+func (p *ASTParser) extractHandlerReference(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.SelectorExpr:
+		if ident, ok := e.X.(*ast.Ident); ok {
+			return ident.Name + "." + e.Sel.Name
+		}
+	case *ast.CallExpr:
+		// Handle wrapped handlers like middleware(handler)
+		if len(e.Args) > 0 {
+			return p.extractHandlerReference(e.Args[0])
+		}
+	}
+	return ""
+}
+
+// analyzeRouteRegistration processes a route registration to improve handler mapping
+func (p *ASTParser) analyzeRouteRegistration(routeReg *RouteRegistration) {
+	fmt.Printf("🔗 Found route registration: %s %s -> %s\n", routeReg.Method, routeReg.Path, routeReg.HandlerRef)
+
+	// Try to find the handler function that matches this registration
+	if handlerInfo, exists := p.handlers[routeReg.HandlerRef]; exists {
+		// Update handler with route information
+		handlerInfo.HTTPMethods = append(handlerInfo.HTTPMethods, routeReg.Method)
+		handlerInfo.RoutePath = routeReg.Path
+		fmt.Printf("✅ Linked route %s %s to handler %s\n", routeReg.Method, routeReg.Path, routeReg.HandlerRef)
+	} else {
+		// Look for similar handler names
+		for handlerName, handlerInfo := range p.handlers {
+			if strings.Contains(strings.ToLower(handlerName), strings.ToLower(routeReg.HandlerRef)) ||
+				strings.Contains(strings.ToLower(routeReg.HandlerRef), strings.ToLower(handlerName)) {
+				handlerInfo.HTTPMethods = append(handlerInfo.HTTPMethods, routeReg.Method)
+				handlerInfo.RoutePath = routeReg.Path
+				fmt.Printf("✅ Linked route %s %s to similar handler %s (ref: %s)\n",
+					routeReg.Method, routeReg.Path, handlerName, routeReg.HandlerRef)
+				break
+			}
+		}
+	}
+}
+
+// isHTTPMethod checks if a string is a valid HTTP method
+func isHTTPMethod(method string) bool {
+	httpMethods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+	for _, m := range httpMethods {
+		if method == m {
+			return true
+		}
+	}
+	return false
 }
 
 // GetHandlerDescription returns the description for a handler
