@@ -85,7 +85,7 @@ func initApp(devMode bool) {
 // Example handlers in cmd/server/handlers.go
 // Example cron jobs in cmd/server/jobs.go
 //
-// You can restructure Your project as you wish,
+// You can restructure Your project as You wish,
 // just keep this main.go in cmd/server/main.go
 //
 // Consider using the cmd/scripts commands for
