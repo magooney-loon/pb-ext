@@ -862,17 +862,171 @@ document.addEventListener('DOMContentLoaded', function() {
     window.FilterController = FilterController;
 
     const APITester = {
-        testEndpoint(method, path, authRequired) {
-            // Simple endpoint tester - opens in new tab for GET, shows modal for others
-            if (method.toUpperCase() === 'GET' && !authRequired) {
-                window.open(window.location.origin + path, '_blank');
-                return;
+        getAuthToken() {
+            let token = null;
+            let authType = 'none';
+
+            try {
+                // Check for superuser auth first
+                const superuserAuth = localStorage.getItem('__pb_superuser_auth__');
+                if (superuserAuth) {
+                    const authData = JSON.parse(superuserAuth);
+                    if (authData && authData.token) {
+                        token = authData.token;
+                        authType = 'superuser';
+                        return { token, authType, email: authData.record?.email };
+                    }
+                }
+
+                // Check for regular user auth
+                const authKeys = Object.keys(localStorage).filter(key => key.startsWith('pb_auth_'));
+                if (authKeys.length > 0) {
+                    const authData = JSON.parse(localStorage.getItem(authKeys[0]));
+                    if (authData && authData.token) {
+                        token = authData.token;
+                        authType = 'user';
+                        return { token, authType, email: authData.record?.email };
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get auth token:', error);
             }
 
-            // For more complex endpoints, could implement a modal here
-            alert(`Testing ${method.toUpperCase()} ${path}\n\nThis would typically open a request builder interface.`);
+            return { token: null, authType: 'none', email: null };
+        },
+
+        testEndpoint(method, path, authRequired) {
+            try {
+                const auth = this.getAuthToken();
+
+                // For simple GET requests without auth, just open in new tab
+                if (method.toUpperCase() === 'GET' && !authRequired) {
+                    const url = window.location.origin + path;
+                    console.log('Opening endpoint in new tab:', url);
+                    window.open(url, '_blank');
+                    return;
+                }
+
+                // For auth-required endpoints, check if we have a token
+                if (authRequired && !auth.token) {
+                    alert('This endpoint requires authentication. Please log in to PocketBase first.');
+                    return;
+                }
+
+                // Prepare fetch options
+                const fetchOptions = {
+                    method: method.toUpperCase(),
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                };
+
+                // Add authorization header if we have a token
+                if (auth.token) {
+                    fetchOptions.headers['Authorization'] = `Bearer ${auth.token}`;
+                }
+
+                // Make the API call and show results in a new window
+                const url = window.location.origin + path;
+                console.log(`Testing ${method.toUpperCase()} ${url} with auth:`, auth.authType);
+
+                fetch(url, fetchOptions)
+                    .then(response => {
+                        return response.text().then(text => {
+                            let content;
+                            try {
+                                content = JSON.stringify(JSON.parse(text), null, 2);
+                            } catch (e) {
+                                content = text;
+                            }
+
+                            const newWindow = window.open('', '_blank');
+                            const statusClass = response.ok ? 'success' : 'error';
+                            const authInfo = auth.token ? ` (Authenticated as ${auth.authType}${auth.email ? `: ${auth.email}` : ''})` : ' (Not authenticated)';
+
+                            newWindow.document.write(`
+                                <html>
+                                    <head>
+                                        <title>${method.toUpperCase()} ${path} - API Response</title>
+                                        <style>
+                                            body {
+                                                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                                                padding: 20px;
+                                                background: #1a1a1a;
+                                                color: #e1e1e1;
+                                                line-height: 1.5;
+                                            }
+                                            .status {
+                                                padding: 12px;
+                                                border-radius: 6px;
+                                                margin-bottom: 20px;
+                                                border: 1px solid;
+                                            }
+                                            .status.success {
+                                                background: #1f4e3d;
+                                                border-color: #22c55e;
+                                                color: #22c55e;
+                                            }
+                                            .status.error {
+                                                background: #4e1f1f;
+                                                border-color: #ef4444;
+                                                color: #ef4444;
+                                            }
+                                            pre {
+                                                background: #2a2a2a;
+                                                padding: 15px;
+                                                border-radius: 6px;
+                                                overflow: auto;
+                                                white-space: pre-wrap;
+                                                word-wrap: break-word;
+                                            }
+                                            .header {
+                                                color: #9ca3af;
+                                                margin-bottom: 15px;
+                                                font-size: 14px;
+                                            }
+                                            .method {
+                                                display: inline-block;
+                                                padding: 2px 8px;
+                                                border-radius: 4px;
+                                                font-size: 12px;
+                                                font-weight: bold;
+                                                margin-right: 8px;
+                                            }
+                                            .method.get { background: #22c55e; color: white; }
+                                            .method.post { background: #3b82f6; color: white; }
+                                            .method.put { background: #f59e0b; color: white; }
+                                            .method.delete { background: #ef4444; color: white; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <div class="header">
+                                            <span class="method ${method.toLowerCase()}">${method.toUpperCase()}</span>
+                                            ${window.location.origin}${path}
+                                        </div>
+                                        <div class="status ${statusClass}">
+                                            Status: ${response.status} ${response.statusText}${authInfo}
+                                        </div>
+                                        <pre>${content}</pre>
+                                    </body>
+                                </html>
+                            `);
+                        });
+                    })
+                    .catch(error => {
+                        console.error('API call failed:', error);
+                        alert('Error calling API: ' + error.message);
+                    });
+
+            } catch (error) {
+                console.error('Failed to test endpoint:', error);
+                alert('Failed to test endpoint: ' + error.message);
+            }
         }
     };
+
+    // Expose APITester globally so it can be called from HTML templates
+    window.APITester = APITester;
 
     // =============================================================================
     // DATA LOADING AND INITIALIZATION
