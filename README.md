@@ -4,6 +4,8 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 <img width="3840" height="2160" alt="pb-ext" src="https://github.com/user-attachments/assets/155cacab-9a2a-4ea0-84b5-137209a4512b" />
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/magooney-loon/pb-ext)
+
 ## Core Features
 
 - **API Schema**: Automatic endpoint openapi style docs UI generation
