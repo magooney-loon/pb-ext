@@ -34,7 +34,7 @@ type ServerStats struct {
 
 // shouldExcludeFromStats returns true if the path should be excluded from server statistics
 func shouldExcludeFromStats(path string) bool {
-	return path == "/service-worker.js" || path == "/favicon.ico"
+	return path == "/service-worker.js" || path == "/favicon.ico" || path == "/manifest.json"
 }
 
 // New creates a server instance. Options args used for precision setup - pocketbase.Config and pocketbase.Pocketbase instance injection.

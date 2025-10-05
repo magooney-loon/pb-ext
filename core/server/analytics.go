@@ -659,6 +659,7 @@ func shouldExcludeFromAnalytics(path string) bool {
 		strings.HasPrefix(path, "/.well-known/") ||
 		path == "/favicon.ico" ||
 		path == "/service-worker.js" ||
+		path == "/manifest.json" ||
 		strings.HasSuffix(path, ".css") ||
 		strings.HasSuffix(path, ".png") ||
 		strings.HasSuffix(path, ".jpg") ||

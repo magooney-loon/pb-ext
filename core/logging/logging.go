@@ -58,7 +58,7 @@ type LogContext struct {
 
 // shouldExcludeFromLogging returns true if the path should be excluded from logging
 func shouldExcludeFromLogging(path string) bool {
-	return path == "/service-worker.js" || path == "/favicon.ico"
+	return path == "/service-worker.js" || path == "/favicon.ico" || path == "/manifest.json"
 }
 
 // InfoWithContext logs an info message with context data using PocketBase's logger
