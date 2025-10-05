@@ -114,6 +114,11 @@
                     Endpoints
                 </button>
 
+                <button class="tab-item" data-tab="components">
+                    <i class="ri-settings-3-line"></i>
+                    Generics
+                </button>
+
                 <button class="tab-item" data-tab="raw">
                     <i class="ri-code-line"></i>
                     Raw Schema
@@ -133,6 +138,26 @@
                 </div>
 
 
+
+                <!-- Components Tab -->
+                <div id="components-tab" class="tab-content" style="display: none;">
+                    <div class="flex justify-between align-center mb-2">
+                        <div class="flex gap-2 align-center">
+                            <span class="txt-sm txt-hint">Format:</span>
+                            <div class="inline-flex">
+                                <button id="components-json-format-btn" class="btn btn-xs btn-secondary active" data-format="json">JSON</button>
+                                <button id="components-yaml-format-btn" class="btn btn-xs btn-secondary" data-format="yaml">YAML</button>
+                            </div>
+                        </div>
+                        <button id="copy-components-btn" class="btn btn-xs btn-secondary" type="button">
+                            <i class="ri-file-copy-line"></i>
+                            Copy
+                        </button>
+                    </div>
+                    <div class="code-block">
+                        <pre id="components-content" class="code"><code>Loading components...</code></pre>
+                    </div>
+                </div>
 
                 <!-- Raw Schema Tab -->
                 <div id="raw-tab" class="tab-content" style="display: none;">
@@ -429,6 +454,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     let openApiSchema = null;
     let apiStats = null;
+    let apiComponents = null;
     let allEndpoints = [];
     let filteredEndpoints = [];
 
@@ -474,6 +500,24 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Format switching for components
+    const componentsJsonBtn = document.getElementById('components-json-format-btn');
+    const componentsYamlBtn = document.getElementById('components-yaml-format-btn');
+
+    if (componentsJsonBtn && componentsYamlBtn) {
+        componentsJsonBtn.addEventListener('click', function() {
+            componentsJsonBtn.classList.add('active');
+            componentsYamlBtn.classList.remove('active');
+            updateComponents('json');
+        });
+
+        componentsYamlBtn.addEventListener('click', function() {
+            componentsYamlBtn.classList.add('active');
+            componentsJsonBtn.classList.remove('active');
+            updateComponents('yaml');
+        });
+    }
+
     // Copy schema functionality
     const copyBtn = document.getElementById('copy-schema-btn');
     if (copyBtn) {
@@ -484,6 +528,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 copyBtn.innerHTML = '<i class="ri-check-line"></i> Copied!';
                 setTimeout(() => {
                     copyBtn.innerHTML = originalText;
+                }, 2000);
+            });
+        });
+    }
+
+    // Copy components functionality
+    const copyComponentsBtn = document.getElementById('copy-components-btn');
+    if (copyComponentsBtn) {
+        copyComponentsBtn.addEventListener('click', function() {
+            const content = document.getElementById('components-content').textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                const originalText = copyComponentsBtn.innerHTML;
+                copyComponentsBtn.innerHTML = '<i class="ri-check-line"></i> Copied!';
+                setTimeout(() => {
+                    copyComponentsBtn.innerHTML = originalText;
                 }, 2000);
             });
         });
@@ -561,6 +620,26 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
+    // Load API components
+    function loadApiComponents() {
+        return fetch('/api/docs/components')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(components => {
+                apiComponents = components;
+                updateComponents('json');
+                return components;
+            })
+            .catch(error => {
+                console.error('Failed to load API components:', error);
+                return null;
+            });
+    }
+
     // Load OpenAPI schema
     function loadOpenApiSchema() {
         const statusBadge = document.getElementById('api-status-badge');
@@ -583,9 +662,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         Promise.all([
             fetch('/api/docs/openapi').then(r => r.json()),
-            loadApiStats()
+            loadApiStats(),
+            loadApiComponents()
         ])
-            .then(([schemaData, statsData]) => {
+            .then(([schemaData, statsData, componentsData]) => {
                 openApiSchema = schemaData;
                 allEndpoints = schemaData.endpoints || [];
                 filteredEndpoints = [...allEndpoints];
@@ -1004,6 +1084,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function updateComponents(format) {
+        const content = document.getElementById('components-content');
+        if (!content || !apiComponents) return;
+
+        try {
+            if (format === 'yaml') {
+                // Simple JSON to YAML conversion
+                content.textContent = jsonToYaml(apiComponents);
+            } else {
+                content.innerHTML = syntaxHighlight(apiComponents);
+            }
+        } catch (error) {
+            content.textContent = 'Error formatting components: ' + error.message;
+        }
+    }
+
     function jsonToYaml(obj, indent = 0) {
         const spaces = '  '.repeat(indent);
         let yaml = '';
@@ -1058,6 +1154,13 @@ This usually means:
 - The API documentation endpoint is not available
 - There's a network connectivity issue
 - The server is still starting up
+
+Check the server logs for more details.`;
+        }
+
+        const componentsContent = document.getElementById('components-content');
+        if (componentsContent) {
+            componentsContent.textContent = `Error: ${message}
 
 Check the server logs for more details.`;
         }
