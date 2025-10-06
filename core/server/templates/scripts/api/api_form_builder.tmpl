@@ -552,21 +552,6 @@
                         </p>
                     </div>
                     <div class="query-param-fields" id="query-param-fields">
-                        <div class="query-param-entry">
-                            <div class="query-param-pair">
-                                <input type="text"
-                                       class="form-control query-param-key"
-                                       placeholder="Parameter name (e.g., name)"
-                                       data-param-type="key">
-                                <input type="text"
-                                       class="form-control query-param-value"
-                                       placeholder="Parameter value (e.g., john)"
-                                       data-param-type="value">
-                                <button type="button" class="btn btn-sm btn-transparent remove-query-param" title="Remove parameter">
-                                    <i class="ri-close-line"></i>
-                                </button>
-                            </div>
-                        </div>
                     </div>
                     <div class="query-param-actions">
                         <button type="button" class="btn btn-sm btn-secondary" id="add-query-param">
@@ -619,12 +604,7 @@
             // Remove parameter button
             if (e.target.closest('.remove-query-param')) {
                 const entry = e.target.closest('.query-param-entry');
-                if (document.querySelectorAll('.query-param-entry').length > 1) {
-                    entry.remove();
-                } else {
-                    // Clear the last entry instead of removing it
-                    entry.querySelectorAll('input').forEach(input => input.value = '');
-                }
+                entry.remove();
                 APIFormBuilder.updateQueryPreview();
             }
 
@@ -632,23 +612,7 @@
             if (e.target.closest('#clear-query-params')) {
                 const container = document.getElementById('query-param-fields');
                 if (container) {
-                    container.innerHTML = `
-                        <div class="query-param-entry">
-                            <div class="query-param-pair">
-                                <input type="text"
-                                       class="form-control query-param-key"
-                                       placeholder="Parameter name (e.g., name)"
-                                       data-param-type="key">
-                                <input type="text"
-                                       class="form-control query-param-value"
-                                       placeholder="Parameter value (e.g., john)"
-                                       data-param-type="value">
-                                <button type="button" class="btn btn-sm btn-transparent remove-query-param" title="Remove parameter">
-                                    <i class="ri-close-line"></i>
-                                </button>
-                            </div>
-                        </div>
-                    `;
+                    container.innerHTML = '';
                     APIFormBuilder.updateQueryPreview();
                 }
             }

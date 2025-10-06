@@ -10,11 +10,6 @@
 .api-main-content {
     flex: 1;
     min-width: 0;
-    transition: margin-right 0.3s ease;
-}
-
-.api-main-content.with-sidebar {
-    margin-right: 400px;
 }
 
 /* API Tester Sidebar */
@@ -900,24 +895,7 @@
     transform: translate(-50%, -50%);
 }
 
-/* Mobile Overlay */
-.api-sidebar-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 999;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-}
 
-.api-sidebar-overlay.active {
-    opacity: 1;
-    visibility: visible;
-}
 
 /* Scrollbar Styling */
 .api-tester-content::-webkit-scrollbar {
@@ -964,9 +942,7 @@
         right: -100vw;
     }
 
-    .api-main-content.with-sidebar {
-        margin-right: 0;
-    }
+
 
     .api-resize-handle {
         display: none !important;
@@ -1012,14 +988,11 @@
 /* Print Styles */
 @media print {
     .api-tester-sidebar,
-    .api-sidebar-overlay,
     .test-endpoint-btn {
         display: none !important;
     }
 
-    .api-main-content.with-sidebar {
-        margin-right: 0 !important;
-    }
+
 }
 
 /* Dark Mode Enhancements */
@@ -1063,7 +1036,6 @@
     .api-tester-sidebar,
     .api-main-content,
     .api-resize-handle,
-    .api-sidebar-overlay,
     .btn,
     .test-endpoint-btn {
         transition: none;

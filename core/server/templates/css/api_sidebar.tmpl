@@ -523,35 +523,9 @@ textarea.form-control {
     font-size: 16px;
 }
 
-/* Mobile Overlay */
-.api-sidebar-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-    z-index: 9998;
-    pointer-events: none;
-}
 
-.api-sidebar-overlay.active {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-}
 
-/* Main Content Adjustment */
-.api-main-content {
-    transition: margin-right 0.3s ease;
-}
-
-.api-main-content.with-sidebar {
-    margin-right: 400px;
-}
+/* Main Content Adjustment - Removed to allow scrolling with sidebar open */
 
 /* Loading State */
 .animate-spin {

@@ -58,16 +58,13 @@
         bindEvents() {
             // Sidebar controls
             const closeBtn = document.getElementById('close-tester-btn');
-            const overlay = document.getElementById('api-sidebar-overlay');
             const copyBtn = document.getElementById('copy-response-btn');
 
             if (closeBtn) {
                 closeBtn.addEventListener('click', () => this.closeSidebar());
             }
 
-            if (overlay) {
-                overlay.addEventListener('click', () => this.closeSidebar());
-            }
+
 
             if (copyBtn) {
                 copyBtn.addEventListener('click', () => this.copyResponse());
@@ -190,19 +187,10 @@
         // Show sidebar UI
         showSidebar() {
             const sidebar = document.getElementById('api-tester-sidebar');
-            const overlay = document.getElementById('api-sidebar-overlay');
             const mainContent = document.querySelector('.api-main-content');
 
             if (sidebar) {
                 sidebar.classList.add('open');
-            }
-
-            if (overlay) {
-                overlay.classList.add('active');
-            }
-
-            if (mainContent) {
-                mainContent.classList.add('with-sidebar');
             }
 
             this.isOpen = true;
@@ -211,19 +199,10 @@
         // Hide sidebar UI
         hideSidebar() {
             const sidebar = document.getElementById('api-tester-sidebar');
-            const overlay = document.getElementById('api-sidebar-overlay');
             const mainContent = document.querySelector('.api-main-content');
 
             if (sidebar) {
                 sidebar.classList.remove('open');
-            }
-
-            if (overlay) {
-                overlay.classList.remove('active');
-            }
-
-            if (mainContent) {
-                mainContent.classList.remove('with-sidebar');
             }
 
             this.isOpen = false;
