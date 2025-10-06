@@ -51,9 +51,10 @@
     font-weight: 600;
 }
 
+/* SCROLL HIERARCHY: Main container - contains all tester content */
 .api-tester-content {
     flex: 1;
-    overflow-y: auto;
+    overflow-y: auto; /* Main scroll for entire sidebar */
     padding: 0;
     display: flex;
     flex-direction: column;
@@ -124,13 +125,12 @@
     font-weight: 600;
 }
 
-/* Tester Tab Content */
+/* SCROLL HIERARCHY: Tab containers - NO SCROLL (prevent nested scrollbars) */
 .tester-tab-content {
     display: none;
     flex: 1;
-    overflow: hidden;
+    overflow: hidden; /* Important: no scroll here */
     min-height: 0;
-    max-height: calc(100vh - 200px);
 }
 
 .tester-tab-content.active {
@@ -172,7 +172,7 @@
 }
 
 .tester-section .form-field {
-    padding: 16px;
+    padding: 8px;
     border-bottom: 1px solid var(--baseAlt2Color);
 }
 
@@ -187,7 +187,7 @@
 
 .schema-param-group {
     border-bottom: 1px solid var(--baseAlt2Color);
-    padding: 16px;
+    padding: 8px;
 }
 
 .schema-param-group:last-child {
@@ -321,11 +321,11 @@
     min-height: 200px;
 }
 
+/* SCROLL HIERARCHY: Response container - NO SCROLL (prevent nested scrollbars) */
 .response-content {
     flex: 1;
-    overflow: hidden;
+    overflow: hidden; /* Important: no scroll here */
     min-height: 0;
-    max-height: calc(100vh - 300px);
     display: flex;
     flex-direction: column;
 }
@@ -403,30 +403,29 @@
     border-bottom-color: var(--primaryColor);
 }
 
+/* SCROLL HIERARCHY: Response tab content - ONLY SCROLLABLE AREA */
 .response-tab-content {
     display: none;
     flex: 1;
-    overflow-y: auto;
+    overflow-y: auto; /* ONLY this should scroll - prevents multiple scrollbars */
     min-height: 0;
-    max-height: calc(100vh - 350px);
-    padding: 16px;
+    padding: 0;
 }
 
 .response-tab-content.active {
     display: block;
 }
 
+/* SCROLL HIERARCHY: Pre content - only horizontal scroll for long lines */
 .response-tab-content pre {
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: auto;
     word-wrap: break-word;
     white-space: pre-wrap;
     margin: 0;
-    padding: 12px;
-    background: var(--baseAlt1Color);
-    border-radius: 4px;
-    border: 1px solid var(--baseAlt2Color);
+    padding: 8px;
+    background: transparent;
+    border: none;
+    overflow-x: auto; /* Only horizontal scroll for long lines */
+    overflow-y: visible; /* No vertical scroll - parent handles it */
 }
 
 /* Response empty state */
@@ -571,7 +570,7 @@
     border-radius: 6px;
     position: relative;
     margin: 0;
-    padding: 12px;
+
     overflow-x: auto;
     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
     font-size: 13px;
@@ -581,7 +580,7 @@
 
 .code-block pre {
     margin: 0;
-    padding: 12px;
+
     overflow-x: auto;
     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
     font-size: 13px;

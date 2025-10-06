@@ -1,12 +1,12 @@
 {{define "api_tester_js"}}
     // =============================================================================
-    // API TESTER - SCHEMA-BASED PARAMETER FORM GENERATION
+    // API TESTER - REFACTORED COORDINATOR
     // =============================================================================
 
     const APITester = {
         currentEndpoint: null,
         parameterSchema: null,
-        debug: true, // Enable debug for troubleshooting
+        debug: true,
 
         // Initialize the API tester
         init() {
@@ -53,30 +53,11 @@
         // Handle sidebar opened event
         handleSidebarOpened(detail) {
             this.log('Sidebar opened with endpoint:', detail);
-            console.log('Full endpoint detail object:', JSON.stringify(detail, null, 2));
+            this.log('Full endpoint detail object:', JSON.stringify(detail, null, 2));
 
-            // Parse the data if it's a JSON string
-            let endpointData = detail.data || {};
-            if (typeof endpointData === 'string') {
-                try {
-                    endpointData = JSON.parse(endpointData);
-                    console.log('Parsed JSON string data successfully');
-                } catch (error) {
-                    console.error('Failed to parse endpoint data JSON:', error);
-                    endpointData = {};
-                }
-            }
+            this.currentEndpoint = detail;
 
-            this.currentEndpoint = {
-                method: detail.method,
-                path: detail.path,
-                data: endpointData
-            };
-
-            console.log('Current endpoint set to:', this.currentEndpoint);
-            console.log('Endpoint data structure:', JSON.stringify(this.currentEndpoint.data, null, 2));
-
-            // Process endpoint schema data
+            // Process the endpoint to generate form
             this.processEndpointSchema();
         },
 
@@ -94,7 +75,7 @@
             }
         },
 
-        // Process endpoint schema
+        // Process endpoint schema and generate form
         processEndpointSchema() {
             const container = document.getElementById('schema-form-container');
             if (!container) {
@@ -106,13 +87,16 @@
                 // Show loading state
                 this.showLoadingState(container);
 
-                // Extract parameter schema from endpoint data
-                this.parameterSchema = this.extractParameterSchema();
+                // Extract parameter schema from endpoint data using APISchemaManager
+                this.parameterSchema = APISchemaManager.extractParameterSchema(this.currentEndpoint);
 
-                console.log('Extracted parameter schema:', JSON.stringify(this.parameterSchema, null, 2));
+                this.log('Extracted parameter schema:', JSON.stringify(this.parameterSchema, null, 2));
 
-                // Generate form based on schema
-                this.generateParameterForm(container);
+                // Generate form using APIFormBuilder
+                APIFormBuilder.generateParameterForm(container, this.parameterSchema, this.currentEndpoint);
+
+                // Populate default values using APIExampleGenerator
+                APIExampleGenerator.populateDefaultValues(this.parameterSchema);
 
                 this.log('Parameter schema processed successfully');
 
@@ -153,1193 +137,29 @@
             `;
         },
 
-        // Extract parameter schema from endpoint data
-        extractParameterSchema() {
-            console.log('Starting parameter schema extraction...');
-
-            const schema = {
-                pathParameters: [],
-                queryParameters: [],
-                headerParameters: [],
-                requestBody: null,
-                examples: {}
-            };
-
-            // Extract from OpenAPI endpoint data if available
-            if (this.currentEndpoint.data) {
-                const endpointData = this.currentEndpoint.data;
-                console.log('Processing endpoint data:', endpointData);
-
-                // Extract path parameters from the path itself if not explicitly defined
-                const pathParams = this.extractPathParameters(this.currentEndpoint.path);
-                if (pathParams.length > 0 && (!endpointData.parameters || endpointData.parameters.length === 0)) {
-                    console.log('Inferred path parameters from path:', pathParams);
-                    schema.pathParameters = pathParams;
-                }
-
-                // Extract parameters
-                if (endpointData.parameters && Array.isArray(endpointData.parameters)) {
-                    console.log('Found parameters array:', endpointData.parameters);
-
-                    endpointData.parameters.forEach((param, index) => {
-                        console.log(`Processing parameter ${index}:`, param);
-
-                        const normalizedParam = this.normalizeParameter(param);
-                        console.log(`Normalized parameter ${index}:`, normalizedParam);
-
-                        switch (param.in) {
-                            case 'path':
-                                schema.pathParameters.push(normalizedParam);
-                                console.log('Added to path parameters');
-                                break;
-                            case 'query':
-                                schema.queryParameters.push(normalizedParam);
-                                console.log('Added to query parameters');
-                                break;
-                            case 'header':
-                                schema.headerParameters.push(normalizedParam);
-                                console.log('Added to header parameters');
-                                break;
-                        }
-                    });
-                } else if (schema.pathParameters.length === 0) {
-                    console.log('No parameters found in endpoint data');
-                }
-
-                // For POST/PUT/PATCH methods, ALWAYS infer request body from response schema
-                if (['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method)) {
-                    console.log('Inferring request body from response schema for', this.currentEndpoint.method);
-                    schema.requestBody = this.inferRequestBodyFromResponse(endpointData.response);
-                    if (schema.requestBody) {
-                        console.log('Successfully inferred request body schema from response');
-                    } else {
-                        console.log('Could not infer request body from response, will use defaults');
-                    }
-                } else {
-                    console.log('No request body needed for', this.currentEndpoint.method);
-                }
-
-                // Extract examples
-                if (endpointData.examples) {
-                    schema.examples = endpointData.examples;
-                    console.log('Found examples:', schema.examples);
-                }
-            } else {
-                console.log('No endpoint data available');
-            }
-
-            console.log('Final extracted schema:', schema);
-            return schema;
-        },
-
-        // Extract path parameters from URL path
-        extractPathParameters(path) {
-            const params = [];
-            const regex = /{([^}]+)}/g;
-            let match;
-
-            while ((match = regex.exec(path)) !== null) {
-                params.push({
-                    name: match[1],
-                    type: 'string',
-                    required: true,
-                    description: `Path parameter: ${match[1]}`,
-                    example: '',
-                    enum: null,
-                    format: null,
-                    in: 'path'
-                });
-            }
-
-            return params;
-        },
-
-        // Normalize parameter object
-        normalizeParameter(param) {
-            console.log('Normalizing parameter:', param);
-
-            const normalized = {
-                name: param.name || 'unknown',
-                type: param.schema?.type || param.type || 'string',
-                required: param.required || false,
-                description: param.description || `${param.in} parameter`,
-                example: param.example || param.schema?.example || '',
-                enum: param.schema?.enum || param.enum || null,
-                format: param.schema?.format || param.format || null,
-                in: param.in || 'query'
-            };
-
-            console.log('Normalized result:', normalized);
-            return normalized;
-        },
-
-        // Infer request body schema ONLY from response
-        inferRequestBodyFromResponse(responseSchema) {
-            console.log('Inferring request body ONLY from response schema:', responseSchema);
-
-            if (!responseSchema) {
-                console.log('No response schema available for inference');
-                return this.getDefaultRequestBody();
-            }
-
-            // Priority order for finding the main data structure in response
-            const dataKeys = ['data', 'post', 'item', 'resource', 'result', 'object', 'entity', 'record'];
-            let resourceSchema = null;
-
-            // First, try to find a nested data object in the response
-            if (responseSchema.properties) {
-                for (const key of dataKeys) {
-                    if (responseSchema.properties[key] && responseSchema.properties[key].properties) {
-                        resourceSchema = responseSchema.properties[key];
-                        console.log(`Found nested resource schema under '${key}':`, resourceSchema);
-                        break;
-                    }
-                }
-
-                // If no nested object found but response has properties, use response directly
-                if (!resourceSchema && Object.keys(responseSchema.properties).length > 0) {
-                    console.log('Using response properties directly for inference');
-                    resourceSchema = responseSchema;
-                }
-            }
-
-            // If response is an array, look at the items schema
-            if (!resourceSchema && responseSchema.type === 'array' && responseSchema.items) {
-                console.log('Response is an array, using items schema');
-                resourceSchema = responseSchema.items;
-            }
-
-            if (resourceSchema) {
-                // Clean the schema by removing server-generated fields
-                const cleanedSchema = this.cleanSchemaForRequest(resourceSchema);
-
-                return {
-                    type: 'object',
-                    required: true,
-                    schema: cleanedSchema,
-                    description: 'Request payload (inferred from response structure)'
-                };
-            }
-
-            console.log('Could not infer schema from response, using defaults');
-            return this.getDefaultRequestBody();
-        },
-
-        // Get default request body when inference fails
-        getDefaultRequestBody() {
-            return {
-                type: 'object',
-                required: true,
-                schema: {
-                    type: 'object',
-                    properties: {},
-                    additionalProperties: true
-                },
-                description: 'Request payload (using flexible schema)'
-            };
-        },
-
-        // Clean schema for request by removing server-generated fields
-        cleanSchemaForRequest(schema) {
-            if (!schema) return schema;
-
-            // Expanded list of server-generated fields to exclude
-            const excludeFields = [
-                'id', '_id', 'uid', 'uuid',
-                'created', 'created_at', 'created_by', 'created_date', 'creation_time',
-                'updated', 'updated_at', 'updated_by', 'updated_date', 'modification_time',
-                'modified', 'modified_at', 'modified_by', 'last_modified',
-                'deleted', 'deleted_at', 'deleted_by',
-                'author', 'author_id', 'user', 'user_id', 'owner', 'owner_id',
-                'creator', 'creator_id', 'modifier', 'modifier_id',
-                'version', 'revision', 'etag', 'timestamp'
-            ];
-
-            // If schema has properties, filter them
-            if (schema.properties) {
-                const cleanedProperties = {};
-
-                Object.entries(schema.properties).forEach(([key, value]) => {
-                    const lowerKey = key.toLowerCase();
-                    const shouldExclude = excludeFields.some(field =>
-                        lowerKey === field ||
-                        lowerKey === `${field}_id` ||
-                        lowerKey.endsWith(`_${field}`)
-                    );
-
-                    if (!shouldExclude) {
-                        cleanedProperties[key] = value;
-                        console.log(`Including field: ${key}`);
-                    } else {
-                        console.log(`Excluding server-generated field: ${key}`);
-                    }
-                });
-
-                return {
-                    ...schema,
-                    properties: cleanedProperties,
-                    required: schema.required ? schema.required.filter(field =>
-                        !excludeFields.some(exclude => field.toLowerCase() === exclude)
-                    ) : []
-                };
-            }
-
-            return schema;
-        },
-
-
-
-        // Generate parameter form
-        generateParameterForm(container) {
-            console.log('Generating parameter form with schema:', this.parameterSchema);
-
-            if (!this.parameterSchema) {
-                console.error('No parameter schema available');
-                container.innerHTML = '<p class="txt-center txt-hint p-4">No parameter schema available</p>';
+        // Send HTTP request using APIRequestHandler
+        async sendRequest() {
+            if (!this.currentEndpoint) {
+                console.error('No current endpoint for request');
                 return;
             }
 
-            const sections = [];
-
-            // Build path parameters section
-            if (this.parameterSchema.pathParameters.length > 0) {
-                console.log('Building path parameters section');
-                sections.push(this.buildParameterSection(
-                    'Path Parameters',
-                    'ri-route-line',
-                    this.parameterSchema.pathParameters,
-                    'These parameters are part of the URL path and are typically required.'
-                ));
-            }
-
-            // Build query parameters section
-            if (this.parameterSchema.queryParameters.length > 0) {
-                console.log('Building query parameters section');
-                sections.push(this.buildParameterSection(
-                    'Query Parameters',
-                    'ri-search-line',
-                    this.parameterSchema.queryParameters,
-                    'These parameters are added to the URL as query string.'
-                ));
-            }
-
-            // Build request body section for POST/PUT/PATCH
-            if (['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method)) {
-                console.log('Building request body section for', this.currentEndpoint.method);
-                if (this.parameterSchema.requestBody) {
-                    sections.push(this.buildRequestBodySection());
-                }
-            }
-
-            console.log('Generated', sections.length, 'form sections');
-
-            // Combine all sections
-            const formHtml = sections.join('');
-            if (formHtml) {
-                container.innerHTML = formHtml;
-                console.log('Form HTML generated and inserted');
-            } else {
-                container.innerHTML = this.getNoParametersMessage();
-                console.log('No parameters found, showing empty message');
-            }
-
-            // Populate default values
-            this.populateDefaultValues();
-        },
-
-        // Build parameter section
-        buildParameterSection(title, icon, parameters, description) {
-            console.log(`Building section: ${title} with ${parameters.length} parameters`);
-
-            const fields = parameters.map(param => {
-                console.log('Building field for parameter:', param);
-                return this.buildParameterField(param);
-            }).join('');
-
-            return `
-                <div class="form-section">
-                    <div class="section-header">
-                        <h6 class="section-title">
-                            <i class="${icon}"></i>
-                            ${title}
-                        </h6>
-                        <p class="section-description">${description}</p>
-                    </div>
-                    <div class="parameter-fields">
-                        ${fields}
-                    </div>
-                </div>
-            `;
-        },
-
-        // Build individual parameter field
-        buildParameterField(param) {
-            const fieldId = `param-${param.in}-${param.name}`;
-            const isRequired = param.required;
-            const requiredMark = isRequired ? '<span class="txt-danger">*</span>' : '';
-
-            console.log(`Building field for ${param.name} (${param.type})`);
-
-            return `
-                <div class="form-field param-field" data-param="${param.name}" data-in="${param.in}">
-                    <label class="form-label" for="${fieldId}">
-                        ${param.name} ${requiredMark}
-                        <span class="param-type">(${param.type}${param.format ? `:${param.format}` : ''})</span>
-                    </label>
-                    ${this.buildInputElement(param, fieldId)}
-                    ${param.description ? `<div class="field-help">${param.description}</div>` : ''}
-                </div>
-            `;
-        },
-
-        // Build input element based on parameter type
-        buildInputElement(param, fieldId) {
-            const commonAttrs = `
-                id="${fieldId}"
-                name="${param.name}"
-                data-type="${param.type}"
-                data-in="${param.in}"
-                ${param.required ? 'required' : ''}
-                placeholder="${param.example || `Enter ${param.name}`}"
-            `;
-
-            switch (param.type) {
-                case 'boolean':
-                    return `
-                        <select class="form-control" ${commonAttrs}>
-                            <option value="">Select...</option>
-                            <option value="true">true</option>
-                            <option value="false">false</option>
-                        </select>
-                    `;
-
-                case 'integer':
-                case 'number':
-                    const step = param.type === 'integer' ? '1' : 'any';
-                    return `
-                        <input type="number" class="form-control" ${commonAttrs} step="${step}" />
-                    `;
-
-                case 'string':
-                    if (param.enum && param.enum.length > 0) {
-                        const options = param.enum.map(value =>
-                            `<option value="${value}">${value}</option>`
-                        ).join('');
-                        return `
-                            <select class="form-control" ${commonAttrs}>
-                                <option value="">Select...</option>
-                                ${options}
-                            </select>
-                        `;
-                    }
-
-                    if (param.format === 'date') {
-                        return `<input type="date" class="form-control" ${commonAttrs} />`;
-                    }
-
-                    if (param.format === 'date-time') {
-                        return `<input type="datetime-local" class="form-control" ${commonAttrs} />`;
-                    }
-
-                    return `<input type="text" class="form-control" ${commonAttrs} />`;
-
-                default:
-                    return `<input type="text" class="form-control" ${commonAttrs} />`;
-            }
-        },
-
-        // Build request body section with form fields
-        buildRequestBodySection() {
-            console.log('Building request body section from response inference');
-
-            const schema = this.parameterSchema.requestBody;
-            if (!schema) {
-                console.log('No request body schema available');
-                return this.buildFlexibleRequestSection();
-            }
-
-            const fields = this.generateFormFieldsFromSchema(schema);
-
-            return `
-                <div class="form-section">
-                    <div class="section-header">
-                        <h6 class="section-title">
-                            <i class="ri-code-box-line"></i>
-                            Request Payload
-                            ${schema.required ? '<span class="txt-danger">*</span>' : ''}
-                        </h6>
-                        <p class="section-description">
-                            ${schema.description}
-                            ${(!schema.schema?.properties || Object.keys(schema.schema.properties).length === 0) ?
-                                '<br><small class="txt-hint">📝 Fields inferred from response structure. Adjust as needed.</small>' :
-                                '<br><small class="txt-success">✓ Fields auto-detected from response schema</small>'}
-                        </p>
-                    </div>
-                    <div class="request-body-fields" id="request-body-fields">
-                        ${fields}
-                    </div>
-                    <div class="form-field mt-2">
-                        <small class="field-help">
-                            <i class="ri-information-line"></i>
-                            ${this.currentEndpoint.method === 'POST' ? 'Creates a new resource based on the response structure.' :
-                              this.currentEndpoint.method === 'PUT' ? 'Updates the entire resource to match response structure.' :
-                              this.currentEndpoint.method === 'PATCH' ? 'Partially updates fields from response structure.' :
-                              'Sends data matching the response structure.'}
-                        </small>
-                    </div>
-                </div>
-            `;
-        },
-
-        // Build flexible request section when no schema can be inferred
-        buildFlexibleRequestSection() {
-            return `
-                <div class="form-section">
-                    <div class="section-header">
-                        <h6 class="section-title">
-                            <i class="ri-code-box-line"></i>
-                            Request Payload
-                        </h6>
-                        <p class="section-description">
-                            No response schema available for inference. Using flexible JSON input.
-                        </p>
-                    </div>
-                    <div class="request-body-fields">
-                        <div class="form-field raw-json-field">
-                            <label class="form-label">JSON Payload</label>
-                            <textarea class="form-control"
-                                      id="raw-json-payload"
-                                      rows="10"
-                                      placeholder='{\n  "field": "value"\n}'
-                                      style="font-family: monospace;">{}</textarea>
-                            <div class="field-help">
-                                <i class="ri-information-line"></i>
-                                Enter valid JSON data for the request body
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        },
-
-        // Generate form fields from schema (ONLY from response inference)
-        generateFormFieldsFromSchema(schema) {
-            if (!schema || !schema.schema || !schema.schema.properties) {
-                console.log('No inferred properties available from response');
-                return this.generateEmptyStateMessage();
-            }
-
-            const properties = schema.schema.properties;
-            if (Object.keys(properties).length === 0) {
-                console.log('No fields found after filtering server-generated fields');
-                return this.generateEmptyStateMessage();
-            }
-
-            console.log('Generating fields from inferred properties:', properties);
-            return this.generateFieldsFromProperties(properties, schema.schema.required);
-        },
-
-        // Generate empty state message when no fields can be inferred
-        generateEmptyStateMessage() {
-            return `
-                <div class="empty-fields-state">
-                    <div class="txt-center txt-hint p-4">
-                        <i class="ri-file-search-line ri-xl"></i>
-                        <p><strong>No fields detected from response</strong></p>
-                        <p class="txt-sm">Unable to infer request structure from the response schema.</p>
-                        <div class="mt-3">
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="APITester.useRawJSON()">
-                                <i class="ri-code-line"></i>
-                                Use Raw JSON Editor
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        },
-
-        // Switch to raw JSON input mode
-        useRawJSON() {
-            const container = document.getElementById('schema-form-container');
-            if (!container) return;
-
-            container.innerHTML = `
-                <div class="form-field raw-json-field">
-                    <label class="form-label">
-                        JSON Payload
-                        <span class="param-type">(raw JSON)</span>
-                    </label>
-                    <textarea class="form-control"
-                              id="raw-json-payload"
-                              rows="12"
-                              placeholder='{\n  "field": "value"\n}'
-                              style="font-family: monospace;">{}</textarea>
-                    <div class="field-help">
-                        <i class="ri-information-line"></i>
-                        Enter valid JSON data. The structure will be sent as the request body.
-                    </div>
-                </div>
-            `;
-
-            console.log('Switched to raw JSON input mode');
-        },
-
-        // Generate fields from properties object (inferred from response)
-        generateFieldsFromProperties(properties, requiredFields = []) {
-            let html = '';
-            let fieldCount = 0;
-
-            Object.entries(properties).forEach(([propName, propSchema]) => {
-                const isRequired = requiredFields && requiredFields.includes(propName);
-                html += this.generateFormField(propName, propSchema, isRequired);
-                fieldCount++;
-            });
-
-            if (fieldCount === 0) {
-                return this.generateEmptyStateMessage();
-            }
-
-            // Add a note about inferred fields
-            html += `
-                <div class="inference-note">
-                    <small class="txt-hint">
-                        <i class="ri-magic-line"></i>
-                        ${fieldCount} field${fieldCount > 1 ? 's' : ''} auto-detected from response schema
-                    </small>
-                </div>
-            `;
-
-            return html;
-        },
-
-        // Generate individual form field
-        generateFormField(name, schema, isRequired = false) {
-            const fieldId = `body-field-${name}`;
-            const type = schema.type || 'string';
-            const required = isRequired || schema.required || false;
-            const example = schema.example || '';
-            const description = schema.description || '';
-
-            let inputHtml = '';
-
-            switch (type) {
-                case 'boolean':
-                    inputHtml = `
-                        <select class="form-control" id="${fieldId}" name="${name}">
-                            <option value="">Select...</option>
-                            <option value="true">true</option>
-                            <option value="false">false</option>
-                        </select>
-                    `;
-                    break;
-
-                case 'integer':
-                case 'number':
-                    inputHtml = `
-                        <input type="number"
-                               class="form-control"
-                               id="${fieldId}"
-                               name="${name}"
-                               step="${type === 'integer' ? '1' : 'any'}"
-                               placeholder="${example || `Enter ${name}`}" />
-                    `;
-                    break;
-
-                case 'string':
-                    if (name.toLowerCase().includes('content') || name.toLowerCase().includes('description')) {
-                        inputHtml = `
-                            <textarea class="form-control"
-                                      id="${fieldId}"
-                                      name="${name}"
-                                      rows="4"
-                                      placeholder="${example || `Enter ${name}`}"></textarea>
-                        `;
-                    } else if (schema.format === 'date') {
-                        inputHtml = `
-                            <input type="date"
-                                   class="form-control"
-                                   id="${fieldId}"
-                                   name="${name}" />
-                        `;
-                    } else if (schema.format === 'date-time') {
-                        inputHtml = `
-                            <input type="datetime-local"
-                                   class="form-control"
-                                   id="${fieldId}"
-                                   name="${name}" />
-                        `;
-                    } else {
-                        inputHtml = `
-                            <input type="text"
-                                   class="form-control"
-                                   id="${fieldId}"
-                                   name="${name}"
-                                   placeholder="${example || `Enter ${name}`}" />
-                        `;
-                    }
-                    break;
-
-                default:
-                    inputHtml = `
-                        <input type="text"
-                               class="form-control"
-                               id="${fieldId}"
-                               name="${name}"
-                               placeholder="${example || `Enter ${name}`}" />
-                    `;
-            }
-
-            return `
-                <div class="form-field body-field" data-body-field="${name}">
-                    <label class="form-label" for="${fieldId}">
-                        ${name}
-                        ${required ? '<span class="txt-danger">*</span>' : ''}
-                        ${type !== 'string' ? `<span class="param-type">(${type})</span>` : ''}
-                    </label>
-                    ${inputHtml}
-                    ${description ? `<div class="field-help">${description}</div>` : ''}
-                </div>
-            `;
-        },
-
-        // Generate default form fields when no schema available
-        generateDefaultFormFields() {
-            return `
-                <div class="form-field">
-                    <label class="form-label">JSON Data</label>
-                    <textarea class="form-control"
-                              id="request-body-json"
-                              name="request-body-json"
-                              rows="10"
-                              placeholder='{\n  "field1": "value1",\n  "field2": "value2"\n}'></textarea>
-                    <small class="field-help">Enter your data in JSON format</small>
-                </div>
-            `;
-        },
-
-        // Generate request body example from schema
-        generateRequestBodyExample(schema) {
-            console.log('Generating request body example from:', schema);
-
-            if (!schema || !schema.schema) {
-                return '{\n  "key": "value"\n}';
-            }
-
             try {
-                if (schema.example) {
-                    return JSON.stringify(schema.example, null, 2);
-                }
-
-                // If schema has no properties but response exists, infer from response
-                if ((!schema.schema.properties || Object.keys(schema.schema.properties).length === 0)
-                    && this.currentEndpoint.data.response) {
-                    console.log('No request properties defined, inferring from response schema');
-                    const example = this.generateExampleFromResponse();
-                    if (example && Object.keys(example).length > 0) {
-                        return JSON.stringify(example, null, 2);
-                    }
-                }
-
-                // Generate example from schema properties
-                const example = this.generateExampleFromSchema(schema.schema);
-                return JSON.stringify(example, null, 2);
-
+                this.log('Delegating request to APIRequestHandler...');
+                await APIRequestHandler.sendRequest(this.currentEndpoint);
             } catch (error) {
-                console.error('Error generating request body example:', error);
-                return '{\n  "key": "value"\n}';
+                this.log('Request failed:', error);
+                // Error handling is done by APIRequestHandler
             }
         },
 
-        // Generate example object from schema
-        generateExampleFromSchema(schema) {
-            console.log('Generating example from schema:', schema);
-
-            if (!schema || typeof schema !== 'object') return {};
-
-            const example = {};
-
-            if (schema.properties) {
-                Object.entries(schema.properties).forEach(([propName, propSchema]) => {
-                    if (propSchema.example !== undefined) {
-                        example[propName] = propSchema.example;
-                    } else {
-                        switch (propSchema.type) {
-                            case 'string':
-                                example[propName] = propSchema.enum ? propSchema.enum[0] : `example_${propName}`;
-                                break;
-                            case 'integer':
-                                example[propName] = 1;
-                                break;
-                            case 'number':
-                                example[propName] = 1.0;
-                                break;
-                            case 'boolean':
-                                example[propName] = true;
-                                break;
-                            case 'array':
-                                example[propName] = [`example_${propName}`];
-                                break;
-                            case 'object':
-                                example[propName] = this.generateExampleFromSchema(propSchema);
-                                break;
-                            default:
-                                example[propName] = `example_${propName}`;
-                        }
-                    }
-                });
-            }
-
-            console.log('Generated example:', example);
-            return example;
-        },
-
-        // Generate request example from response schema
-        generateExampleFromResponse() {
-            console.log('Inferring request example from response schema');
-
-            const response = this.currentEndpoint.data.response;
-            if (!response || !response.properties) return {};
-
-            const example = {};
-
-            // If response has a main data object (like 'post'), extract from it
-            const dataKeys = ['post', 'data', 'item', 'resource', 'object', 'entity'];
-            let mainDataProp = null;
-
-            for (const key of dataKeys) {
-                if (response.properties[key] && response.properties[key].properties) {
-                    mainDataProp = response.properties[key];
-                    console.log(`Found main data property: ${key}`);
-                    break;
-                }
-            }
-
-            if (mainDataProp && mainDataProp.properties) {
-                // Fields to exclude from request (usually server-generated)
-                const excludeFields = ['id', 'created_at', 'updated_at', 'author', 'user', 'owner', '_id'];
-
-                Object.entries(mainDataProp.properties).forEach(([propName, propSchema]) => {
-                    // Skip server-generated fields
-                    if (excludeFields.some(field => propName.toLowerCase().includes(field))) {
-                        console.log(`Skipping server-generated field: ${propName}`);
-                        return;
-                    }
-
-                    // Generate example value based on property schema
-                    if (propSchema.example !== undefined) {
-                        example[propName] = propSchema.example;
-                    } else if (propSchema.type === 'string') {
-                        if (propName === 'title') {
-                            example[propName] = 'My New Post';
-                        } else if (propName === 'content') {
-                            example[propName] = 'This is the content of my post...';
-                        } else if (propName === 'status') {
-                            example[propName] = propSchema.example || 'draft';
-                        } else if (propName === 'tags') {
-                            example[propName] = 'tag1, tag2';
-                        } else {
-                            example[propName] = `Example ${propName}`;
-                        }
-                    } else if (propSchema.type === 'boolean') {
-                        example[propName] = false;
-                    } else if (propSchema.type === 'integer') {
-                        example[propName] = 1;
-                    } else if (propSchema.type === 'number') {
-                        example[propName] = 1.0;
-                    } else if (propSchema.type === 'array') {
-                        example[propName] = [];
-                    }
-                });
-            }
-
-            console.log('Inferred request example from response:', example);
-            return example;
-        },
-
-        // Get no parameters message
-        getNoParametersMessage() {
-            const needsBody = ['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method);
-
-            if (needsBody) {
-                return `
-                    <div class="txt-center txt-hint p-4">
-                        <i class="ri-file-search-line ri-xl"></i>
-                        <p>No request structure detected</p>
-                        <p class="txt-sm">Unable to infer fields from response schema</p>
-                        <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="APITester.useRawJSON()">
-                            <i class="ri-code-line"></i>
-                            Use Raw JSON
-                        </button>
-                    </div>
-                `;
-            }
-
-            return `
-                <div class="txt-center txt-hint p-4">
-                    <i class="ri-check-line ri-xl txt-success"></i>
-                    <p>No parameters required</p>
-                    <p class="txt-sm">This endpoint can be called without any parameters</p>
-                </div>
-            `;
-        },
-
-        // Populate default values
-        populateDefaultValues() {
-            console.log('Populating default values');
-
-            if (this.parameterSchema) {
-                [...this.parameterSchema.pathParameters,
-                 ...this.parameterSchema.queryParameters,
-                 ...this.parameterSchema.headerParameters].forEach(param => {
-                    if (param.example) {
-                        const fieldId = `param-${param.in}-${param.name}`;
-                        const field = document.getElementById(fieldId);
-                        if (field && !field.value) {
-                            field.value = param.example;
-                            console.log(`Set default value for ${param.name}:`, param.example);
-                        }
-                    }
-                });
-            }
-        },
-
-        // Send HTTP request
-        async sendRequest() {
-            if (!this.currentEndpoint) return;
-
-            this.log('Sending request...');
-
-            const sendBtn = document.getElementById('send-request-btn');
-            const originalText = sendBtn.innerHTML;
-
-            try {
-                // Update button state
-                sendBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Sending...';
-                sendBtn.disabled = true;
-
-                // Collect and validate form data
-                const requestData = this.collectFormData();
-                console.log('Request data collected:', requestData);
-
-                // Make the HTTP request
-                const response = await this.makeRequest(requestData);
-
-                // Display response
-                this.displayResponse(response);
-
-                // Switch to response tab
-                if (typeof APITesterSidebar !== 'undefined') {
-                    APITesterSidebar.switchTesterTab('response');
-                }
-
-            } catch (error) {
-                this.log('Request error:', error);
-                this.displayError(error);
-
-                if (typeof APITesterSidebar !== 'undefined') {
-                    APITesterSidebar.switchTesterTab('response');
-                }
-            } finally {
-                // Restore button state
-                sendBtn.innerHTML = originalText;
-                sendBtn.disabled = false;
-            }
-        },
-
-        // Collect form data
-        collectFormData() {
-            const data = {
-                pathParams: {},
-                queryParams: {},
-                body: null
-            };
-
-            console.log('Collecting form data...');
-
-            // Collect parameter fields
-            const paramFields = document.querySelectorAll('.param-field[data-param]');
-            console.log(`Found ${paramFields.length} parameter fields`);
-
-            paramFields.forEach(field => {
-                const input = field.querySelector('input, select, textarea');
-                if (input && input.value.trim()) {
-                    const paramName = input.name;
-                    const paramType = input.dataset.type;
-                    const paramIn = field.dataset.in; // Get from parent field div
-                    const value = this.convertValue(input.value.trim(), paramType);
-
-                    console.log(`Collecting ${paramIn} param: ${paramName} = ${value} (${paramType})`);
-
-                    switch (paramIn) {
-                        case 'path':
-                            data.pathParams[paramName] = value;
-                            break;
-                        case 'query':
-                            data.queryParams[paramName] = value;
-                            break;
-                    }
-                }
-            });
-
-            // Collect request body from form fields
-            const bodyFields = document.querySelectorAll('.body-field[data-body-field]');
-            if (bodyFields.length > 0) {
-                const bodyData = {};
-                bodyFields.forEach(field => {
-                    const input = field.querySelector('input, select, textarea');
-                    if (input && input.value.trim()) {
-                        const fieldName = field.dataset.bodyField; // Use data attribute
-                        const fieldValue = input.value.trim();
-
-                        // Try to convert to appropriate type
-                        if (input.type === 'number') {
-                            bodyData[fieldName] = input.step === '1' ? parseInt(fieldValue, 10) : parseFloat(fieldValue);
-                        } else if (fieldValue === 'true' || fieldValue === 'false') {
-                            bodyData[fieldName] = fieldValue === 'true';
-                        } else {
-                            bodyData[fieldName] = fieldValue;
-                        }
-                    }
-                });
-
-                if (Object.keys(bodyData).length > 0) {
-                    data.body = JSON.stringify(bodyData, null, 2);
-                    console.log('Collected request body from fields:', data.body);
-                }
-            }
-
-            // Also check for raw JSON input
-            const rawJsonTextarea = document.getElementById('raw-json-payload');
-            if (rawJsonTextarea && rawJsonTextarea.value.trim()) {
-                try {
-                    // Validate JSON
-                    JSON.parse(rawJsonTextarea.value.trim());
-                    data.body = rawJsonTextarea.value.trim();
-                    console.log('Using raw JSON payload:', data.body);
-                } catch (e) {
-                    console.error('Invalid JSON in raw textarea:', e);
-                }
-            }
-
-            // Legacy fallback to old JSON textarea
-            if (!data.body) {
-                const jsonTextarea = document.getElementById('request-body-json');
-                if (jsonTextarea && jsonTextarea.value.trim()) {
-                    data.body = jsonTextarea.value.trim();
-                    console.log('Collected request body from legacy JSON textarea:', data.body);
-                }
-            }
-
-            console.log('Final collected data:', data);
-            return data;
-        },
-
-        // Convert value based on type
-        convertValue(value, type) {
-            try {
-                switch (type) {
-                    case 'integer':
-                        const intVal = parseInt(value, 10);
-                        if (isNaN(intVal)) throw new Error(`Invalid integer: ${value}`);
-                        return intVal;
-
-                    case 'number':
-                        const numVal = parseFloat(value);
-                        if (isNaN(numVal)) throw new Error(`Invalid number: ${value}`);
-                        return numVal;
-
-                    case 'boolean':
-                        return value === 'true';
-
-                    default:
-                        return value;
-                }
-            } catch (error) {
-                console.warn(`Value conversion error for type ${type}:`, error);
-                return value;
-            }
-        },
-
-        // Make HTTP request
-        async makeRequest(data) {
-            let url = this.currentEndpoint.path;
-            const method = this.currentEndpoint.method;
-
-            console.log('Making request with data:', data);
-
-            // Replace path parameters
-            Object.entries(data.pathParams).forEach(([param, value]) => {
-                const oldUrl = url;
-                url = url.replace(`{${param}}`, encodeURIComponent(value));
-                console.log(`Replaced path param ${param}: ${oldUrl} → ${url}`);
-            });
-
-            // Build full URL
-            const baseUrl = window.location.origin;
-            let fullUrl = url.startsWith('http') ? url : baseUrl + url;
-
-            // Add query parameters
-            if (Object.keys(data.queryParams).length > 0) {
-                const params = new URLSearchParams(data.queryParams);
-                const separator = fullUrl.includes('?') ? '&' : '?';
-                fullUrl += separator + params.toString();
-                console.log('Added query params:', fullUrl);
-            }
-
-            // Get authentication token from localStorage
-            let authHeaders = {};
-            try {
-                const authData = localStorage.getItem('__pb_superuser_auth__');
-                if (authData) {
-                    const parsed = JSON.parse(authData);
-                    if (parsed.token) {
-                        authHeaders['Authorization'] = `Bearer ${parsed.token}`;
-                        console.log('Added superuser authentication');
-                    }
-                }
-            } catch (error) {
-                console.warn('Could not parse auth data:', error);
-            }
-
-            const options = {
-                method: method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json, text/plain, */*',
-                    ...authHeaders
-                }
-            };
-
-            // Add request body for appropriate methods
-            if (['POST', 'PUT', 'PATCH'].includes(method) && data.body) {
-                try {
-                    // Validate JSON if it's a string
-                    if (typeof data.body === 'string') {
-                        JSON.parse(data.body);
-                    }
-                    options.body = data.body;
-                    console.log('Added request body:', data.body);
-                } catch (e) {
-                    throw new Error(`Invalid JSON in request body: ${e.message}`);
-                }
-            }
-
-            const startTime = Date.now();
-
-            try {
-                console.log('Fetching:', fullUrl, 'with options:', options);
-
-                const response = await fetch(fullUrl, options);
-                const endTime = Date.now();
-
-                const responseData = {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: Object.fromEntries(response.headers.entries()),
-                    body: await response.text(),
-                    time: endTime - startTime,
-                    url: fullUrl
-                };
-
-                console.log('Request completed:', {
-                    status: response.status,
-                    time: responseData.time
-                });
-
-                return responseData;
-
-            } catch (error) {
-                const endTime = Date.now();
-                console.error('Request failed:', error);
-
-                throw {
-                    message: `Network error: ${error.message}`,
-                    time: endTime - startTime,
-                    url: fullUrl
-                };
-            }
-        },
-
-        // Display successful response
-        displayResponse(response) {
-            if (typeof APITesterSidebar !== 'undefined') {
-                APITesterSidebar.updateResponseStatus(response.status, response.statusText, response.time);
-                APITesterSidebar.updateResponseContent(response.body, response.headers);
-                APITesterSidebar.showResponseContent();
-            }
-        },
-
-        // Display error response
-        displayError(error) {
-            const errorResponse = {
-                error: {
-                    message: error.message || 'Unknown error',
-                    type: 'RequestError',
-                    timestamp: new Date().toISOString(),
-                    url: error.url
-                }
-            };
-
-            if (typeof APITesterSidebar !== 'undefined') {
-                APITesterSidebar.updateResponseStatus('Error', error.message || 'Request failed', error.time || 0);
-                APITesterSidebar.updateResponseContent(JSON.stringify(errorResponse, null, 2), {
-                    'content-type': 'application/json',
-                    'x-error': 'true'
-                });
-                APITesterSidebar.showResponseContent();
-            }
-
-            // Use ErrorHandler if available
-            if (typeof ErrorHandler !== 'undefined') {
-                ErrorHandler.logError('API Tester Request Failed', error);
-            }
-        },
-
-        // Reset form to default values
+        // Reset form using APIRequestHandler
         resetForm() {
-            console.log('Resetting form to defaults');
-
-            // Clear all parameter fields
-            const paramFields = document.querySelectorAll('.param-field input, .param-field select, .param-field textarea');
-            paramFields.forEach(field => {
-                if (field.type === 'checkbox' || field.type === 'radio') {
-                    field.checked = false;
-                } else {
-                    field.value = '';
-                }
-            });
-
-            // Clear request body fields
-            const bodyFields = document.querySelectorAll('.body-field input, .body-field select, .body-field textarea');
-            bodyFields.forEach(field => {
-                if (field.type === 'checkbox' || field.type === 'radio') {
-                    field.checked = false;
-                } else {
-                    field.value = '';
-                }
-            });
-
-            // Clear raw JSON textarea if exists
-            const rawJsonTextarea = document.getElementById('raw-json-payload');
-            if (rawJsonTextarea) {
-                rawJsonTextarea.value = '{}';
-            }
-
-            // Also clear legacy JSON textarea if exists
-            const jsonTextarea = document.getElementById('request-body-json');
-            if (jsonTextarea) {
-                jsonTextarea.value = '';
-            }
-
-            // Reset response state
-            if (typeof APITesterSidebar !== 'undefined') {
-                APITesterSidebar.resetResponseState();
-            }
+            this.log('Delegating form reset to APIRequestHandler...');
+            APIRequestHandler.resetForm();
 
             // Re-process the endpoint schema to regenerate clean form
             this.processEndpointSchema();
-
-            console.log('Form reset completed');
         },
 
         // Refresh response display when switching to response tab
@@ -1362,6 +182,54 @@
             } else {
                 console.warn('APITesterSidebar not available');
             }
+        },
+
+        // Switch to raw JSON input mode (public API for form builder)
+        useRawJSON() {
+            this.log('Switching to raw JSON mode...');
+            APIFormBuilder.switchToRawJSON();
+        },
+
+        // Generate example for current endpoint (public API)
+        generateExample() {
+            if (!this.parameterSchema || !this.currentEndpoint) {
+                console.warn('Cannot generate example: missing schema or endpoint');
+                return null;
+            }
+
+            return APIExampleGenerator.generateCompleteExample(this.parameterSchema, this.currentEndpoint);
+        },
+
+        // Get current endpoint info (public API)
+        getCurrentEndpoint() {
+            return this.currentEndpoint;
+        },
+
+        // Get current parameter schema (public API)
+        getParameterSchema() {
+            return this.parameterSchema;
+        },
+
+        // Check if endpoint requires authentication (utility method)
+        requiresAuth() {
+            if (!this.currentEndpoint || !this.currentEndpoint.data) return false;
+
+            // Check if endpoint has security requirements
+            return this.currentEndpoint.data.security && this.currentEndpoint.data.security.length > 0;
+        },
+
+        // Get endpoint summary information (utility method)
+        getEndpointSummary() {
+            if (!this.currentEndpoint) return null;
+
+            return {
+                method: this.currentEndpoint.method,
+                path: this.currentEndpoint.path,
+                summary: this.currentEndpoint.data?.summary || 'No summary available',
+                description: this.currentEndpoint.data?.description || '',
+                tags: this.currentEndpoint.data?.tags || [],
+                requiresAuth: this.requiresAuth()
+            };
         }
     };
 {{end}}

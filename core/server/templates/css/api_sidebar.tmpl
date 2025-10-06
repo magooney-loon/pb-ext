@@ -50,7 +50,7 @@
     background: var(--baseColor, #ffffff);
     border: 1px solid var(--baseAlt2Color, #e5e5e5);
     border-radius: 4px;
-    padding: 4px 8px;
+
     font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
     font-size: 13px;
     word-break: break-all;
@@ -148,7 +148,7 @@
 /* Content Area */
 .api-tester-content {
     flex: 1;
-    overflow: hidden;
+
     background: var(--baseColor, #ffffff);
     min-height: 0;
     position: relative;
@@ -162,8 +162,8 @@
     right: 0;
     bottom: 0;
     overflow-y: auto;
-    overflow-x: hidden;
-    padding: 20px;
+    padding-bottom: 20px;
+    padding-top: 20px;
     scroll-behavior: smooth;
 }
 
@@ -387,56 +387,21 @@ textarea.form-control {
     display: block;
 }
 
-/* Code Blocks - now just regular blocks, not absolutely positioned */
-.response-tab-content .code-block {
-    background: var(--baseAlt1Color, #f8f9fa);
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+/
     border-radius: 6px;
     margin: 0;
-    min-height: 100px;
-    max-height: 600px;
-    overflow: auto;
-    resize: vertical;
-}
 
-.response-tab-content .code-block code {
-    display: block;
-    padding: 16px;
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.5;
+
+    resize: vertical;
+
     color: var(--txtPrimaryColor, #333);
     white-space: pre;
     word-wrap: break-word;
     word-break: break-all;
-}
 
-/* Custom Scrollbar for Code Blocks */
-.code-block::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-}
-
-.code-block::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.05);
-    border-radius: 5px;
-}
-
-.code-block::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 5px;
     border: 2px solid transparent;
     background-clip: content-box;
-}
 
-.code-block::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.3);
-    background-clip: content-box;
-}
-
-.code-block::-webkit-scrollbar-corner {
-    background: transparent;
-}
 
 /* Response Status */
 .response-status {
@@ -633,14 +598,7 @@ summary:hover {
     color: var(--txtPrimaryColor, #333);
 }
 
-details pre {
-    background: var(--baseAlt1Color, #f8f9fa);
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
-    border-radius: 4px;
-    padding: 12px;
-    overflow-x: auto;
-    font-size: 11px;
-}
+
 
 
 

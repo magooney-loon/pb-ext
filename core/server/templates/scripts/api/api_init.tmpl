@@ -12,7 +12,11 @@
             FilterController.init();
             FormatController.init();
             APITesterSidebar.init();
-            APITester.init();
+
+            // Initialize modular API tester components
+            // Note: APISchemaManager, APIFormBuilder, APIRequestHandler, and APIExampleGenerator
+            // are utility modules that don't require initialization
+            APITester.init(); // Now uses refactored modular architecture
 
             // Load API data
             await APILoader.loadVersions();
