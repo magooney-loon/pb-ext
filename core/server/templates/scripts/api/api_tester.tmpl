@@ -1,12 +1,12 @@
 {{define "api_tester_js"}}
     // =============================================================================
-    // API TESTER - SCHEMA PROCESSING AND REQUEST HANDLING
+    // API TESTER - SCHEMA-BASED PARAMETER FORM GENERATION
     // =============================================================================
 
     const APITester = {
         currentEndpoint: null,
-        schemaFields: {},
-        debug: false,
+        parameterSchema: null,
+        debug: true, // Enable debug for troubleshooting
 
         // Initialize the API tester
         init() {
@@ -53,35 +53,38 @@
         // Handle sidebar opened event
         handleSidebarOpened(detail) {
             this.log('Sidebar opened with endpoint:', detail);
+            console.log('Full endpoint detail object:', JSON.stringify(detail, null, 2));
+
+            // Parse the data if it's a JSON string
+            let endpointData = detail.data || {};
+            if (typeof endpointData === 'string') {
+                try {
+                    endpointData = JSON.parse(endpointData);
+                    console.log('Parsed JSON string data successfully');
+                } catch (error) {
+                    console.error('Failed to parse endpoint data JSON:', error);
+                    endpointData = {};
+                }
+            }
 
             this.currentEndpoint = {
                 method: detail.method,
                 path: detail.path,
-                data: detail.data || {}
+                data: endpointData
             };
 
-            // Validate endpoint using APIState if available
-            if (typeof APIState !== 'undefined') {
-                const validated = APIState.validateEndpoints([{
-                    method: this.currentEndpoint.method,
-                    path: this.currentEndpoint.path,
-                    ...this.currentEndpoint.data
-                }])[0];
+            console.log('Current endpoint set to:', this.currentEndpoint);
+            console.log('Endpoint data structure:', JSON.stringify(this.currentEndpoint.data, null, 2));
 
-                if (validated) {
-                    this.currentEndpoint.data = validated;
-                }
-            }
-
-            // Generate parameter form
-            this.generateParameterForm();
+            // Process endpoint schema data
+            this.processEndpointSchema();
         },
 
         // Handle sidebar closed event
         handleSidebarClosed() {
             this.log('Sidebar closed, cleaning up');
             this.currentEndpoint = null;
-            this.schemaFields = {};
+            this.parameterSchema = null;
         },
 
         // Handle tab change event
@@ -91,150 +94,414 @@
             }
         },
 
-        // Generate parameter form using SchemaProcessor
-        generateParameterForm() {
+        // Process endpoint schema
+        processEndpointSchema() {
             const container = document.getElementById('schema-form-container');
-            if (!container) return;
+            if (!container) {
+                console.error('Schema form container not found');
+                return;
+            }
 
-            // Show loading state
+            try {
+                // Show loading state
+                this.showLoadingState(container);
+
+                // Extract parameter schema from endpoint data
+                this.parameterSchema = this.extractParameterSchema();
+
+                console.log('Extracted parameter schema:', JSON.stringify(this.parameterSchema, null, 2));
+
+                // Generate form based on schema
+                this.generateParameterForm(container);
+
+                this.log('Parameter schema processed successfully');
+
+            } catch (error) {
+                console.error('Schema processing error:', error);
+                this.showError(container, error);
+            }
+        },
+
+        // Show loading state
+        showLoadingState(container) {
             container.innerHTML = `
                 <div class="txt-center txt-hint p-4">
                     <i class="ri-loader-4-line animate-spin"></i>
-                    <p>Processing schema...</p>
+                    <p>Processing endpoint schema...</p>
                 </div>
             `;
-
-            // Use SchemaProcessor if available
-            if (typeof SchemaProcessor !== 'undefined' && this.currentEndpoint.data.request) {
-                try {
-                    const schema = this.currentEndpoint.data.request;
-                    this.schemaFields = SchemaProcessor.extractParameters(schema) || [];
-
-                    if (this.schemaFields.length > 0) {
-                        const formHtml = this.buildFormFromSchema(this.schemaFields);
-                        container.innerHTML = formHtml;
-                        return;
-                    }
-                } catch (error) {
-                    this.log('SchemaProcessor error:', error);
-                    // Continue to path parameter extraction
-                }
-            }
-
-            // Extract path parameters as fallback
-            this.extractPathParameters(container);
         },
 
-        // Extract path parameters from endpoint path
-        extractPathParameters(container) {
-            const pathParams = [];
-            const pathMatches = this.currentEndpoint.path.match(/{([^}]+)}/g);
-
-            if (pathMatches) {
-                pathMatches.forEach(match => {
-                    const paramName = match.replace(/[{}]/g, '');
-                    pathParams.push({
-                        name: paramName,
-                        type: 'string',
-                        required: true,
-                        description: `Path parameter: ${paramName}`
-                    });
-                });
-            }
-
-            // Add query parameters for GET requests
-            if (this.currentEndpoint.method === 'GET') {
-                pathParams.push({
-                    name: 'limit',
-                    type: 'integer',
-                    required: false,
-                    description: 'Number of records to return'
-                }, {
-                    name: 'offset',
-                    type: 'integer',
-                    required: false,
-                    description: 'Number of records to skip'
-                });
-            }
-
-            if (pathParams.length > 0) {
-                this.schemaFields = pathParams;
-                container.innerHTML = this.buildFormFromSchema(this.schemaFields);
-            } else {
-                this.generateFallbackForm(container);
-            }
-        },
-
-        // Build form HTML from schema fields
-        buildFormFromSchema(fields) {
-            if (!fields.length) {
-                return `
-                    <div class="txt-center txt-hint p-3">
-                        <i class="ri-info-line"></i>
-                        <p>No parameters required for this endpoint</p>
+        // Show error state
+        showError(container, error) {
+            container.innerHTML = `
+                <div class="txt-center p-4">
+                    <div class="alert alert-danger">
+                        <i class="ri-error-warning-line"></i>
+                        <p><strong>Schema Processing Failed:</strong></p>
+                        <p>${error.message}</p>
                     </div>
-                `;
+                    <details>
+                        <summary>Debug Information</summary>
+                        <pre class="txt-xs mt-2">${JSON.stringify({
+                            currentEndpoint: this.currentEndpoint,
+                            error: error.toString(),
+                            stack: error.stack
+                        }, null, 2)}</pre>
+                    </details>
+                </div>
+            `;
+        },
+
+        // Extract parameter schema from endpoint data
+        extractParameterSchema() {
+            console.log('Starting parameter schema extraction...');
+
+            const schema = {
+                pathParameters: [],
+                queryParameters: [],
+                headerParameters: [],
+                requestBody: null,
+                examples: {}
+            };
+
+            // Extract from OpenAPI endpoint data if available
+            if (this.currentEndpoint.data) {
+                const endpointData = this.currentEndpoint.data;
+                console.log('Processing endpoint data:', endpointData);
+
+                // Extract path parameters from the path itself if not explicitly defined
+                const pathParams = this.extractPathParameters(this.currentEndpoint.path);
+                if (pathParams.length > 0 && (!endpointData.parameters || endpointData.parameters.length === 0)) {
+                    console.log('Inferred path parameters from path:', pathParams);
+                    schema.pathParameters = pathParams;
+                }
+
+                // Extract parameters
+                if (endpointData.parameters && Array.isArray(endpointData.parameters)) {
+                    console.log('Found parameters array:', endpointData.parameters);
+
+                    endpointData.parameters.forEach((param, index) => {
+                        console.log(`Processing parameter ${index}:`, param);
+
+                        const normalizedParam = this.normalizeParameter(param);
+                        console.log(`Normalized parameter ${index}:`, normalizedParam);
+
+                        switch (param.in) {
+                            case 'path':
+                                schema.pathParameters.push(normalizedParam);
+                                console.log('Added to path parameters');
+                                break;
+                            case 'query':
+                                schema.queryParameters.push(normalizedParam);
+                                console.log('Added to query parameters');
+                                break;
+                            case 'header':
+                                schema.headerParameters.push(normalizedParam);
+                                console.log('Added to header parameters');
+                                break;
+                        }
+                    });
+                } else if (schema.pathParameters.length === 0) {
+                    console.log('No parameters found in endpoint data');
+                }
+
+                // Extract request body schema - check multiple possible locations
+                if (endpointData.request) {
+                    console.log('Found request schema:', endpointData.request);
+                    schema.requestBody = this.extractRequestBodySchema(endpointData.request);
+                    console.log('Processed request body schema:', schema.requestBody);
+                } else if (endpointData.requestBody) {
+                    console.log('Found standard requestBody:', endpointData.requestBody);
+                    schema.requestBody = this.extractRequestBodySchema(endpointData.requestBody);
+                    console.log('Processed request body schema:', schema.requestBody);
+                } else if (['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method)) {
+                    // For POST/PUT/PATCH, try to infer from response schema
+                    console.log('No explicit request schema found, inferring from response...');
+                    schema.requestBody = this.inferRequestBodyFromResponse(endpointData.response);
+                } else {
+                    console.log('No request body needed for', this.currentEndpoint.method);
+                }
+
+                // Extract examples
+                if (endpointData.examples) {
+                    schema.examples = endpointData.examples;
+                    console.log('Found examples:', schema.examples);
+                }
+            } else {
+                console.log('No endpoint data available');
             }
 
-            const fieldGroups = this.groupFields(fields);
-            let html = '';
+            console.log('Final extracted schema:', schema);
+            return schema;
+        },
 
-            Object.entries(fieldGroups).forEach(([group, groupFields]) => {
-                if (group !== 'default') {
-                    html += `<div class="form-group">
-                        <h6 class="form-group-title">${group}</h6>
-                    `;
-                }
+        // Extract path parameters from URL path
+        extractPathParameters(path) {
+            const params = [];
+            const regex = /{([^}]+)}/g;
+            let match;
 
-                groupFields.forEach(field => {
-                    html += `
-                        <div class="form-field">
-                            <label class="form-label">
-                                ${field.name}
-                                ${field.required ? '<span class="txt-danger">*</span>' : ''}
-                                <span class="txt-hint txt-xs">(${field.type})</span>
-                            </label>
-                            ${this.buildFieldInput(field)}
-                            ${field.description ? `<div class="help-block">${field.description}</div>` : ''}
-                        </div>
-                    `;
+            while ((match = regex.exec(path)) !== null) {
+                params.push({
+                    name: match[1],
+                    type: 'string',
+                    required: true,
+                    description: `Path parameter: ${match[1]}`,
+                    example: '',
+                    enum: null,
+                    format: null,
+                    in: 'path'
                 });
+            }
 
-                if (group !== 'default') {
-                    html += '</div>';
+            return params;
+        },
+
+        // Normalize parameter object
+        normalizeParameter(param) {
+            console.log('Normalizing parameter:', param);
+
+            const normalized = {
+                name: param.name || 'unknown',
+                type: param.schema?.type || param.type || 'string',
+                required: param.required || false,
+                description: param.description || `${param.in} parameter`,
+                example: param.example || param.schema?.example || '',
+                enum: param.schema?.enum || param.enum || null,
+                format: param.schema?.format || param.format || null,
+                in: param.in || 'query'
+            };
+
+            console.log('Normalized result:', normalized);
+            return normalized;
+        },
+
+        // Infer request body schema from response
+        inferRequestBodyFromResponse(responseSchema) {
+            console.log('Inferring request body from response:', responseSchema);
+
+            if (!responseSchema) return null;
+
+            // Look for data structures in response that indicate the resource shape
+            const dataKeys = ['post', 'data', 'item', 'resource', 'object', 'entity', 'result'];
+            let resourceSchema = null;
+
+            if (responseSchema.properties) {
+                for (const key of dataKeys) {
+                    if (responseSchema.properties[key]) {
+                        resourceSchema = responseSchema.properties[key];
+                        console.log(`Found resource schema under '${key}'`);
+                        break;
+                    }
+                }
+            }
+
+            if (!resourceSchema && responseSchema.type === 'object') {
+                // Use the response schema directly if it's an object
+                resourceSchema = responseSchema;
+            }
+
+            if (resourceSchema) {
+                // Create a cleaned version without server-generated fields
+                const cleanedSchema = this.cleanSchemaForRequest(resourceSchema);
+
+                return {
+                    type: 'object',
+                    required: true,
+                    schema: cleanedSchema,
+                    description: 'Request body (inferred from response structure)'
+                };
+            }
+
+            return null;
+        },
+
+        // Clean schema for request by removing server-generated fields
+        cleanSchemaForRequest(schema) {
+            if (!schema || !schema.properties) return schema;
+
+            const excludeFields = ['id', '_id', 'created_at', 'updated_at', 'created', 'updated',
+                                   'modified', 'author', 'user', 'owner', 'creator', 'last_modified'];
+
+            const cleanedProperties = {};
+
+            Object.entries(schema.properties).forEach(([key, value]) => {
+                const lowerKey = key.toLowerCase();
+                if (!excludeFields.some(field => lowerKey === field || lowerKey.endsWith('_' + field))) {
+                    cleanedProperties[key] = value;
                 }
             });
 
-            return html;
+            return {
+                ...schema,
+                properties: cleanedProperties
+            };
         },
 
-        // Group fields by category
-        groupFields(fields) {
-            const groups = { default: [] };
+        // Extract request body schema
+        extractRequestBodySchema(requestSchema) {
+            console.log('Extracting request body schema from:', requestSchema);
 
-            fields.forEach(field => {
-                if (field.name.includes('_')) {
-                    const prefix = field.name.split('_')[0];
-                    if (!groups[prefix]) groups[prefix] = [];
-                    groups[prefix].push(field);
-                } else {
-                    groups.default.push(field);
+            if (!requestSchema) return null;
+
+            // Handle this system's request schema format
+            if (requestSchema.type === 'object') {
+                console.log('Found object type request schema');
+                return {
+                    type: requestSchema.type,
+                    required: true, // POST requests typically require body
+                    schema: requestSchema,
+                    description: requestSchema.description || 'Request body data'
+                };
+            }
+
+            // Handle OpenAPI 3.0 request body structure as fallback
+            const content = requestSchema.content;
+            if (content) {
+                console.log('Found request body content:', content);
+
+                // Try JSON first
+                const jsonContent = content['application/json'];
+                if (jsonContent && jsonContent.schema) {
+                    console.log('Found JSON schema:', jsonContent.schema);
+                    return {
+                        type: 'object',
+                        required: requestSchema.required || false,
+                        schema: jsonContent.schema,
+                        example: jsonContent.example || jsonContent.examples || null,
+                        description: requestSchema.description || 'Request body'
+                    };
                 }
-            });
+            }
 
-            return groups;
+            // Minimal fallback
+            return {
+                type: 'object',
+                required: true,
+                schema: requestSchema,
+                description: requestSchema.description || 'Request body'
+            };
         },
 
-        // Build input field based on field type
-        buildFieldInput(field) {
-            const baseAttrs = `name="${field.name}" id="field-${field.name}"`;
-            const requiredAttr = field.required ? 'required' : '';
-            const placeholder = field.example ? `placeholder="${field.example}"` : '';
+        // Generate parameter form
+        generateParameterForm(container) {
+            console.log('Generating parameter form with schema:', this.parameterSchema);
 
-            switch (field.type) {
+            if (!this.parameterSchema) {
+                console.error('No parameter schema available');
+                container.innerHTML = '<p class="txt-center txt-hint p-4">No parameter schema available</p>';
+                return;
+            }
+
+            const sections = [];
+
+            // Build path parameters section
+            if (this.parameterSchema.pathParameters.length > 0) {
+                console.log('Building path parameters section');
+                sections.push(this.buildParameterSection(
+                    'Path Parameters',
+                    'ri-route-line',
+                    this.parameterSchema.pathParameters,
+                    'These parameters are part of the URL path and are typically required.'
+                ));
+            }
+
+            // Build query parameters section
+            if (this.parameterSchema.queryParameters.length > 0) {
+                console.log('Building query parameters section');
+                sections.push(this.buildParameterSection(
+                    'Query Parameters',
+                    'ri-search-line',
+                    this.parameterSchema.queryParameters,
+                    'These parameters are added to the URL as query string.'
+                ));
+            }
+
+            // Build request body section for POST/PUT/PATCH
+            if (['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method)) {
+                console.log('Building request body section for', this.currentEndpoint.method);
+                if (this.parameterSchema.requestBody) {
+                    sections.push(this.buildRequestBodySection());
+                }
+            }
+
+            console.log('Generated', sections.length, 'form sections');
+
+            // Combine all sections
+            const formHtml = sections.join('');
+            if (formHtml) {
+                container.innerHTML = formHtml;
+                console.log('Form HTML generated and inserted');
+            } else {
+                container.innerHTML = this.getNoParametersMessage();
+                console.log('No parameters found, showing empty message');
+            }
+
+            // Populate default values
+            this.populateDefaultValues();
+        },
+
+        // Build parameter section
+        buildParameterSection(title, icon, parameters, description) {
+            console.log(`Building section: ${title} with ${parameters.length} parameters`);
+
+            const fields = parameters.map(param => {
+                console.log('Building field for parameter:', param);
+                return this.buildParameterField(param);
+            }).join('');
+
+            return `
+                <div class="form-section">
+                    <div class="section-header">
+                        <h6 class="section-title">
+                            <i class="${icon}"></i>
+                            ${title}
+                        </h6>
+                        <p class="section-description">${description}</p>
+                    </div>
+                    <div class="parameter-fields">
+                        ${fields}
+                    </div>
+                </div>
+            `;
+        },
+
+        // Build individual parameter field
+        buildParameterField(param) {
+            const fieldId = `param-${param.in}-${param.name}`;
+            const isRequired = param.required;
+            const requiredMark = isRequired ? '<span class="txt-danger">*</span>' : '';
+
+            console.log(`Building field for ${param.name} (${param.type})`);
+
+            return `
+                <div class="form-field" data-param="${param.name}" data-in="${param.in}">
+                    <label class="form-label" for="${fieldId}">
+                        ${param.name} ${requiredMark}
+                        <span class="param-type">(${param.type}${param.format ? `:${param.format}` : ''})</span>
+                    </label>
+                    ${this.buildInputElement(param, fieldId)}
+                    ${param.description ? `<div class="field-help">${param.description}</div>` : ''}
+                </div>
+            `;
+        },
+
+        // Build input element based on parameter type
+        buildInputElement(param, fieldId) {
+            const commonAttrs = `
+                id="${fieldId}"
+                name="${param.name}"
+                data-type="${param.type}"
+                data-in="${param.in}"
+                ${param.required ? 'required' : ''}
+                placeholder="${param.example || `Enter ${param.name}`}"
+            `;
+
+            switch (param.type) {
                 case 'boolean':
                     return `
-                        <select class="form-control" ${baseAttrs} ${requiredAttr}>
+                        <select class="form-control" ${commonAttrs}>
                             <option value="">Select...</option>
                             <option value="true">true</option>
                             <option value="false">false</option>
@@ -243,71 +510,469 @@
 
                 case 'integer':
                 case 'number':
+                    const step = param.type === 'integer' ? '1' : 'any';
                     return `
-                        <input type="number" class="form-control" ${baseAttrs} ${requiredAttr} ${placeholder}
-                            ${field.type === 'integer' ? 'step="1"' : 'step="any"'} />
-                    `;
-
-                case 'array':
-                    return `
-                        <textarea class="form-control" ${baseAttrs} ${requiredAttr}
-                            placeholder="Enter JSON array or comma-separated values" rows="3"></textarea>
-                        <small class="form-text">Format: ["item1", "item2"] or item1, item2, item3</small>
-                    `;
-
-                case 'object':
-                    return `
-                        <textarea class="form-control" ${baseAttrs} ${requiredAttr}
-                            placeholder="Enter JSON object" rows="4"></textarea>
-                        <small class="form-text">Format: {"key": "value"}</small>
+                        <input type="number" class="form-control" ${commonAttrs} step="${step}" />
                     `;
 
                 case 'string':
-                    if (field.enum && field.enum.length > 0) {
-                        const options = field.enum.map(value =>
+                    if (param.enum && param.enum.length > 0) {
+                        const options = param.enum.map(value =>
                             `<option value="${value}">${value}</option>`
                         ).join('');
                         return `
-                            <select class="form-control" ${baseAttrs} ${requiredAttr}>
+                            <select class="form-control" ${commonAttrs}>
                                 <option value="">Select...</option>
                                 ${options}
                             </select>
                         `;
                     }
-                    return `<input type="text" class="form-control" ${baseAttrs} ${requiredAttr} ${placeholder} />`;
+
+                    if (param.format === 'date') {
+                        return `<input type="date" class="form-control" ${commonAttrs} />`;
+                    }
+
+                    if (param.format === 'date-time') {
+                        return `<input type="datetime-local" class="form-control" ${commonAttrs} />`;
+                    }
+
+                    return `<input type="text" class="form-control" ${commonAttrs} />`;
 
                 default:
-                    return `<input type="text" class="form-control" ${baseAttrs} ${requiredAttr} ${placeholder} />`;
+                    return `<input type="text" class="form-control" ${commonAttrs} />`;
             }
         },
 
-        // Generate fallback form for manual input
-        generateFallbackForm(container) {
-            const isPostPutPatch = ['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method);
+        // Build request body section with form fields
+        buildRequestBodySection() {
+            console.log('Building request body section with form fields');
 
-            container.innerHTML = `
-                <div class="txt-center txt-hint p-3 mb-3">
-                    <i class="ri-settings-3-line"></i>
-                    <p>No schema available</p>
-                    <p class="txt-xs">Manual parameter entry</p>
+            const schema = this.parameterSchema.requestBody;
+            const fields = this.generateFormFieldsFromSchema(schema);
+
+            return `
+                <div class="form-section">
+                    <div class="section-header">
+                        <h6 class="section-title">
+                            <i class="ri-code-box-line"></i>
+                            Request Body
+                            ${schema.required ? '<span class="txt-danger">*</span>' : ''}
+                        </h6>
+                        <p class="section-description">
+                            ${schema.description || 'Fill in the data for this endpoint'}
+                            ${schema.schema?.additionalProperties ?
+                                '<br><small class="txt-hint">This endpoint accepts flexible data - fields below are suggestions</small>' :
+                                ''}
+                        </p>
+                    </div>
+                    <div class="request-body-fields" id="request-body-fields">
+                        ${fields}
+                    </div>
+                    <div class="form-field mt-2">
+                        <small class="field-help">
+                            <i class="ri-information-line"></i>
+                            ${this.currentEndpoint.method === 'POST' ? 'This will create a new resource.' :
+                              this.currentEndpoint.method === 'PUT' ? 'This will update the entire resource.' :
+                              this.currentEndpoint.method === 'PATCH' ? 'This will partially update the resource.' :
+                              'This will send data to the server.'}
+                        </small>
+                    </div>
                 </div>
-
-                ${isPostPutPatch ? `
-                    <div class="form-field">
-                        <label class="form-label">Request Body (JSON)</label>
-                        <textarea class="form-control" name="request-body"
-                            placeholder="Enter JSON request body" rows="8"></textarea>
-                        <small class="form-text">Enter the complete JSON payload for this ${this.currentEndpoint.method} request</small>
-                    </div>
-                ` : `
-                    <div class="form-field">
-                        <label class="form-label">Query Parameters</label>
-                        <textarea class="form-control" name="query-params"
-                            placeholder="param1=value1&param2=value2" rows="3"></textarea>
-                        <small class="form-text">Enter query parameters in URL format</small>
-                    </div>
-                `}
             `;
+        },
+
+        // Generate form fields from schema
+        generateFormFieldsFromSchema(schema) {
+            if (!schema || !schema.schema) {
+                console.log('No schema available, generating default fields');
+                return this.generateDefaultFormFields();
+            }
+
+            // Generate fields from schema properties
+            if (schema.schema.properties && Object.keys(schema.schema.properties).length > 0) {
+                console.log('Generating fields from schema properties:', schema.schema.properties);
+                return this.generateFieldsFromProperties(schema.schema.properties, schema.schema.required);
+            }
+
+            // If no properties but schema is an object, generate default fields
+            if (schema.schema.type === 'object') {
+                console.log('Schema is object type but no properties defined, using defaults');
+                return this.generateDefaultFormFields();
+            }
+
+            return this.generateDefaultFormFields();
+        },
+
+        // Generate default form fields for common cases
+        generateDefaultFormFields() {
+            console.log('Generating default form fields based on endpoint path');
+
+            const path = this.currentEndpoint.path.toLowerCase();
+
+            // Determine likely fields based on path
+            if (path.includes('post') || path.includes('article') || path.includes('blog')) {
+                return this.generateBlogFields();
+            } else if (path.includes('user') || path.includes('profile')) {
+                return this.generateUserFields();
+            } else if (path.includes('comment')) {
+                return this.generateCommentFields();
+            } else {
+                // Generic data fields
+                return `
+                    <div class="form-field">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="form-control" name="title" placeholder="Enter title">
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">Content</label>
+                        <textarea class="form-control" name="content" rows="4" placeholder="Enter content"></textarea>
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">Tags</label>
+                        <input type="text" class="form-control" name="tags" placeholder="Enter tags (comma separated)">
+                    </div>
+                `;
+            }
+        },
+
+        // Generate blog/post specific fields
+        generateBlogFields() {
+            return `
+                <div class="form-field">
+                    <label class="form-label">Title <span class="txt-danger">*</span></label>
+                    <input type="text" class="form-control" name="title" required placeholder="Post title">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Content <span class="txt-danger">*</span></label>
+                    <textarea class="form-control" name="content" rows="6" required placeholder="Post content (Markdown supported)"></textarea>
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Tags</label>
+                    <input type="text" class="form-control" name="tags" placeholder="tag1, tag2, tag3">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Published</label>
+                    <select class="form-control" name="published">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                </div>
+            `;
+        },
+
+        // Generate user specific fields
+        generateUserFields() {
+            return `
+                <div class="form-field">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-control" name="name" placeholder="Full name">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-control" name="email" placeholder="email@example.com">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Bio</label>
+                    <textarea class="form-control" name="bio" rows="3" placeholder="User bio"></textarea>
+                </div>
+            `;
+        },
+
+        // Generate comment specific fields
+        generateCommentFields() {
+            return `
+                <div class="form-field">
+                    <label class="form-label">Comment <span class="txt-danger">*</span></label>
+                    <textarea class="form-control" name="content" rows="4" required placeholder="Enter your comment"></textarea>
+                </div>
+            `;
+        },
+
+        // Generate fields from properties object
+        generateFieldsFromProperties(properties, requiredFields = []) {
+            let html = '';
+
+            Object.entries(properties).forEach(([propName, propSchema]) => {
+                const isRequired = requiredFields && requiredFields.includes(propName);
+                html += this.generateFormField(propName, propSchema, isRequired);
+            });
+
+            return html || this.generateDefaultFormFields();
+        },
+
+        // Generate individual form field
+        generateFormField(name, schema, isRequired = false) {
+            const fieldId = `body-field-${name}`;
+            const type = schema.type || 'string';
+            const required = isRequired || schema.required || false;
+            const example = schema.example || '';
+            const description = schema.description || '';
+
+            let inputHtml = '';
+
+            switch (type) {
+                case 'boolean':
+                    inputHtml = `
+                        <select class="form-control" id="${fieldId}" name="${name}">
+                            <option value="">Select...</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                        </select>
+                    `;
+                    break;
+
+                case 'integer':
+                case 'number':
+                    inputHtml = `
+                        <input type="number"
+                               class="form-control"
+                               id="${fieldId}"
+                               name="${name}"
+                               step="${type === 'integer' ? '1' : 'any'}"
+                               placeholder="${example || `Enter ${name}`}" />
+                    `;
+                    break;
+
+                case 'string':
+                    if (name.toLowerCase().includes('content') || name.toLowerCase().includes('description')) {
+                        inputHtml = `
+                            <textarea class="form-control"
+                                      id="${fieldId}"
+                                      name="${name}"
+                                      rows="4"
+                                      placeholder="${example || `Enter ${name}`}"></textarea>
+                        `;
+                    } else if (schema.format === 'date') {
+                        inputHtml = `
+                            <input type="date"
+                                   class="form-control"
+                                   id="${fieldId}"
+                                   name="${name}" />
+                        `;
+                    } else if (schema.format === 'date-time') {
+                        inputHtml = `
+                            <input type="datetime-local"
+                                   class="form-control"
+                                   id="${fieldId}"
+                                   name="${name}" />
+                        `;
+                    } else {
+                        inputHtml = `
+                            <input type="text"
+                                   class="form-control"
+                                   id="${fieldId}"
+                                   name="${name}"
+                                   placeholder="${example || `Enter ${name}`}" />
+                        `;
+                    }
+                    break;
+
+                default:
+                    inputHtml = `
+                        <input type="text"
+                               class="form-control"
+                               id="${fieldId}"
+                               name="${name}"
+                               placeholder="${example || `Enter ${name}`}" />
+                    `;
+            }
+
+            return `
+                <div class="form-field">
+                    <label class="form-label" for="${fieldId}">
+                        ${name}
+                        ${required ? '<span class="txt-danger">*</span>' : ''}
+                        ${type !== 'string' ? `<span class="param-type">(${type})</span>` : ''}
+                    </label>
+                    ${inputHtml}
+                    ${description ? `<div class="field-help">${description}</div>` : ''}
+                </div>
+            `;
+        },
+
+        // Generate default form fields when no schema available
+        generateDefaultFormFields() {
+            return `
+                <div class="form-field">
+                    <label class="form-label">JSON Data</label>
+                    <textarea class="form-control"
+                              id="request-body-json"
+                              name="request-body-json"
+                              rows="10"
+                              placeholder='{\n  "field1": "value1",\n  "field2": "value2"\n}'></textarea>
+                    <small class="field-help">Enter your data in JSON format</small>
+                </div>
+            `;
+        },
+
+        // Generate request body example from schema
+        generateRequestBodyExample(schema) {
+            console.log('Generating request body example from:', schema);
+
+            if (!schema || !schema.schema) {
+                return '{\n  "key": "value"\n}';
+            }
+
+            try {
+                if (schema.example) {
+                    return JSON.stringify(schema.example, null, 2);
+                }
+
+                // If schema has no properties but response exists, infer from response
+                if ((!schema.schema.properties || Object.keys(schema.schema.properties).length === 0)
+                    && this.currentEndpoint.data.response) {
+                    console.log('No request properties defined, inferring from response schema');
+                    const example = this.generateExampleFromResponse();
+                    if (example && Object.keys(example).length > 0) {
+                        return JSON.stringify(example, null, 2);
+                    }
+                }
+
+                // Generate example from schema properties
+                const example = this.generateExampleFromSchema(schema.schema);
+                return JSON.stringify(example, null, 2);
+
+            } catch (error) {
+                console.error('Error generating request body example:', error);
+                return '{\n  "key": "value"\n}';
+            }
+        },
+
+        // Generate example object from schema
+        generateExampleFromSchema(schema) {
+            console.log('Generating example from schema:', schema);
+
+            if (!schema || typeof schema !== 'object') return {};
+
+            const example = {};
+
+            if (schema.properties) {
+                Object.entries(schema.properties).forEach(([propName, propSchema]) => {
+                    if (propSchema.example !== undefined) {
+                        example[propName] = propSchema.example;
+                    } else {
+                        switch (propSchema.type) {
+                            case 'string':
+                                example[propName] = propSchema.enum ? propSchema.enum[0] : `example_${propName}`;
+                                break;
+                            case 'integer':
+                                example[propName] = 1;
+                                break;
+                            case 'number':
+                                example[propName] = 1.0;
+                                break;
+                            case 'boolean':
+                                example[propName] = true;
+                                break;
+                            case 'array':
+                                example[propName] = [`example_${propName}`];
+                                break;
+                            case 'object':
+                                example[propName] = this.generateExampleFromSchema(propSchema);
+                                break;
+                            default:
+                                example[propName] = `example_${propName}`;
+                        }
+                    }
+                });
+            }
+
+            console.log('Generated example:', example);
+            return example;
+        },
+
+        // Generate request example from response schema
+        generateExampleFromResponse() {
+            console.log('Inferring request example from response schema');
+
+            const response = this.currentEndpoint.data.response;
+            if (!response || !response.properties) return {};
+
+            const example = {};
+
+            // If response has a main data object (like 'post'), extract from it
+            const dataKeys = ['post', 'data', 'item', 'resource', 'object', 'entity'];
+            let mainDataProp = null;
+
+            for (const key of dataKeys) {
+                if (response.properties[key] && response.properties[key].properties) {
+                    mainDataProp = response.properties[key];
+                    console.log(`Found main data property: ${key}`);
+                    break;
+                }
+            }
+
+            if (mainDataProp && mainDataProp.properties) {
+                // Fields to exclude from request (usually server-generated)
+                const excludeFields = ['id', 'created_at', 'updated_at', 'author', 'user', 'owner', '_id'];
+
+                Object.entries(mainDataProp.properties).forEach(([propName, propSchema]) => {
+                    // Skip server-generated fields
+                    if (excludeFields.some(field => propName.toLowerCase().includes(field))) {
+                        console.log(`Skipping server-generated field: ${propName}`);
+                        return;
+                    }
+
+                    // Generate example value based on property schema
+                    if (propSchema.example !== undefined) {
+                        example[propName] = propSchema.example;
+                    } else if (propSchema.type === 'string') {
+                        if (propName === 'title') {
+                            example[propName] = 'My New Post';
+                        } else if (propName === 'content') {
+                            example[propName] = 'This is the content of my post...';
+                        } else if (propName === 'status') {
+                            example[propName] = propSchema.example || 'draft';
+                        } else if (propName === 'tags') {
+                            example[propName] = 'tag1, tag2';
+                        } else {
+                            example[propName] = `Example ${propName}`;
+                        }
+                    } else if (propSchema.type === 'boolean') {
+                        example[propName] = false;
+                    } else if (propSchema.type === 'integer') {
+                        example[propName] = 1;
+                    } else if (propSchema.type === 'number') {
+                        example[propName] = 1.0;
+                    } else if (propSchema.type === 'array') {
+                        example[propName] = [];
+                    }
+                });
+            }
+
+            console.log('Inferred request example from response:', example);
+            return example;
+        },
+
+        // Get no parameters message
+        getNoParametersMessage() {
+            return `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-info-line ri-xl"></i>
+                    <p>No parameters required</p>
+                    <p class="txt-sm">This endpoint doesn't require any parameters</p>
+                </div>
+            `;
+        },
+
+        // Populate default values
+        populateDefaultValues() {
+            console.log('Populating default values');
+
+            if (this.parameterSchema) {
+                [...this.parameterSchema.pathParameters,
+                 ...this.parameterSchema.queryParameters,
+                 ...this.parameterSchema.headerParameters].forEach(param => {
+                    if (param.example) {
+                        const fieldId = `param-${param.in}-${param.name}`;
+                        const field = document.getElementById(fieldId);
+                        if (field && !field.value) {
+                            field.value = param.example;
+                            console.log(`Set default value for ${param.name}:`, param.example);
+                        }
+                    }
+                });
+            }
         },
 
         // Send HTTP request
@@ -326,6 +991,7 @@
 
                 // Collect and validate form data
                 const requestData = this.collectFormData();
+                console.log('Request data collected:', requestData);
 
                 // Make the HTTP request
                 const response = await this.makeRequest(requestData);
@@ -333,7 +999,7 @@
                 // Display response
                 this.displayResponse(response);
 
-                // Switch to response tab via sidebar
+                // Switch to response tab
                 if (typeof APITesterSidebar !== 'undefined') {
                     APITesterSidebar.switchTesterTab('response');
                 }
@@ -352,75 +1018,102 @@
             }
         },
 
-        // Collect and validate form data
+        // Collect form data
         collectFormData() {
-            const formData = {};
-            const container = document.getElementById('schema-form-container');
+            const data = {
+                pathParams: {},
+                queryParams: {},
+                body: null
+            };
 
-            if (!container) return formData;
+            console.log('Collecting form data...');
 
-            const inputs = container.querySelectorAll('input, select, textarea');
+            // Collect parameter fields
+            const paramFields = document.querySelectorAll('[data-param]');
+            console.log(`Found ${paramFields.length} parameter fields`);
 
-            inputs.forEach(input => {
-                const value = input.value.trim();
-                if (value) {
-                    const field = this.schemaFields.find(f => f.name === input.name);
-                    formData[input.name] = this.convertValue(value, field);
+            paramFields.forEach(field => {
+                const input = field.querySelector('input, select, textarea');
+                if (input && input.value.trim()) {
+                    const paramName = input.name;
+                    const paramType = input.dataset.type;
+                    const paramIn = input.dataset.in;
+                    const value = this.convertValue(input.value.trim(), paramType);
+
+                    console.log(`Collecting ${paramIn} param: ${paramName} = ${value} (${paramType})`);
+
+                    switch (paramIn) {
+                        case 'path':
+                            data.pathParams[paramName] = value;
+                            break;
+                        case 'query':
+                            data.queryParams[paramName] = value;
+                            break;
+                    }
                 }
             });
 
-            // Validate required fields
-            this.validateFormData(formData);
+            // Collect request body from form fields
+            const bodyFields = document.querySelectorAll('[data-body-field]');
+            if (bodyFields.length > 0) {
+                const bodyData = {};
+                bodyFields.forEach(field => {
+                    const input = field.querySelector('input, select, textarea');
+                    if (input && input.value.trim()) {
+                        const fieldName = input.name;
+                        const fieldValue = input.value.trim();
 
-            this.log('Collected form data:', formData);
-            return formData;
+                        // Try to convert to appropriate type
+                        if (input.type === 'number') {
+                            bodyData[fieldName] = input.step === '1' ? parseInt(fieldValue, 10) : parseFloat(fieldValue);
+                        } else if (fieldValue === 'true' || fieldValue === 'false') {
+                            bodyData[fieldName] = fieldValue === 'true';
+                        } else {
+                            bodyData[fieldName] = fieldValue;
+                        }
+                    }
+                });
+
+                if (Object.keys(bodyData).length > 0) {
+                    data.body = JSON.stringify(bodyData, null, 2);
+                    console.log('Collected request body from fields:', data.body);
+                }
+            } else {
+                // Fallback to JSON textarea if exists
+                const jsonTextarea = document.getElementById('request-body-json');
+                if (jsonTextarea && jsonTextarea.value.trim()) {
+                    data.body = jsonTextarea.value.trim();
+                    console.log('Collected request body from JSON textarea:', data.body);
+                }
+            }
+
+            console.log('Final collected data:', data);
+            return data;
         },
 
-        // Convert form value based on field type
-        convertValue(value, field) {
-            if (!field) return value;
-
+        // Convert value based on type
+        convertValue(value, type) {
             try {
-                switch (field.type) {
+                switch (type) {
                     case 'integer':
-                        const intValue = parseInt(value, 10);
-                        if (isNaN(intValue)) throw new Error(`Invalid integer: ${value}`);
-                        return intValue;
+                        const intVal = parseInt(value, 10);
+                        if (isNaN(intVal)) throw new Error(`Invalid integer: ${value}`);
+                        return intVal;
 
                     case 'number':
-                        const numValue = parseFloat(value);
-                        if (isNaN(numValue)) throw new Error(`Invalid number: ${value}`);
-                        return numValue;
+                        const numVal = parseFloat(value);
+                        if (isNaN(numVal)) throw new Error(`Invalid number: ${value}`);
+                        return numVal;
 
                     case 'boolean':
                         return value === 'true';
-
-                    case 'array':
-                        if (value.startsWith('[')) {
-                            return JSON.parse(value);
-                        }
-                        return value.split(',').map(v => v.trim()).filter(v => v);
-
-                    case 'object':
-                        return JSON.parse(value);
 
                     default:
                         return value;
                 }
             } catch (error) {
-                this.log(`Type conversion error for ${field.name}:`, error);
-                throw new Error(`Invalid ${field.type} value for ${field.name}: ${error.message}`);
-            }
-        },
-
-        // Validate form data
-        validateFormData(formData) {
-            const missingRequired = this.schemaFields
-                .filter(field => field.required && !(field.name in formData))
-                .map(field => field.name);
-
-            if (missingRequired.length > 0) {
-                throw new Error(`Missing required fields: ${missingRequired.join(', ')}`);
+                console.warn(`Value conversion error for type ${type}:`, error);
+                return value;
             }
         },
 
@@ -428,60 +1121,72 @@
         async makeRequest(data) {
             let url = this.currentEndpoint.path;
             const method = this.currentEndpoint.method;
-            let bodyData = { ...data };
 
-            // Replace path parameters in URL
-            Object.keys(data).forEach(key => {
-                const placeholder = `{${key}}`;
-                if (url.includes(placeholder)) {
-                    url = url.replace(placeholder, encodeURIComponent(data[key]));
-                    delete bodyData[key];
-                }
+            console.log('Making request with data:', data);
+
+            // Replace path parameters
+            Object.entries(data.pathParams).forEach(([param, value]) => {
+                const oldUrl = url;
+                url = url.replace(`{${param}}`, encodeURIComponent(value));
+                console.log(`Replaced path param ${param}: ${oldUrl} → ${url}`);
             });
 
             // Build full URL
             const baseUrl = window.location.origin;
-            const fullUrl = url.startsWith('http') ? url : baseUrl + url;
+            let fullUrl = url.startsWith('http') ? url : baseUrl + url;
+
+            // Add query parameters
+            if (Object.keys(data.queryParams).length > 0) {
+                const params = new URLSearchParams(data.queryParams);
+                const separator = fullUrl.includes('?') ? '&' : '?';
+                fullUrl += separator + params.toString();
+                console.log('Added query params:', fullUrl);
+            }
+
+            // Get authentication token from localStorage
+            let authHeaders = {};
+            try {
+                const authData = localStorage.getItem('__pb_superuser_auth__');
+                if (authData) {
+                    const parsed = JSON.parse(authData);
+                    if (parsed.token) {
+                        authHeaders['Authorization'] = `Bearer ${parsed.token}`;
+                        console.log('Added superuser authentication');
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not parse auth data:', error);
+            }
 
             const options = {
                 method: method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Accept': 'application/json, text/plain, */*'
+                    'Accept': 'application/json, text/plain, */*',
+                    ...authHeaders
                 }
             };
 
-            // Add authentication if required
-            if (this.currentEndpoint.data.auth?.required) {
-                // This could be extended to handle different auth types
-                this.log('Auth required - extend this for your auth mechanism');
-            }
-
-            // Handle request body/query params based on method
-            if (['POST', 'PUT', 'PATCH'].includes(method)) {
-                if (Object.keys(bodyData).length > 0) {
-                    options.body = JSON.stringify(bodyData);
-                }
-            } else if (['GET', 'DELETE'].includes(method)) {
-                if (Object.keys(bodyData).length > 0) {
-                    const params = new URLSearchParams();
-                    Object.entries(bodyData).forEach(([key, value]) => {
-                        if (value !== null && value !== undefined) {
-                            params.append(key, String(value));
-                        }
-                    });
-                    if (params.toString()) {
-                        url += (url.includes('?') ? '&' : '?') + params.toString();
+            // Add request body for appropriate methods
+            if (['POST', 'PUT', 'PATCH'].includes(method) && data.body) {
+                try {
+                    // Validate JSON if it's a string
+                    if (typeof data.body === 'string') {
+                        JSON.parse(data.body);
                     }
+                    options.body = data.body;
+                    console.log('Added request body:', data.body);
+                } catch (e) {
+                    throw new Error(`Invalid JSON in request body: ${e.message}`);
                 }
             }
 
             const startTime = Date.now();
 
             try {
-                this.log('Making request to:', url, 'with options:', options);
+                console.log('Fetching:', fullUrl, 'with options:', options);
 
-                const response = await fetch(url, options);
+                const response = await fetch(fullUrl, options);
                 const endTime = Date.now();
 
                 const responseData = {
@@ -490,10 +1195,10 @@
                     headers: Object.fromEntries(response.headers.entries()),
                     body: await response.text(),
                     time: endTime - startTime,
-                    url: url
+                    url: fullUrl
                 };
 
-                this.log('Request completed:', {
+                console.log('Request completed:', {
                     status: response.status,
                     time: responseData.time
                 });
@@ -502,12 +1207,12 @@
 
             } catch (error) {
                 const endTime = Date.now();
-                this.log('Request failed:', error);
+                console.error('Request failed:', error);
 
                 throw {
                     message: `Network error: ${error.message}`,
                     time: endTime - startTime,
-                    url: url
+                    url: fullUrl
                 };
             }
         },
@@ -549,19 +1254,34 @@
 
         // Reset form to default values
         resetForm() {
-            const container = document.getElementById('schema-form-container');
-            if (!container) return;
+            console.log('Resetting form to defaults');
 
-            const inputs = container.querySelectorAll('input, select, textarea');
-            inputs.forEach(input => {
-                if (input.type === 'checkbox' || input.type === 'radio') {
-                    input.checked = false;
+            // Clear all parameter fields
+            const paramFields = document.querySelectorAll('[data-param] input, [data-param] select, [data-param] textarea');
+            paramFields.forEach(field => {
+                if (field.type === 'checkbox' || field.type === 'radio') {
+                    field.checked = false;
                 } else {
-                    input.value = '';
+                    field.value = '';
                 }
             });
 
-            this.log('Form reset');
+            // Clear request body fields
+            const bodyFields = document.querySelectorAll('[data-body-field] input, [data-body-field] select, [data-body-field] textarea');
+            bodyFields.forEach(field => {
+                field.value = '';
+            });
+
+            // Also clear JSON textarea if exists
+            const jsonTextarea = document.getElementById('request-body-json');
+            if (jsonTextarea) {
+                jsonTextarea.value = '';
+            }
+
+            // Repopulate default values
+            this.populateDefaultValues();
+
+            console.log('Form reset completed');
         },
 
         // Refresh response display when switching to response tab

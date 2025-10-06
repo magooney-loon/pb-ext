@@ -1,6 +1,6 @@
 {{define "api_tester_sidebar_js"}}
     // =============================================================================
-    // API TESTER SIDEBAR - UI CONTROLLER
+    // API TESTER SIDEBAR - SIMPLIFIED UI CONTROLLER
     // =============================================================================
 
     const APITesterSidebar = {
@@ -133,12 +133,27 @@
         // Open sidebar with endpoint data
         openSidebar(method, path, endpointData) {
             this.log('Opening sidebar for:', { method, path });
+            console.log('Raw endpoint data received:', endpointData);
+
+            // Parse the endpoint data if it's a string
+            let parsedData = endpointData;
+            if (typeof endpointData === 'string') {
+                try {
+                    parsedData = JSON.parse(endpointData);
+                    console.log('Parsed endpoint data:', parsedData);
+                } catch (e) {
+                    console.error('Failed to parse endpoint data:', e);
+                    parsedData = {};
+                }
+            }
 
             this.currentEndpoint = {
                 method: method.toUpperCase(),
                 path: path,
-                data: endpointData || {}
+                data: parsedData || {}
             };
+
+            console.log('Current endpoint set to:', this.currentEndpoint);
 
             // Update endpoint info display
             this.updateEndpointInfo();
@@ -217,7 +232,7 @@
             this.isOpen = false;
         },
 
-        // Update endpoint info display
+        // Update endpoint info display with proper auth detection
         updateEndpointInfo() {
             if (!this.currentEndpoint) return;
 
@@ -236,18 +251,50 @@
             }
 
             if (descEl) {
-                descEl.textContent = this.currentEndpoint.data.description || 'No description available';
+                descEl.textContent = this.currentEndpoint.data.description || 'Test this API endpoint with custom JSON payloads';
             }
 
             if (authEl) {
-                const auth = this.currentEndpoint.data.auth || { required: false };
+                // Properly extract auth information from endpoint data
+                const endpointData = this.currentEndpoint.data;
+                let authRequired = false;
+                let authType = '';
+                let authDescription = '';
+
+                // Check multiple possible auth locations in the data structure
+                if (endpointData.auth) {
+                    authRequired = Boolean(endpointData.auth.required);
+                    authType = endpointData.auth.type || '';
+                    authDescription = endpointData.auth.description || '';
+                    console.log('Found auth in data.auth:', endpointData.auth);
+                } else if (endpointData.security && endpointData.security.length > 0) {
+                    // OpenAPI style security
+                    authRequired = true;
+                    authType = 'OAuth2/Bearer';
+                    console.log('Found security requirements:', endpointData.security);
+                } else if (endpointData.authorization) {
+                    // Alternative auth field
+                    authRequired = Boolean(endpointData.authorization.required);
+                    authType = endpointData.authorization.type || '';
+                    console.log('Found auth in data.authorization:', endpointData.authorization);
+                }
+
                 const badge = authEl.querySelector('.auth-badge');
                 if (badge) {
-                    badge.textContent = auth.required ?
-                        `${auth.icon || '🔐'} Auth required (${auth.type || 'unknown'})` :
-                        'No auth required';
-                    badge.className = auth.required ? 'auth-badge auth-required' : 'auth-badge';
+                    if (authRequired) {
+                        badge.textContent = authType ? `🔐 ${authType} required` : '🔐 Auth required';
+                        badge.className = 'auth-badge auth-required';
+                        if (authDescription) {
+                            badge.title = authDescription;
+                        }
+                    } else {
+                        badge.textContent = '🔓 No auth required';
+                        badge.className = 'auth-badge auth-optional';
+                        badge.title = 'This endpoint is publicly accessible';
+                    }
                 }
+
+                console.log('Auth status set:', { authRequired, authType, authDescription });
             }
         },
 
@@ -278,12 +325,12 @@
             const timeEl = document.querySelector('#response-status-info .response-time');
 
             if (statusEl) {
-                statusEl.textContent = '200 OK';
-                statusEl.className = 'status-badge';
+                statusEl.textContent = 'Ready';
+                statusEl.className = 'status-badge status-ready';
             }
 
             if (timeEl) {
-                timeEl.textContent = '145ms';
+                timeEl.textContent = 'Send a request';
             }
 
             // Reset to body tab
@@ -325,7 +372,7 @@
             }
         },
 
-        // Update response content
+        // Update response content with proper formatting
         updateResponseContent(body, headers) {
             const bodyCode = document.querySelector('#response-body code');
             const headersCode = document.querySelector('#response-headers code');
