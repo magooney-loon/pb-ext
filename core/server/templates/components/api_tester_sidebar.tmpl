@@ -1,0 +1,114 @@
+{{define "api_tester_sidebar"}}
+<!-- API Tester Sidebar -->
+<aside id="api-tester-sidebar" class="api-tester-sidebar">
+    <div class="api-tester-header">
+        <div class="flex align-center gap-2">
+            <i class="ri-flask-line"></i>
+            <h5 class="flex-fill">API Tester</h5>
+            <button id="close-tester-btn" class="btn btn-xs btn-transparent" title="Close">
+                <i class="ri-close-line"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Endpoint Info -->
+    <div id="tester-endpoint-info" class="endpoint-info">
+        <div class="flex align-center gap-2 mb-2">
+            <span id="tester-method" class="http-method">GET</span>
+            <code id="tester-path" class="flex-fill">/api/endpoint</code>
+        </div>
+        <p id="tester-description" class="txt-sm txt-hint mb-2">Endpoint description</p>
+        <div id="tester-auth-info" class="auth-status">
+            <span class="auth-badge">No auth required</span>
+        </div>
+    </div>
+
+    <!-- Tab Navigation for API Tester -->
+    <div class="api-tester-tabs">
+        <button class="tester-tab active" data-tab="parameters">
+            <i class="ri-edit-line"></i>
+            Parameters
+        </button>
+        <button class="tester-tab" data-tab="response">
+            <i class="ri-file-text-line"></i>
+            Response
+        </button>
+    </div>
+
+    <div class="api-tester-content">
+        <!-- Parameters Tab -->
+        <div id="parameters-tab" class="tester-tab-content active">
+            <div class="tester-section">
+                <!-- Auto-generated form fields based on schema -->
+                <div id="schema-form-container" class="schema-form">
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-loader-4-line animate-spin"></i>
+                        <p>Loading schema...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Response Tab -->
+        <div id="response-tab" class="tester-tab-content" style="display: none;">
+            <div id="response-section" class="tester-section" style="display: block;">
+                <div class="section-title">
+                    <i class="ri-file-text-line"></i>
+                    Response
+                    <div class="flex align-center gap-2 ml-auto">
+                        <span id="response-status-info" class="response-status">
+                            <span class="status-badge">200 OK</span>
+                            <span class="response-time">145ms</span>
+                        </span>
+                        <button id="copy-response-btn" class="btn btn-xs btn-secondary">
+                            <i class="ri-file-copy-line"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="response-tabs">
+                    <button class="response-tab active" data-tab="body">Body</button>
+                    <button class="response-tab" data-tab="headers">Headers</button>
+                </div>
+
+                <div class="response-content">
+                    <!-- Empty state for when no response is available -->
+                    <div id="response-empty-state" class="response-empty-state">
+                        <div class="txt-center txt-hint p-4">
+                            <i class="ri-inbox-line ri-xl"></i>
+                            <p>No response yet</p>
+                            <p class="txt-sm">Send a request to see the response here</p>
+                        </div>
+                    </div>
+
+                    <div id="response-body" class="response-tab-content active" style="display: none;">
+                        <pre class="code-block"><code></code></pre>
+                    </div>
+                    <div id="response-headers" class="response-tab-content" style="display: none;">
+                        <pre class="code-block"><code></code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send Request Section -->
+    <div class="tester-actions">
+        <button id="send-request-btn" class="btn btn-primary btn-block">
+            <i class="ri-send-plane-line"></i>
+            Send Request
+        </button>
+
+        <button id="reset-form-btn" class="btn btn-secondary btn-sm btn-block mt-2">
+            <i class="ri-refresh-line"></i>
+            Reset to Defaults
+        </button>
+    </div>
+</aside>
+
+<!-- Resize Handle -->
+<div id="api-resize-handle" class="api-resize-handle" style="display: none;"></div>
+
+<!-- Mobile Overlay -->
+<div id="api-sidebar-overlay" class="api-sidebar-overlay"></div>
+{{end}}
