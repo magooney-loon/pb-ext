@@ -1,0 +1,35 @@
+{{define "api_status_manager_js"}}
+    // =============================================================================
+    // STATUS MANAGEMENT
+    // =============================================================================
+
+    const StatusManager = {
+        updateStatus(type, message) {
+            const statusBadge = document.getElementById('api-status-badge');
+            if (!statusBadge) return;
+
+            statusBadge.textContent = message;
+            statusBadge.className = `badge badge-sm ${this.getStatusClass(type)}`;
+        },
+
+        getStatusClass(type) {
+            const classes = {
+                'success': 'badge-success',
+                'error': 'badge-danger',
+                'loading': 'badge-warning',
+                'warning': 'badge-warning'
+            };
+            return classes[type] || 'badge-secondary';
+        },
+
+        updateVersionBadge() {
+            if (!APIState.currentVersion || !APIState.availableVersions) return;
+
+            const versionInfo = APIState.availableVersions.find(v => v.version === APIState.currentVersion);
+            if (!versionInfo) return;
+
+            const status = versionInfo.status || 'stable';
+            this.updateStatus(status.toLowerCase(), status);
+        }
+    };
+{{end}}

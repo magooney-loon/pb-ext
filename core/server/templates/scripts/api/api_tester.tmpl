@@ -1,0 +1,958 @@
+{{define "api_tester_js"}}
+    // =============================================================================
+    // SIMPLIFIED SCHEMA-DRIVEN API TESTER
+    // =============================================================================
+
+    const APITester = {
+        currentEndpoint: null,
+        sidebarOpen: false,
+        schemaFields: {},
+        debug: false, // Set to true for detailed logging
+
+        // Initialize the API tester
+        init() {
+            this.log('APITester initializing...');
+            this.bindEvents();
+            this.log('APITester initialized successfully');
+        },
+
+        // Debug logging helper
+        log(...args) {
+            if (this.debug) {
+                console.log('[APITester]', ...args);
+            }
+        },
+
+        // Bind event listeners
+        bindEvents() {
+            // Sidebar controls
+            document.getElementById('close-tester-btn')?.addEventListener('click', () => this.closeSidebar());
+            document.getElementById('api-sidebar-overlay')?.addEventListener('click', () => this.closeSidebar());
+
+            // Form actions
+            document.getElementById('send-request-btn')?.addEventListener('click', () => this.sendRequest());
+            document.getElementById('reset-form-btn')?.addEventListener('click', () => this.resetForm());
+
+            // Response actions
+            document.getElementById('copy-response-btn')?.addEventListener('click', () => this.copyResponse());
+
+            // Response tabs
+            document.addEventListener('click', (e) => {
+                if (e.target.classList.contains('response-tab')) {
+                    this.switchResponseTab(e.target.dataset.tab);
+                }
+            });
+
+            // Escape key to close sidebar
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && this.sidebarOpen) {
+                    this.closeSidebar();
+                }
+            });
+        },
+
+        // Open the sidebar with endpoint details
+        openSidebar(method, path, endpointData) {
+            this.log('Opening sidebar for:', { method, path });
+
+            try {
+                // Handle both string and object inputs
+                if (typeof endpointData === 'string') {
+                    try {
+                        this.currentEndpoint = JSON.parse(endpointData);
+                    } catch (parseError) {
+                        this.log('JSON parse error, using fallback:', parseError.message);
+                        throw parseError;
+                    }
+                } else if (typeof endpointData === 'object' && endpointData !== null) {
+                    this.currentEndpoint = endpointData;
+                } else {
+                    throw new Error('Invalid endpoint data type');
+                }
+                this.log('Parsed endpoint data successfully');
+            } catch (e) {
+                console.warn('Failed to parse endpoint data, using fallback:', e);
+                this.currentEndpoint = {
+                    method: method?.toUpperCase() || 'GET',
+                    path: path || '/api/endpoint',
+                    description: 'Test endpoint',
+                    auth: { required: false, type: 'none' },
+                    request: null,
+                    response: null
+                };
+            }
+
+            this.populateEndpointInfo(method, path);
+            this.showSidebar();
+            this.clearPreviousResponse();
+            this.generateSchemaForm();
+        },
+
+        // Show the sidebar
+        showSidebar() {
+            const sidebar = document.getElementById('api-tester-sidebar');
+            const mainContent = document.querySelector('.api-main-content');
+            const overlay = document.getElementById('api-sidebar-overlay');
+
+            if (sidebar && mainContent) {
+                sidebar.classList.add('open');
+                mainContent.classList.add('with-sidebar');
+                if (overlay) {
+                    overlay.classList.add('active');
+                }
+                this.sidebarOpen = true;
+
+                // Prevent body scroll on mobile
+                if (window.innerWidth <= 1024) {
+                    document.body.style.overflow = 'hidden';
+                }
+            }
+        },
+
+        // Close the sidebar
+        closeSidebar() {
+            const sidebar = document.getElementById('api-tester-sidebar');
+            const mainContent = document.querySelector('.api-main-content');
+            const overlay = document.getElementById('api-sidebar-overlay');
+
+            if (sidebar && mainContent) {
+                sidebar.classList.remove('open');
+                mainContent.classList.remove('with-sidebar');
+                if (overlay) {
+                    overlay.classList.remove('active');
+                }
+                this.sidebarOpen = false;
+
+                // Restore body scroll
+                document.body.style.overflow = '';
+            }
+        },
+
+        // Populate endpoint information
+        populateEndpointInfo(method, path) {
+            const methodEl = document.getElementById('tester-method');
+            const pathEl = document.getElementById('tester-path');
+            const descEl = document.getElementById('tester-description');
+            const authEl = document.getElementById('tester-auth-info');
+
+            if (methodEl) {
+                methodEl.textContent = method.toUpperCase();
+                methodEl.className = `http-method ${method.toLowerCase()}`;
+            }
+
+            if (pathEl) {
+                pathEl.textContent = path;
+            }
+
+            if (descEl && this.currentEndpoint) {
+                descEl.textContent = this.currentEndpoint.description || 'Test this API endpoint';
+            }
+
+            if (authEl && this.currentEndpoint?.auth) {
+                const authBadge = authEl.querySelector('.auth-badge');
+                if (authBadge) {
+                    if (this.currentEndpoint.auth.required) {
+                        authBadge.textContent = this.currentEndpoint.auth.description || 'Auth required';
+                        authBadge.classList.add('required');
+                    } else {
+                        authBadge.textContent = 'No auth required';
+                        authBadge.classList.remove('required');
+                    }
+                }
+            }
+        },
+
+        // Clear previous response when opening new endpoint
+        clearPreviousResponse() {
+            const responseSection = document.getElementById('response-section');
+            if (responseSection) {
+                responseSection.style.display = 'none';
+            }
+        },
+
+        // Generate form based on endpoint schema
+        generateSchemaForm() {
+            const container = document.getElementById('schema-form-container');
+            if (!container) return;
+
+            this.log('Generating schema form for endpoint:', this.currentEndpoint.path);
+
+            this.schemaFields = {};
+            let html = '';
+
+            // Parse path parameters
+            const pathParams = this.extractPathParameters();
+            if (pathParams.length > 0) {
+                html += this.renderParameterGroup('Path Parameters', 'ri-route-line', pathParams);
+            }
+
+            // Parse query parameters
+            const queryParams = this.extractQueryParameters();
+            if (queryParams.length > 0) {
+                html += this.renderParameterGroup('Query Parameters', 'ri-search-line', queryParams);
+            }
+
+            // Parse request body
+            const bodyFields = this.extractBodyParameters();
+            if (bodyFields.length > 0) {
+                html += this.renderParameterGroup('Request Body', 'ri-file-text-line', bodyFields);
+            }
+
+            this.log('Form sections generated:', {
+                pathParams: pathParams.length,
+                queryParams: queryParams.length,
+                bodyFields: bodyFields.length
+            });
+
+            if (html === '') {
+                html = `
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-information-line ri-xl"></i>
+                        <p>No parameters required for this endpoint</p>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        },
+
+        // Extract path parameters from URL
+        extractPathParameters() {
+            const path = this.currentEndpoint.path || '';
+            const params = [];
+
+            // Match both {id} and :id style parameters
+            const openApiMatches = path.match(/{([^}]+)}/g) || [];
+            const expressMatches = path.match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g) || [];
+
+            this.log('Extracting path parameters from:', path);
+
+            // Handle OpenAPI style {id} parameters
+            openApiMatches.forEach(match => {
+                const paramName = match.slice(1, -1);
+                const paramInfo = this.getSmartParameterInfo(paramName, path);
+                params.push({
+                    name: paramName,
+                    type: paramInfo.type,
+                    required: true,
+                    description: paramInfo.description,
+                    example: paramInfo.example,
+                    in: 'path'
+                });
+            });
+
+            // Handle Express.js style :id parameters
+            expressMatches.forEach(match => {
+                const paramName = match.slice(1); // Remove the :
+                const paramInfo = this.getSmartParameterInfo(paramName, path);
+                params.push({
+                    name: paramName,
+                    type: paramInfo.type,
+                    required: true,
+                    description: paramInfo.description,
+                    example: paramInfo.example,
+                    in: 'path'
+                });
+            });
+
+            this.log('Path parameters extracted:', params.length, 'parameters');
+            return params;
+        },
+
+        // Get smart parameter info based on name and context
+        getSmartParameterInfo(paramName, path) {
+            const lowerParam = paramName.toLowerCase();
+
+            // Common ID patterns
+            if (lowerParam === 'id' || lowerParam.endsWith('id')) {
+                if (path.includes('/users') || lowerParam.includes('user')) {
+                    return {
+                        type: 'string',
+                        description: 'User ID',
+                        example: 'user123'
+                    };
+                } else if (path.includes('/posts') || lowerParam.includes('post')) {
+                    return {
+                        type: 'string',
+                        description: 'Post ID',
+                        example: 'post_abc123'
+                    };
+                } else if (path.includes('/collections') || lowerParam.includes('collection')) {
+                    return {
+                        type: 'string',
+                        description: 'Collection name or ID',
+                        example: 'my_collection'
+                    };
+                } else {
+                    return {
+                        type: 'string',
+                        description: `Record ID for ${paramName}`,
+                        example: 'rec123abc'
+                    };
+                }
+            }
+
+            // Collection name patterns
+            if (lowerParam === 'collection' || lowerParam === 'table') {
+                return {
+                    type: 'string',
+                    description: 'Collection/table name',
+                    example: 'users'
+                };
+            }
+
+            // Username patterns
+            if (lowerParam.includes('username') || lowerParam.includes('user')) {
+                return {
+                    type: 'string',
+                    description: 'Username',
+                    example: 'johndoe'
+                };
+            }
+
+            // Slug patterns
+            if (lowerParam.includes('slug')) {
+                return {
+                    type: 'string',
+                    description: 'URL slug',
+                    example: 'my-awesome-post'
+                };
+            }
+
+            // Version patterns
+            if (lowerParam.includes('version') || lowerParam === 'v') {
+                return {
+                    type: 'string',
+                    description: 'API version',
+                    example: 'v1'
+                };
+            }
+
+            // Default fallback
+            return {
+                type: 'string',
+                description: `Path parameter: ${paramName}`,
+                example: paramName.toLowerCase() + '123'
+            };
+        },
+
+        // Extract query parameters from schema
+        extractQueryParameters() {
+            const params = [];
+            const path = this.currentEndpoint.path || '';
+            const method = this.currentEndpoint.method?.toUpperCase();
+
+            this.log('Extracting query parameters for method:', method);
+
+            // Add common query parameters based on endpoint patterns
+            if (path.includes('/api/collections/') || path.includes('/records')) {
+                if (method === 'GET') {
+                    params.push({
+                        name: 'page',
+                        type: 'integer',
+                        required: false,
+                        description: 'Page number for pagination',
+                        default: 1,
+                        in: 'query'
+                    });
+                    params.push({
+                        name: 'perPage',
+                        type: 'integer',
+                        required: false,
+                        description: 'Number of records per page',
+                        default: 30,
+                        in: 'query'
+                    });
+                    params.push({
+                        name: 'sort',
+                        type: 'string',
+                        required: false,
+                        description: 'Sort field (prefix with - for DESC)',
+                        in: 'query'
+                    });
+                    params.push({
+                        name: 'filter',
+                        type: 'string',
+                        required: false,
+                        description: 'Filter expression',
+                        in: 'query'
+                    });
+                    params.push({
+                        name: 'expand',
+                        type: 'string',
+                        required: false,
+                        description: 'Relations to expand',
+                        in: 'query'
+                    });
+                }
+            }
+
+            this.log('Query parameters extracted:', params.length, 'parameters');
+            return params;
+        },
+
+        // Extract body parameters from schema
+        extractBodyParameters() {
+            const params = [];
+            const method = this.currentEndpoint?.method?.toUpperCase();
+
+            this.log('Extracting body parameters for method:', method);
+
+            if (!method || !['POST', 'PUT', 'PATCH'].includes(method)) {
+                this.log('Method does not support body, skipping');
+                return params;
+            }
+
+            try {
+                let schema = this.currentEndpoint.request;
+                this.log('Processing request schema...');
+
+                // Handle different schema formats
+                if (typeof schema === 'string' && schema.trim()) {
+                    try {
+                        schema = JSON.parse(schema);
+                    } catch (jsonError) {
+                        this.log('Invalid JSON in request schema:', jsonError.message);
+                        schema = null;
+                    }
+                } else if (!schema || typeof schema !== 'object') {
+                    schema = null;
+                }
+
+                this.log('Schema processed successfully');
+
+                if (schema && schema.properties && typeof schema.properties === 'object') {
+                    // Explicit schema with defined properties
+                    Object.entries(schema.properties).forEach(([key, prop]) => {
+                        if (prop && typeof prop === 'object') {
+                            params.push({
+                                name: key,
+                                type: prop.type || 'string',
+                                required: Array.isArray(schema.required) ? schema.required.includes(key) : false,
+                                description: prop.description || `Field: ${key}`,
+                                default: prop.default,
+                                example: prop.example,
+                                enum: Array.isArray(prop.enum) ? prop.enum : null,
+                                in: 'body'
+                            });
+                        }
+                    });
+                } else if (schema && schema.type === 'object') {
+                    // Generic object schema - provide common fields based on endpoint
+                    const path = this.currentEndpoint.path || '';
+                    const method = this.currentEndpoint.method?.toUpperCase();
+
+                    // Add common parameters based on endpoint patterns
+                    if (path.includes('/posts') && method === 'POST') {
+                        params.push({
+                            name: 'title',
+                            type: 'string',
+                            required: true,
+                            description: 'Post title',
+                            in: 'body'
+                        });
+                        params.push({
+                            name: 'content',
+                            type: 'string',
+                            required: true,
+                            description: 'Post content',
+                            in: 'body'
+                        });
+                        params.push({
+                            name: 'status',
+                            type: 'string',
+                            required: false,
+                            description: 'Post status',
+                            default: 'draft',
+                            enum: ['draft', 'published'],
+                            in: 'body'
+                        });
+                        params.push({
+                            name: 'tags',
+                            type: 'string',
+                            required: false,
+                            description: 'Comma-separated tags',
+                            in: 'body'
+                        });
+                    } else if (path.includes('/users') && method === 'POST') {
+                        params.push({
+                            name: 'username',
+                            type: 'string',
+                            required: true,
+                            description: 'Username',
+                            in: 'body'
+                        });
+                        params.push({
+                            name: 'email',
+                            type: 'string',
+                            required: true,
+                            description: 'Email address',
+                            in: 'body'
+                        });
+                        params.push({
+                            name: 'password',
+                            type: 'string',
+                            required: true,
+                            description: 'Password',
+                            in: 'body'
+                        });
+                    } else if (path.includes('/collections/') && method === 'POST') {
+                        params.push({
+                            name: 'name',
+                            type: 'string',
+                            required: true,
+                            description: 'Record name',
+                            in: 'body'
+                        });
+                        params.push({
+                            name: 'data',
+                            type: 'string',
+                            required: false,
+                            description: 'JSON data (as string)',
+                            placeholder: '{"key": "value"}',
+                            in: 'body'
+                        });
+                    } else {
+                        // Generic parameters for any object
+                        params.push({
+                            name: 'name',
+                            type: 'string',
+                            required: false,
+                            description: 'Name field',
+                            in: 'body'
+                        });
+                        params.push({
+                            name: 'description',
+                            type: 'string',
+                            required: false,
+                            description: 'Description field',
+                            in: 'body'
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('Error extracting body parameters:', e);
+                // Add generic fallback parameters on error
+                if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+                    params.push({
+                        name: 'data',
+                        type: 'string',
+                        required: false,
+                        description: 'Request data (JSON string)',
+                        placeholder: '{"key": "value"}',
+                        in: 'body'
+                    });
+                }
+            }
+
+            this.log('Body parameters extracted:', params.length, 'parameters');
+            return params;
+        },
+
+        // Render a parameter group
+        renderParameterGroup(title, icon, params) {
+            if (params.length === 0) return '';
+
+            const fields = params.map(param => this.renderSchemaField(param)).join('');
+
+            return `
+                <div class="schema-param-group">
+                    <div class="param-group-title">
+                        <i class="${icon}"></i>
+                        ${title}
+                    </div>
+                    ${fields}
+                </div>
+            `;
+        },
+
+        // Render individual schema field
+        renderSchemaField(param) {
+            const fieldId = `param_${param.in}_${param.name}`;
+            this.schemaFields[fieldId] = param;
+
+            const requiredMark = param.required ? '<span class="field-required">*</span>' : '';
+
+            let input = '';
+
+            if (param.type === 'boolean') {
+                input = `
+                    <select class="form-control schema-field-input" id="${fieldId}">
+                        <option value="">-- Select --</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                    </select>
+                `;
+            } else if (param.enum) {
+                const options = param.enum.map(value =>
+                    `<option value="${value}">${value}</option>`
+                ).join('');
+                input = `
+                    <select class="form-control schema-field-input" id="${fieldId}">
+                        <option value="">-- Select --</option>
+                        ${options}
+                    </select>
+                `;
+            } else if (param.type === 'integer' || param.type === 'number') {
+                input = `
+                    <input type="number"
+                           class="form-control schema-field-input"
+                           id="${fieldId}"
+                           placeholder="${param.description}"
+                           ${param.required ? 'required' : ''}>
+                `;
+            } else {
+                // String or text input
+                const placeholder = param.placeholder || param.description || '';
+                input = `
+                    <input type="text"
+                           class="form-control schema-field-input"
+                           id="${fieldId}"
+                           placeholder="${placeholder}"
+                           ${param.required ? 'required' : ''}>
+                `;
+            }
+
+            return `
+                <div class="schema-field">
+                    <div class="schema-field-label">
+                        <span class="field-name">${param.name}</span>
+                        ${requiredMark}
+                        <span class="field-type">${param.type}</span>
+                    </div>
+                    ${param.description ? `<div class="field-description">${param.description}</div>` : ''}
+                    ${input}
+                </div>
+            `;
+        },
+
+        // Reset form to default values
+        resetForm() {
+            Object.keys(this.schemaFields).forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.value = '';
+                }
+            });
+
+            // Hide response section
+            const responseSection = document.getElementById('response-section');
+            if (responseSection) {
+                responseSection.style.display = 'none';
+            }
+        },
+
+        // Collect form data
+        collectFormData() {
+            const pathParams = {};
+            const queryParams = {};
+            const bodyData = {};
+
+            Object.entries(this.schemaFields).forEach(([fieldId, param]) => {
+                const field = document.getElementById(fieldId);
+                if (field && field.value.trim()) {
+                    let value = field.value.trim();
+
+                    // Convert types
+                    if (param.type === 'integer') {
+                        value = parseInt(value, 10);
+                    } else if (param.type === 'number') {
+                        value = parseFloat(value);
+                    } else if (param.type === 'boolean') {
+                        value = value === 'true';
+                    }
+
+                    if (param.in === 'path') {
+                        pathParams[param.name] = value;
+                    } else if (param.in === 'query') {
+                        queryParams[param.name] = value;
+                    } else if (param.in === 'body') {
+                        bodyData[param.name] = value;
+                    }
+                }
+            });
+
+            return { pathParams, queryParams, bodyData };
+        },
+
+        // Get authentication token
+        getAuthToken() {
+            let token = null;
+            let authType = 'none';
+
+            try {
+                // Check for superuser auth first
+                const superuserAuth = localStorage.getItem('__pb_superuser_auth__');
+                if (superuserAuth) {
+                    const authData = JSON.parse(superuserAuth);
+                    if (authData && authData.token) {
+                        token = authData.token;
+                        authType = 'superuser';
+                        return { token, authType, email: authData.record?.email };
+                    }
+                }
+
+                // Check for regular user auth
+                const authKeys = Object.keys(localStorage).filter(key => key.startsWith('pb_auth_'));
+                if (authKeys.length > 0) {
+                    const authData = JSON.parse(localStorage.getItem(authKeys[0]));
+                    if (authData && authData.token) {
+                        token = authData.token;
+                        authType = 'user';
+                        return { token, authType, email: authData.record?.email };
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get auth token:', error);
+            }
+
+            return { token: null, authType: 'none', email: null };
+        },
+
+        // Send the request
+        async sendRequest() {
+            const sendBtn = document.getElementById('send-request-btn');
+            if (!sendBtn) return;
+
+            try {
+                sendBtn.classList.add('loading');
+                sendBtn.disabled = true;
+
+                const formData = this.collectFormData();
+                const auth = this.getAuthToken();
+
+                // Check auth requirements
+                if (this.currentEndpoint?.auth?.required && !auth.token) {
+                    throw new Error('This endpoint requires authentication. Please log in first.');
+                }
+
+                // Build URL with path parameters
+                let url = window.location.origin + this.currentEndpoint.path;
+                Object.entries(formData.pathParams).forEach(([key, value]) => {
+                    // Handle both {id} and :id parameter formats
+                    url = url.replace(`{${key}}`, encodeURIComponent(value));
+                    url = url.replace(`:${key}`, encodeURIComponent(value));
+                });
+
+                // Add query parameters
+                const queryString = new URLSearchParams(formData.queryParams).toString();
+                if (queryString) {
+                    url += '?' + queryString;
+                }
+
+                // Build fetch options
+                const fetchOptions = {
+                    method: this.currentEndpoint.method.toUpperCase(),
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                };
+
+                // Add auth header
+                if (auth.token) {
+                    fetchOptions.headers['Authorization'] = `Bearer ${auth.token}`;
+                }
+
+                // Add body for appropriate methods
+                if (['POST', 'PUT', 'PATCH'].includes(fetchOptions.method) && Object.keys(formData.bodyData).length > 0) {
+                    fetchOptions.body = JSON.stringify(formData.bodyData);
+                }
+
+                const startTime = Date.now();
+                const response = await fetch(url, fetchOptions);
+                const endTime = Date.now();
+
+                let responseText = '';
+                let responseData = null;
+
+                try {
+                    responseText = await response.text();
+                } catch (e) {
+                    console.error('Failed to read response text:', e.message);
+                    responseText = 'Error reading response';
+                }
+
+                // Try to parse as JSON, fall back to text
+                try {
+                    if (responseText.trim()) {
+                        responseData = JSON.parse(responseText);
+                    } else {
+                        responseData = { message: 'Empty response' };
+                    }
+                } catch (e) {
+                    this.log('Response is not JSON, treating as text');
+                    responseData = responseText;
+                }
+
+                this.displayResponse(response, responseData, endTime - startTime);
+
+            } catch (error) {
+                console.error('Request failed:', error);
+                let errorMessage = 'Request failed';
+
+                if (error instanceof TypeError && error.message.includes('fetch')) {
+                    errorMessage = 'Network error - check your connection and try again';
+                } else if (error.message) {
+                    errorMessage = error.message;
+                }
+
+                this.displayError(errorMessage);
+            } finally {
+                sendBtn.classList.remove('loading');
+                sendBtn.disabled = false;
+            }
+        },
+
+        // Display response
+        displayResponse(response, data, responseTime) {
+            const responseSection = document.getElementById('response-section');
+            if (!responseSection) {
+                console.error('Response section not found');
+                return;
+            }
+
+            responseSection.style.display = 'block';
+
+            // Update status in the new structure
+            const statusBadge = document.querySelector('#response-status-info .status-badge');
+            const timeEl = document.querySelector('#response-status-info .response-time');
+
+            if (statusBadge) {
+                statusBadge.textContent = `${response.status} ${response.statusText}`;
+                statusBadge.className = 'status-badge ' + (response.ok ? 'success' : 'error');
+            }
+
+            if (timeEl) {
+                timeEl.textContent = `${responseTime}ms`;
+            }
+
+            // Update response body with proper formatting
+            const bodyEl = responseSection.querySelector('#response-body code');
+            if (bodyEl) {
+                try {
+                    if (typeof data === 'object' && data !== null) {
+                        bodyEl.textContent = JSON.stringify(data, null, 2);
+                    } else if (typeof data === 'string') {
+                        // Try to format as JSON if it looks like JSON
+                        try {
+                            const parsed = JSON.parse(data);
+                            bodyEl.textContent = JSON.stringify(parsed, null, 2);
+                        } catch (e) {
+                            bodyEl.textContent = data;
+                        }
+                    } else {
+                        bodyEl.textContent = String(data || '');
+                    }
+                } catch (e) {
+                    console.error('Error formatting response body:', e.message);
+                    bodyEl.textContent = String(data || 'Error formatting response');
+                }
+            }
+
+            // Update response headers
+            const headersEl = responseSection.querySelector('#response-headers code');
+            if (headersEl) {
+                try {
+                    const headerText = Array.from(response.headers.entries())
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join('\n');
+                    headersEl.textContent = headerText || 'No headers';
+                } catch (e) {
+                    console.error('Error formatting response headers:', e.message);
+                    headersEl.textContent = 'Error reading headers';
+                }
+            }
+
+            // Scroll the response into view
+            try {
+                responseSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (e) {
+                this.log('Scroll error:', e.message);
+            }
+        },
+
+        // Display error
+        displayError(message) {
+            const responseSection = document.getElementById('response-section');
+            if (!responseSection) return;
+
+            responseSection.style.display = 'block';
+
+            const statusBadge = document.querySelector('#response-status-info .status-badge');
+            const timeEl = document.querySelector('#response-status-info .response-time');
+
+            if (statusBadge) {
+                statusBadge.textContent = 'Error';
+                statusBadge.className = 'status-badge error';
+            }
+
+            if (timeEl) {
+                timeEl.textContent = '';
+            }
+
+            const bodyEl = responseSection.querySelector('#response-body code');
+            if (bodyEl) {
+                bodyEl.textContent = message;
+            }
+        },
+
+        // Switch response tab
+        switchResponseTab(tab) {
+            document.querySelectorAll('.response-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+
+            document.querySelectorAll('.response-tab-content').forEach(content => {
+                content.classList.toggle('active', content.id === `response-${tab}`);
+            });
+        },
+
+        // Copy response
+        copyResponse() {
+            const activeContent = document.querySelector('.response-tab-content.active code');
+            if (!activeContent) return;
+
+            navigator.clipboard.writeText(activeContent.textContent).then(() => {
+                const btn = document.getElementById('copy-response-btn');
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="ri-check-line"></i> Copied!';
+                btn.classList.add('btn-success');
+                btn.classList.remove('btn-secondary');
+
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-secondary');
+                }, 2000);
+            });
+        },
+
+        // Legacy method for backward compatibility
+        testEndpoint(method, path, authRequired) {
+            // For simple GET requests without auth, just open in new tab
+            if (method.toUpperCase() === 'GET' && !authRequired) {
+                const url = window.location.origin + path;
+                window.open(url, '_blank');
+                return;
+            }
+
+            // Otherwise open in sidebar
+            this.openSidebar(method, path, {
+                method,
+                path,
+                description: 'Test endpoint',
+                auth: { required: authRequired }
+            });
+        }
+    };
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => APITester.init());
+    } else {
+        APITester.init();
+    }
+
+    // Expose APITester globally
+    window.APITester = APITester;
+{{end}}

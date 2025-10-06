@@ -1,0 +1,71 @@
+{{define "api_state_js"}}
+    // =============================================================================
+    // API STATE MANAGEMENT
+    // =============================================================================
+
+    const APIState = {
+        openApiSchema: null,
+        apiStats: null,
+        apiComponents: null,
+        allEndpoints: [],
+        filteredEndpoints: [],
+        availableVersions: [],
+        currentVersion: null,
+
+        reset() {
+            this.openApiSchema = null;
+            this.apiStats = null;
+            this.apiComponents = null;
+            this.allEndpoints = [];
+            this.filteredEndpoints = [];
+        },
+
+        setEndpoints(endpoints) {
+            this.allEndpoints = this.validateEndpoints(endpoints);
+            this.filteredEndpoints = [...this.allEndpoints];
+        },
+
+        validateEndpoints(endpoints) {
+            if (!Array.isArray(endpoints)) {
+                console.warn('Expected endpoints array, got:', typeof endpoints, endpoints);
+                return [];
+            }
+
+            return endpoints.map((endpoint, index) => {
+                const validated = {
+                    method: endpoint.method || 'GET',
+                    path: endpoint.path || '/',
+                    handler_name: endpoint.handler_name || `endpoint_${index}`,
+                    description: endpoint.description || 'No description available',
+                    tags: Array.isArray(endpoint.tags) ? endpoint.tags : [],
+                    auth: this.validateAuthInfo(endpoint.auth),
+                    request: endpoint.request || null,
+                    response: endpoint.response || null
+                };
+
+                // Log validation warnings for debugging AST issues
+                if (!endpoint.path) {
+                    console.warn(`Endpoint ${index}: Missing path, using default`);
+                }
+                if (!endpoint.method) {
+                    console.warn(`Endpoint ${index}: Missing method, using GET`);
+                }
+
+                return validated;
+            });
+        },
+
+        validateAuthInfo(auth) {
+            if (!auth) return { required: false };
+
+            return {
+                required: Boolean(auth.required),
+                type: auth.type || 'unknown',
+                description: auth.description || 'Authentication required',
+                icon: auth.icon || '🔐',
+                collections: Array.isArray(auth.collections) ? auth.collections : [],
+                owner_param: auth.owner_param || null
+            };
+        }
+    };
+{{end}}

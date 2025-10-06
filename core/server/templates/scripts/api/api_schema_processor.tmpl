@@ -1,0 +1,107 @@
+{{define "api_schema_processor_js"}}
+    // =============================================================================
+    // SCHEMA PROCESSING UTILITIES
+    // =============================================================================
+
+    const SchemaProcessor = {
+        syntaxHighlight(data) {
+            if (!data) return 'No data available';
+
+            let json;
+            try {
+                json = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            } catch (error) {
+                console.warn('Failed to stringify data for highlighting:', error);
+                return String(data);
+            }
+
+            // Escape HTML and apply syntax highlighting
+            return json
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+                    (match) => {
+                        let cls = 'number';
+                        if (/^"/.test(match)) {
+                            cls = /:$/.test(match) ? 'key' : 'string';
+                        } else if (/true|false/.test(match)) {
+                            cls = 'boolean';
+                        } else if (/null/.test(match)) {
+                            cls = 'null';
+                        }
+                        return `<span class="json-${cls}">${match}</span>`;
+                    });
+        },
+
+        jsonToYaml(obj, indent = 0) {
+            if (!obj) return 'No data available';
+
+            const spaces = '  '.repeat(indent);
+            let yaml = '';
+
+            try {
+                for (const [key, value] of Object.entries(obj)) {
+                    if (value === null) {
+                        yaml += `${spaces}${key}: null\n`;
+                    } else if (typeof value === 'object' && !Array.isArray(value)) {
+                        yaml += `${spaces}${key}:\n${this.jsonToYaml(value, indent + 1)}`;
+                    } else if (Array.isArray(value)) {
+                        yaml += `${spaces}${key}:\n`;
+                        value.forEach(item => {
+                            if (typeof item === 'object') {
+                                yaml += `${spaces}  -\n${this.jsonToYaml(item, indent + 2)}`;
+                            } else {
+                                yaml += `${spaces}  - ${item}\n`;
+                            }
+                        });
+                    } else {
+                        yaml += `${spaces}${key}: ${JSON.stringify(value)}\n`;
+                    }
+                }
+            } catch (error) {
+                console.error('YAML conversion error:', error);
+                return 'Error converting to YAML format';
+            }
+
+            return yaml;
+        },
+
+        calculateStats(endpoints) {
+            const stats = {
+                total_endpoints: endpoints.length,
+                methods: {},
+                auth_types: {},
+                tags: {},
+                unique_paths: new Set(),
+                auth_required_count: 0
+            };
+
+            endpoints.forEach(endpoint => {
+                // Count methods
+                const method = endpoint.method.toUpperCase();
+                stats.methods[method] = (stats.methods[method] || 0) + 1;
+
+                // Count auth types
+                if (endpoint.auth?.required) {
+                    stats.auth_required_count++;
+                    const authType = endpoint.auth.type || 'unknown';
+                    stats.auth_types[authType] = (stats.auth_types[authType] || 0) + 1;
+                } else {
+                    stats.auth_types['none'] = (stats.auth_types['none'] || 0) + 1;
+                }
+
+                // Count tags and paths
+                endpoint.tags?.forEach(tag => {
+                    stats.tags[tag] = (stats.tags[tag] || 0) + 1;
+                });
+                stats.unique_paths.add(endpoint.path);
+            });
+
+            stats.unique_paths_count = stats.unique_paths.size;
+            stats.total_tags = Object.keys(stats.tags).length;
+
+            return stats;
+        }
+    };
+{{end}}

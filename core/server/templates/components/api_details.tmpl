@@ -15,134 +15,230 @@
         </div>
     </header>
 
-    <div class="card">
-        <div class="card-body">
+    <div class="api-details-container">
+        <!-- Main Content Area -->
+        <div class="api-main-content">
+            <div class="card">
+                <div class="card-body">
 
-            <!-- API Statistics and Filters -->
-            <div id="api-filters" class="m-t-base ml-2" style="display: none;">
-                <!-- Search and Filters with Integrated Statistics -->
-                <div class="flex flex-gap-10 mb-3">
-                    <div class="form-field">
-                        <label class="form-label txt-sm">
-                            <span id="api-endpoints-count" class="txt-primary txt-bold">0</span> Endpoints
-                        </label>
-                        <input type="text" id="search-input" placeholder="Search endpoints..." class="form-control">
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label txt-sm">
-                            <span id="stats-unique-paths" class="txt-primary txt-bold">0</span> Unique Paths
-                        </label>
-                        <select id="method-filter" class="form-control">
-                            <option value="">All Methods</option>
-                        </select>
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label txt-sm">
-                            <span id="stats-auth-required" class="txt-primary txt-bold">0</span> Auth Required
-                        </label>
-                        <select id="auth-filter" class="form-control">
-                            <option value="">All Auth Types</option>
-                        </select>
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label txt-sm">
-                            <span id="stats-total-tags" class="txt-primary txt-bold">0</span> Total Tags
-                        </label>
-                        <select id="tag-filter" class="form-control">
-                            <option value="">All Tags</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Active Filters Display -->
-                <div id="active-filters" class="mb-2" style="display: none;">
-                    <div class="flex align-center gap-2 flex-wrap">
-                        <span class="txt-sm txt-hint">Active filters:</span>
-                        <div id="filter-tags" class="flex gap-1 flex-wrap"></div>
-                    </div>
-                </div>
-
-                <!-- Results Summary -->
-                <div id="results-summary" class="mb-2" style="display: none;">
-                    <div class="txt-sm txt-hint">
-                        Showing <span id="filtered-count">0</span> of <span id="total-count">0</span> endpoints
-                    </div>
-                </div>
-            </div>
-
-            <!-- Tab Navigation for API sections -->
-            <div class="tabs-header" id="api-tabs">
-                <button class="tab-item active" data-tab="endpoints">
-                    <i class="ri-route-line"></i>
-                    Endpoints
-                </button>
-
-                <button class="tab-item" data-tab="components">
-                    <i class="ri-settings-3-line"></i>
-                    Generics
-                </button>
-
-                <button class="tab-item" data-tab="raw">
-                    <i class="ri-code-line"></i>
-                    Raw Schema
-                </button>
-            </div>
-
-            <!-- Tab Content -->
-            <div class="tabs-content">
-                <!-- Endpoints Tab -->
-                <div id="endpoints-tab" class="tab-content active">
-                    <div id="endpoints-list" class="mb-3">
-                        <div class="txt-center txt-hint p-4">
-                            <i class="ri-loader-4-line ri-xl"></i>
-                            <p>Loading API endpoints...</p>
-                        </div>
-                    </div>
-                </div>
-
-
-
-                <!-- Components Tab -->
-                <div id="components-tab" class="tab-content" style="display: none;">
-                    <div class="flex justify-between align-center mb-2">
-                        <div class="flex gap-2 align-center">
-                            <span class="txt-sm txt-hint">Format:</span>
-                            <div class="inline-flex">
-                                <button id="components-json-format-btn" class="btn btn-xs btn-secondary active" data-format="json">JSON</button>
-                                <button id="components-yaml-format-btn" class="btn btn-xs btn-secondary" data-format="yaml">YAML</button>
+                    <!-- API Statistics and Filters -->
+                    <div id="api-filters" class="m-t-base ml-2" style="display: none;">
+                        <!-- Search and Filters with Integrated Statistics -->
+                        <div class="flex flex-gap-10 mb-3">
+                            <div class="form-field">
+                                <label class="form-label txt-sm">
+                                    <span id="api-endpoints-count" class="txt-primary txt-bold">0</span> Endpoints
+                                </label>
+                                <input type="text" id="search-input" placeholder="Search endpoints..." class="form-control">
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label txt-sm">
+                                    <span id="stats-unique-paths" class="txt-primary txt-bold">0</span> Unique Paths
+                                </label>
+                                <select id="method-filter" class="form-control">
+                                    <option value="">All Methods</option>
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label txt-sm">
+                                    <span id="stats-auth-required" class="txt-primary txt-bold">0</span> Auth Required
+                                </label>
+                                <select id="auth-filter" class="form-control">
+                                    <option value="">All Auth Types</option>
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label txt-sm">
+                                    <span id="stats-total-tags" class="txt-primary txt-bold">0</span> Total Tags
+                                </label>
+                                <select id="tag-filter" class="form-control">
+                                    <option value="">All Tags</option>
+                                </select>
                             </div>
                         </div>
-                        <button id="copy-components-btn" class="btn btn-xs btn-secondary" type="button">
-                            <i class="ri-file-copy-line"></i>
-                            Copy
-                        </button>
-                    </div>
-                    <div class="code-block">
-                        <pre id="components-content" class="code"><code>Loading components...</code></pre>
-                    </div>
-                </div>
 
-                <!-- Raw Schema Tab -->
-                <div id="raw-tab" class="tab-content" style="display: none;">
-                    <div class="flex justify-between align-center mb-2">
-                        <div class="flex gap-2 align-center">
-                            <span class="txt-sm txt-hint">Format:</span>
-                            <div class="inline-flex">
-                                <button id="json-format-btn" class="btn btn-xs btn-secondary active" data-format="json">JSON</button>
-                                <button id="yaml-format-btn" class="btn btn-xs btn-secondary" data-format="yaml">YAML</button>
+                        <!-- Active Filters Display -->
+                        <div id="active-filters" class="mb-2" style="display: none;">
+                            <div class="flex align-center gap-2 flex-wrap">
+                                <span class="txt-sm txt-hint">Active filters:</span>
+                                <div id="filter-tags" class="flex gap-1 flex-wrap"></div>
                             </div>
                         </div>
-                        <button id="copy-schema-btn" class="btn btn-xs btn-secondary" type="button">
-                            <i class="ri-file-copy-line"></i>
-                            Copy
+
+                        <!-- Results Summary -->
+                        <div id="results-summary" class="mb-2" style="display: none;">
+                            <div class="txt-sm txt-hint">
+                                Showing <span id="filtered-count">0</span> of <span id="total-count">0</span> endpoints
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Navigation for API sections -->
+                    <div class="tabs-header" id="api-tabs">
+                        <button class="tab-item active" data-tab="endpoints">
+                            <i class="ri-route-line"></i>
+                            Endpoints
+                        </button>
+
+                        <button class="tab-item" data-tab="components">
+                            <i class="ri-settings-3-line"></i>
+                            Generics
+                        </button>
+
+                        <button class="tab-item" data-tab="raw">
+                            <i class="ri-code-line"></i>
+                            Raw Schema
                         </button>
                     </div>
-                    <div class="code-block">
-                        <pre id="raw-schema-content" class="code"><code>Loading schema...</code></pre>
+
+                    <!-- Tab Content -->
+                    <div class="tabs-content">
+                        <!-- Endpoints Tab -->
+                        <div id="endpoints-tab" class="tab-content active">
+                            <div id="endpoints-list" class="mb-3">
+                                <div class="txt-center txt-hint p-4">
+                                    <i class="ri-loader-4-line ri-xl"></i>
+                                    <p>Loading API endpoints...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Components Tab -->
+                        <div id="components-tab" class="tab-content" style="display: none;">
+                            <div class="flex justify-between align-center mb-2">
+                                <div class="flex gap-2 align-center">
+                                    <span class="txt-sm txt-hint">Format:</span>
+                                    <div class="inline-flex">
+                                        <button id="components-json-format-btn" class="btn btn-xs btn-secondary active" data-format="json">JSON</button>
+                                        <button id="components-yaml-format-btn" class="btn btn-xs btn-secondary" data-format="yaml">YAML</button>
+                                    </div>
+                                </div>
+                                <button id="copy-components-btn" class="btn btn-xs btn-secondary" type="button">
+                                    <i class="ri-file-copy-line"></i>
+                                    Copy
+                                </button>
+                            </div>
+                            <div class="code-block">
+                                <pre id="components-content" class="code"><code>Loading components...</code></pre>
+                            </div>
+                        </div>
+
+                        <!-- Raw Schema Tab -->
+                        <div id="raw-tab" class="tab-content" style="display: none;">
+                            <div class="flex justify-between align-center mb-2">
+                                <div class="flex gap-2 align-center">
+                                    <span class="txt-sm txt-hint">Format:</span>
+                                    <div class="inline-flex">
+                                        <button id="json-format-btn" class="btn btn-xs btn-secondary active" data-format="json">JSON</button>
+                                        <button id="yaml-format-btn" class="btn btn-xs btn-secondary" data-format="yaml">YAML</button>
+                                    </div>
+                                </div>
+                                <button id="copy-schema-btn" class="btn btn-xs btn-secondary" type="button">
+                                    <i class="ri-file-copy-line"></i>
+                                    Copy
+                                </button>
+                            </div>
+                            <div class="code-block">
+                                <pre id="raw-schema-content" class="code"><code>Loading schema...</code></pre>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- API Tester Sidebar -->
+        <aside id="api-tester-sidebar" class="api-tester-sidebar">
+            <div class="api-tester-header">
+                <div class="flex align-center gap-2">
+                    <i class="ri-flask-line"></i>
+                    <h5 class="flex-fill">API Tester</h5>
+                    <button id="close-tester-btn" class="btn btn-xs btn-transparent" title="Close">
+                        <i class="ri-close-line"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Endpoint Info -->
+            <div id="tester-endpoint-info" class="endpoint-info">
+                <div class="flex align-center gap-2 mb-2">
+                    <span id="tester-method" class="http-method">GET</span>
+                    <code id="tester-path" class="flex-fill">/api/endpoint</code>
+                </div>
+                <p id="tester-description" class="txt-sm txt-hint mb-2">Endpoint description</p>
+                <div id="tester-auth-info" class="auth-status">
+                    <span class="auth-badge">No auth required</span>
+                </div>
+            </div>
+
+            <div class="api-tester-content">
+                <!-- Request Parameters -->
+                <div class="tester-section">
+                    <h6 class="section-title">
+                        <i class="ri-edit-line"></i>
+                        Parameters
+                    </h6>
+
+                    <!-- Auto-generated form fields based on schema -->
+                    <div id="schema-form-container" class="schema-form">
+                        <div class="txt-center txt-hint p-4">
+                            <i class="ri-loader-4-line animate-spin"></i>
+                            <p>Loading schema...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Response Section -->
+                <div id="response-section" class="tester-section" style="display: none;">
+                    <div class="section-title">
+                        <i class="ri-file-text-line"></i>
+                        Response
+                        <div class="flex align-center gap-2 ml-auto">
+                            <span id="response-status-info" class="response-status">
+                                <span class="status-badge">200 OK</span>
+                                <span class="response-time">145ms</span>
+                            </span>
+                            <button id="copy-response-btn" class="btn btn-xs btn-secondary">
+                                <i class="ri-file-copy-line"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="response-tabs">
+                        <button class="response-tab active" data-tab="body">Body</button>
+                        <button class="response-tab" data-tab="headers">Headers</button>
+                    </div>
+
+                    <div class="response-content">
+                        <div id="response-body" class="response-tab-content active">
+                            <pre class="code-block"><code></code></pre>
+                        </div>
+                        <div id="response-headers" class="response-tab-content">
+                            <pre class="code-block"><code></code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Send Request Section -->
+            <div class="tester-actions">
+                <button id="send-request-btn" class="btn btn-primary btn-block">
+                    <i class="ri-send-plane-line"></i>
+                    Send Request
+                </button>
+
+                <button id="reset-form-btn" class="btn btn-secondary btn-sm btn-block mt-2">
+                    <i class="ri-refresh-line"></i>
+                    Reset to Defaults
+                </button>
+            </div>
+        </aside>
+
+        <!-- Resize Handle -->
+        <div id="api-resize-handle" class="api-resize-handle" style="display: none;"></div>
+
+        <!-- Mobile Overlay -->
+        <div id="api-sidebar-overlay" class="api-sidebar-overlay"></div>
     </div>
 </div>
 

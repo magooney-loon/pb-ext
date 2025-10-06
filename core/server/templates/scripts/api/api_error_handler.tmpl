@@ -1,0 +1,59 @@
+{{define "api_error_handler_js"}}
+    // =============================================================================
+    // ERROR HANDLING UTILITIES
+    // =============================================================================
+
+    const ErrorHandler = {
+        showError(message, details = null) {
+            console.error('API Documentation Error:', message, details);
+
+            this.updateContainerWithError('endpoints-list', message);
+            this.updateContainerWithError('raw-schema-content', message, true);
+            this.updateContainerWithError('components-content', message, true);
+
+            StatusManager.updateStatus('error', 'Failed to load');
+        },
+
+        updateContainerWithError(containerId, message, isCodeBlock = false) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            if (isCodeBlock) {
+                container.textContent = `Error: ${message}\n\nThis usually indicates:\n- Network connectivity issues\n- Server startup in progress\n- API endpoint not available`;
+            } else {
+                container.innerHTML = `
+                    <div class="txt-center txt-danger p-4">
+                        <i class="ri-error-warning-line ri-2x mb-2"></i>
+                        <h4>Failed to Load API Documentation</h4>
+                        <p class="txt-sm">${this.escapeHtml(message)}</p>
+                        <div class="mt-3">
+                            <button onclick="location.reload()" class="btn btn-sm btn-outline">
+                                <i class="ri-refresh-line"></i> Retry
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+        },
+
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        },
+
+        handleApiError(error, context = '') {
+            let message = `${context}: ${error.message}`;
+
+            if (error.message.includes('HTTP 404')) {
+                message = 'API documentation endpoint not found. The server might still be starting up.';
+            } else if (error.message.includes('Failed to fetch')) {
+                message = 'Network error. Please check your connection and try again.';
+            } else if (error.message.includes('JSON')) {
+                message = 'Invalid response format. The API might be returning unexpected data.';
+            }
+
+            this.showError(message, error);
+        }
+    };
+{{end}}
