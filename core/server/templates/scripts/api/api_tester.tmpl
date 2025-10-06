@@ -6,36 +6,35 @@
     const APITester = {
         currentEndpoint: null,
         parameterSchema: null,
-        debug: true,
+        initialized: false,
 
         // Initialize the API tester
         init() {
-            this.log('APITester initializing...');
+            if (this.initialized) {
+                return;
+            }
             this.bindEvents();
-            this.log('APITester initialized successfully');
+            this.initialized = true;
         },
 
-        // Debug logging
-        log(...args) {
-            if (this.debug) {
-                console.log('[APITester]', ...args);
-            }
-        },
+
 
         // Bind event listeners
         bindEvents() {
+            // Remove existing event listeners to prevent duplicates
+            document.removeEventListener('apiTesterSidebarOpened', this.handleSidebarOpened);
+            document.removeEventListener('apiTesterSidebarClosed', this.handleSidebarClosed);
+            document.removeEventListener('apiTesterTabChange', this.handleTabChange);
+
+            // Create bound methods for proper removal later
+            this.boundHandleSidebarOpened = (e) => this.handleSidebarOpened(e.detail);
+            this.boundHandleSidebarClosed = () => this.handleSidebarClosed();
+            this.boundHandleTabChange = (e) => this.handleTabChange(e.detail);
+
             // Listen for sidebar events
-            document.addEventListener('apiTesterSidebarOpened', (e) => {
-                this.handleSidebarOpened(e.detail);
-            });
-
-            document.addEventListener('apiTesterSidebarClosed', () => {
-                this.handleSidebarClosed();
-            });
-
-            document.addEventListener('apiTesterTabChange', (e) => {
-                this.handleTabChange(e.detail);
-            });
+            document.addEventListener('apiTesterSidebarOpened', this.boundHandleSidebarOpened);
+            document.addEventListener('apiTesterSidebarClosed', this.boundHandleSidebarClosed);
+            document.addEventListener('apiTesterTabChange', this.boundHandleTabChange);
 
             // Form action buttons
             const sendBtn = document.getElementById('send-request-btn');
@@ -52,8 +51,12 @@
 
         // Handle sidebar opened event
         handleSidebarOpened(detail) {
-            this.log('Sidebar opened with endpoint:', detail);
-            this.log('Full endpoint detail object:', JSON.stringify(detail, null, 2));
+            // Prevent duplicate processing
+            if (this.currentEndpoint &&
+                this.currentEndpoint.method === detail.method &&
+                this.currentEndpoint.path === detail.path) {
+                return;
+            }
 
             this.currentEndpoint = detail;
 
@@ -63,7 +66,6 @@
 
         // Handle sidebar closed event
         handleSidebarClosed() {
-            this.log('Sidebar closed, cleaning up');
             this.currentEndpoint = null;
             this.parameterSchema = null;
         },
@@ -90,15 +92,11 @@
                 // Extract parameter schema from endpoint data using APISchemaManager
                 this.parameterSchema = APISchemaManager.extractParameterSchema(this.currentEndpoint);
 
-                this.log('Extracted parameter schema:', JSON.stringify(this.parameterSchema, null, 2));
-
                 // Generate form using APIFormBuilder
                 APIFormBuilder.generateParameterForm(container, this.parameterSchema, this.currentEndpoint);
 
                 // Populate default values using APIExampleGenerator
                 APIExampleGenerator.populateDefaultValues(this.parameterSchema);
-
-                this.log('Parameter schema processed successfully');
 
             } catch (error) {
                 console.error('Schema processing error:', error);
@@ -145,17 +143,14 @@
             }
 
             try {
-                this.log('Delegating request to APIRequestHandler...');
                 await APIRequestHandler.sendRequest(this.currentEndpoint);
             } catch (error) {
-                this.log('Request failed:', error);
                 // Error handling is done by APIRequestHandler
             }
         },
 
         // Reset form using APIRequestHandler
         resetForm() {
-            this.log('Delegating form reset to APIRequestHandler...');
             APIRequestHandler.resetForm();
 
             // Re-process the endpoint schema to regenerate clean form
@@ -168,11 +163,7 @@
             const emptyState = document.getElementById('response-empty-state');
             const hasContent = emptyState && emptyState.style.display === 'none';
 
-            if (hasContent) {
-                this.log('Response content already displayed');
-            } else {
-                this.log('No response content to display');
-            }
+            // Content display is handled by UI state
         },
 
         // Public API for opening sidebar (for endpoint renderer integration)
@@ -186,7 +177,6 @@
 
         // Switch to raw JSON input mode (public API for form builder)
         useRawJSON() {
-            this.log('Switching to raw JSON mode...');
             APIFormBuilder.switchToRawJSON();
         },
 

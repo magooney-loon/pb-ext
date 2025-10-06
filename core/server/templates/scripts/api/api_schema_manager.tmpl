@@ -4,18 +4,11 @@
     // =============================================================================
 
     const APISchemaManager = {
-        debug: true,
 
-        // Debug logging
-        log(...args) {
-            if (this.debug) {
-                console.log('[APISchemaManager]', ...args);
-            }
-        },
 
         // Extract parameter schema from endpoint data
         extractParameterSchema(endpoint) {
-            this.log('Starting parameter schema extraction for:', endpoint.method, endpoint.path);
+
 
             const schema = {
                 pathParameters: [],
@@ -28,67 +21,67 @@
             // Extract from OpenAPI endpoint data if available
             if (endpoint.data) {
                 const endpointData = endpoint.data;
-                this.log('Processing endpoint data:', endpointData);
+
 
                 // Extract path parameters from the path itself if not explicitly defined
                 const pathParams = this.extractPathParameters(endpoint.path);
                 if (pathParams.length > 0 && (!endpointData.parameters || endpointData.parameters.length === 0)) {
-                    this.log('Inferred path parameters from path:', pathParams);
+
                     schema.pathParameters = pathParams;
                 }
 
                 // Extract parameters
                 if (endpointData.parameters && Array.isArray(endpointData.parameters)) {
-                    this.log('Found parameters array:', endpointData.parameters);
+
 
                     endpointData.parameters.forEach((param, index) => {
-                        this.log(`Processing parameter ${index}:`, param);
+
 
                         const normalizedParam = this.normalizeParameter(param);
-                        this.log(`Normalized parameter ${index}:`, normalizedParam);
+
 
                         switch (param.in) {
                             case 'path':
                                 schema.pathParameters.push(normalizedParam);
-                                this.log('Added to path parameters');
+
                                 break;
                             case 'query':
                                 schema.queryParameters.push(normalizedParam);
-                                this.log('Added to query parameters');
+
                                 break;
                             case 'header':
                                 schema.headerParameters.push(normalizedParam);
-                                this.log('Added to header parameters');
+
                                 break;
                         }
                     });
                 } else if (schema.pathParameters.length === 0) {
-                    this.log('No parameters found in endpoint data');
+
                 }
 
                 // For POST/PUT/PATCH methods, ALWAYS infer request body from response schema
                 if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
-                    this.log('Inferring request body from response schema for', endpoint.method);
+
                     schema.requestBody = this.inferRequestBodyFromResponse(endpointData.response);
                     if (schema.requestBody) {
-                        this.log('Successfully inferred request body schema from response');
+
                     } else {
-                        this.log('Could not infer request body from response, will use defaults');
+
                     }
                 } else {
-                    this.log('No request body needed for', endpoint.method);
+
                 }
 
                 // Extract examples
                 if (endpointData.examples) {
                     schema.examples = endpointData.examples;
-                    this.log('Found examples:', schema.examples);
+
                 }
             } else {
-                this.log('No endpoint data available');
+
             }
 
-            this.log('Final extracted schema:', schema);
+
             return schema;
         },
 
@@ -116,7 +109,7 @@
 
         // Normalize parameter object
         normalizeParameter(param) {
-            this.log('Normalizing parameter:', param);
+
 
             const normalized = {
                 name: param.name || 'unknown',
@@ -129,16 +122,16 @@
                 in: param.in || 'query'
             };
 
-            this.log('Normalized result:', normalized);
+
             return normalized;
         },
 
         // Infer request body schema ONLY from response
         inferRequestBodyFromResponse(responseSchema) {
-            this.log('Inferring request body ONLY from response schema:', responseSchema);
+
 
             if (!responseSchema) {
-                this.log('No response schema available for inference');
+
                 return this.getDefaultRequestBody();
             }
 
@@ -151,21 +144,21 @@
                 for (const key of dataKeys) {
                     if (responseSchema.properties[key] && responseSchema.properties[key].properties) {
                         resourceSchema = responseSchema.properties[key];
-                        this.log(`Found nested resource schema under '${key}':`, resourceSchema);
+
                         break;
                     }
                 }
 
                 // If no nested object found but response has properties, use response directly
                 if (!resourceSchema && Object.keys(responseSchema.properties).length > 0) {
-                    this.log('Using response properties directly for inference');
+
                     resourceSchema = responseSchema;
                 }
             }
 
             // If response is an array, look at the items schema
             if (!resourceSchema && responseSchema.type === 'array' && responseSchema.items) {
-                this.log('Response is an array, using items schema');
+
                 resourceSchema = responseSchema.items;
             }
 
@@ -181,7 +174,7 @@
                 };
             }
 
-            this.log('Could not infer schema from response, using defaults');
+
             return this.getDefaultRequestBody();
         },
 
@@ -229,9 +222,9 @@
 
                     if (!shouldExclude) {
                         cleanedProperties[key] = value;
-                        this.log(`Including field: ${key}`);
+
                     } else {
-                        this.log(`Excluding server-generated field: ${key}`);
+
                     }
                 });
 

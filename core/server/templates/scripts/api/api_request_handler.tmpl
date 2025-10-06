@@ -4,14 +4,6 @@
     // =============================================================================
 
     const APIRequestHandler = {
-        debug: true,
-
-        // Debug logging
-        log(...args) {
-            if (this.debug) {
-                console.log('[APIRequestHandler]', ...args);
-            }
-        },
 
         // Send HTTP request
         async sendRequest(endpoint) {
@@ -20,7 +12,7 @@
                 return;
             }
 
-            this.log('Sending request to:', endpoint.method, endpoint.path);
+
 
             const sendBtn = document.getElementById('send-request-btn');
             const originalText = sendBtn ? sendBtn.innerHTML : '';
@@ -34,7 +26,7 @@
 
                 // Collect and validate form data
                 const requestData = this.collectFormData();
-                this.log('Request data collected:', requestData);
+
 
                 // Make the HTTP request
                 const response = await this.makeRequest(endpoint, requestData);
@@ -50,7 +42,7 @@
                 return response;
 
             } catch (error) {
-                this.log('Request error:', error);
+
                 this.displayError(error);
 
                 if (typeof APITesterSidebar !== 'undefined') {
@@ -76,11 +68,11 @@
                 body: null
             };
 
-            this.log('Collecting form data...');
+
 
             // Collect parameter fields
             const paramFields = document.querySelectorAll('.param-field[data-param]');
-            this.log(`Found ${paramFields.length} parameter fields`);
+
 
             paramFields.forEach(field => {
                 const input = field.querySelector('input, select, textarea');
@@ -90,7 +82,7 @@
                     const paramIn = field.dataset.in; // Get from parent field div
                     const value = this.convertValue(input.value.trim(), paramType);
 
-                    this.log(`Collecting ${paramIn} param: ${paramName} = ${value} (${paramType})`);
+
 
                     switch (paramIn) {
                         case 'path':
@@ -129,7 +121,7 @@
 
                 if (Object.keys(bodyData).length > 0) {
                     data.body = JSON.stringify(bodyData, null, 2);
-                    this.log('Collected request body from fields:', data.body);
+
                 }
             }
 
@@ -140,7 +132,7 @@
                     // Validate JSON
                     JSON.parse(rawJsonTextarea.value.trim());
                     data.body = rawJsonTextarea.value.trim();
-                    this.log('Using raw JSON payload:', data.body);
+
                 } catch (e) {
                     console.error('Invalid JSON in raw textarea:', e);
                     throw new Error(`Invalid JSON in request body: ${e.message}`);
@@ -154,7 +146,7 @@
                     try {
                         JSON.parse(jsonTextarea.value.trim());
                         data.body = jsonTextarea.value.trim();
-                        this.log('Collected request body from legacy JSON textarea:', data.body);
+
                     } catch (e) {
                         console.error('Invalid JSON in legacy textarea:', e);
                         throw new Error(`Invalid JSON in request body: ${e.message}`);
@@ -162,7 +154,7 @@
                 }
             }
 
-            this.log('Final collected data:', data);
+
             return data;
         },
 
@@ -205,13 +197,13 @@
             let url = endpoint.path;
             const method = endpoint.method;
 
-            this.log('Making request with data:', data);
+
 
             // Replace path parameters
             Object.entries(data.pathParams).forEach(([param, value]) => {
                 const oldUrl = url;
                 url = url.replace(`{${param}}`, encodeURIComponent(value));
-                this.log(`Replaced path param ${param}: ${oldUrl} → ${url}`);
+
             });
 
             // Build full URL
@@ -223,7 +215,7 @@
                 const params = new URLSearchParams(data.queryParams);
                 const separator = fullUrl.includes('?') ? '&' : '?';
                 fullUrl += separator + params.toString();
-                this.log('Added query params:', fullUrl);
+
             }
 
             // Get authentication token from localStorage
@@ -234,7 +226,7 @@
                     const parsed = JSON.parse(authData);
                     if (parsed.token) {
                         authHeaders['Authorization'] = `Bearer ${parsed.token}`;
-                        this.log('Added superuser authentication');
+
                     }
                 }
             } catch (error) {
@@ -266,7 +258,7 @@
                         JSON.parse(data.body);
                     }
                     options.body = data.body;
-                    this.log('Added request body:', data.body);
+
                 } catch (e) {
                     throw new Error(`Invalid JSON in request body: ${e.message}`);
                 }
@@ -275,7 +267,7 @@
             const startTime = Date.now();
 
             try {
-                this.log('Fetching:', fullUrl, 'with options:', options);
+
 
                 const response = await fetch(fullUrl, options);
                 const endTime = Date.now();
@@ -301,18 +293,13 @@
                     ok: response.ok
                 };
 
-                this.log('Request completed:', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    time: responseData.time,
-                    ok: response.ok
-                });
+
 
                 return responseData;
 
             } catch (error) {
                 const endTime = Date.now();
-                this.log('Request failed:', error);
+
 
                 throw {
                     message: `Network error: ${error.message}`,
@@ -325,11 +312,7 @@
 
         // Display successful response
         displayResponse(response) {
-            this.log('Displaying response:', {
-                status: response.status,
-                statusText: response.statusText,
-                time: response.time
-            });
+
 
             if (typeof APITesterSidebar !== 'undefined') {
                 APITesterSidebar.updateResponseStatus(response.status, response.statusText, response.time);
@@ -340,7 +323,6 @@
 
         // Display error response
         displayError(error) {
-            this.log('Displaying error:', error);
 
             const errorResponse = {
                 error: {
@@ -372,7 +354,7 @@
 
         // Reset form to default values
         resetForm() {
-            this.log('Resetting form to defaults');
+
 
             // Clear all parameter fields
             const paramFields = document.querySelectorAll('.param-field input, .param-field select, .param-field textarea');
@@ -411,7 +393,7 @@
                 APITesterSidebar.resetResponseState();
             }
 
-            this.log('Form reset completed');
+
         },
 
         // Validate collected form data

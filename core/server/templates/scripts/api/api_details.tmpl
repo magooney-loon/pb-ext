@@ -1,6 +1,9 @@
 {{define "api_details_js"}}
 <script>
+
+
 document.addEventListener('DOMContentLoaded', function() {
+
     {{template "api_state_js" .}}
 
     {{template "api_error_handler_js" .}}
@@ -30,6 +33,8 @@ document.addEventListener('DOMContentLoaded', function() {
     {{template "api_loader_js" .}}
 
     {{template "api_init_js" .}}
+
+
 });
 </script>
 {{end}}

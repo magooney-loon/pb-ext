@@ -6,21 +6,17 @@
     const APITesterSidebar = {
         isOpen: false,
         currentEndpoint: null,
-        debug: false,
+        initialized: false,
 
         // Initialize the sidebar controller
         init() {
-            this.log('APITesterSidebar initializing...');
+            if (this.initialized) {
+                return;
+            }
+
             this.bindEvents();
             this.initializeTabs();
-            this.log('APITesterSidebar initialized successfully');
-        },
-
-        // Debug logging
-        log(...args) {
-            if (this.debug) {
-                console.log('[APITesterSidebar]', ...args);
-            }
+            this.initialized = true;
         },
 
         // Initialize tab controllers for sidebar
@@ -87,8 +83,6 @@
 
         // Switch tester tabs (reusing TabController pattern)
         switchTesterTab(tabName) {
-            this.log('Switching tester tab to:', tabName);
-
             // Update button states
             document.querySelectorAll('.tester-tab').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.tab === tabName);
@@ -112,8 +106,6 @@
 
         // Switch response sub-tabs
         switchResponseTab(tabName) {
-            this.log('Switching response tab to:', tabName);
-
             // Update button states
             document.querySelectorAll('.response-tab').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.tab === tabName);
@@ -137,15 +129,18 @@
 
         // Open sidebar with endpoint data
         openSidebar(method, path, endpointData) {
-            this.log('Opening sidebar for:', { method, path });
-            console.log('Raw endpoint data received:', endpointData);
+            // Prevent duplicate opening of same endpoint
+            if (this.isOpen && this.currentEndpoint &&
+                this.currentEndpoint.method === method.toUpperCase() &&
+                this.currentEndpoint.path === path) {
+                return;
+            }
 
             // Parse the endpoint data if it's a string
             let parsedData = endpointData;
             if (typeof endpointData === 'string') {
                 try {
                     parsedData = JSON.parse(endpointData);
-                    console.log('Parsed endpoint data:', parsedData);
                 } catch (e) {
                     console.error('Failed to parse endpoint data:', e);
                     parsedData = {};
@@ -157,8 +152,6 @@
                 path: path,
                 data: parsedData || {}
             };
-
-            console.log('Current endpoint set to:', this.currentEndpoint);
 
             // Update endpoint info display
             this.updateEndpointInfo();
@@ -185,7 +178,6 @@
 
         // Close sidebar
         closeSidebar() {
-            this.log('Closing sidebar');
             this.hideSidebar();
 
             // Trigger event for cleanup
@@ -271,17 +263,17 @@
                     authRequired = Boolean(endpointData.auth.required);
                     authType = endpointData.auth.type || '';
                     authDescription = endpointData.auth.description || '';
-                    console.log('Found auth in data.auth:', endpointData.auth);
+
                 } else if (endpointData.security && endpointData.security.length > 0) {
                     // OpenAPI style security
                     authRequired = true;
                     authType = 'OAuth2/Bearer';
-                    console.log('Found security requirements:', endpointData.security);
+
                 } else if (endpointData.authorization) {
                     // Alternative auth field
                     authRequired = Boolean(endpointData.authorization.required);
                     authType = endpointData.authorization.type || '';
-                    console.log('Found auth in data.authorization:', endpointData.authorization);
+
                 }
 
                 const badge = authEl.querySelector('.auth-badge');
@@ -299,7 +291,7 @@
                     }
                 }
 
-                console.log('Auth status set:', { authRequired, authType, authDescription });
+
             }
         },
 
@@ -439,7 +431,7 @@
                     btn.classList.add('btn-secondary');
                 }, 2000);
             }).catch(err => {
-                this.log('Copy failed:', err);
+                // Copy failed silently
             });
         },
 

@@ -4,18 +4,10 @@
     // =============================================================================
 
     const APIFormBuilder = {
-        debug: true,
 
-        // Debug logging
-        log(...args) {
-            if (this.debug) {
-                console.log('[APIFormBuilder]', ...args);
-            }
-        },
 
         // Generate parameter form from schema
         generateParameterForm(container, parameterSchema, endpoint) {
-            this.log('Generating parameter form with schema:', parameterSchema);
 
             if (!parameterSchema) {
                 console.error('No parameter schema available');
@@ -27,7 +19,6 @@
 
             // Build path parameters section
             if (parameterSchema.pathParameters.length > 0) {
-                this.log('Building path parameters section');
                 sections.push(this.buildParameterSection(
                     'Path Parameters',
                     'ri-route-line',
@@ -38,7 +29,6 @@
 
             // Build query parameters section
             if (parameterSchema.queryParameters.length > 0) {
-                this.log('Building query parameters section');
                 sections.push(this.buildParameterSection(
                     'Query Parameters',
                     'ri-search-line',
@@ -49,31 +39,27 @@
 
             // Build request body section for POST/PUT/PATCH
             if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
-                this.log('Building request body section for', endpoint.method);
+
                 if (parameterSchema.requestBody) {
                     sections.push(this.buildRequestBodySection(parameterSchema.requestBody, endpoint.method));
                 }
             }
 
-            this.log('Generated', sections.length, 'form sections');
+
 
             // Combine all sections
             const formHtml = sections.join('');
             if (formHtml) {
                 container.innerHTML = formHtml;
-                this.log('Form HTML generated and inserted');
+
             } else {
                 container.innerHTML = this.getNoParametersMessage(endpoint.method);
-                this.log('No parameters found, showing empty message');
             }
         },
 
         // Build parameter section
         buildParameterSection(title, icon, parameters, description) {
-            this.log(`Building section: ${title} with ${parameters.length} parameters`);
-
             const fields = parameters.map(param => {
-                this.log('Building field for parameter:', param);
                 return this.buildParameterField(param);
             }).join('');
 
@@ -98,8 +84,6 @@
             const fieldId = `param-${param.in}-${param.name}`;
             const isRequired = param.required;
             const requiredMark = isRequired ? '<span class="txt-danger">*</span>' : '';
-
-            this.log(`Building field for ${param.name} (${param.type})`);
 
             return `
                 <div class="form-field param-field" data-param="${param.name}" data-in="${param.in}">
@@ -171,10 +155,9 @@
 
         // Build request body section with form fields
         buildRequestBodySection(schema, method) {
-            this.log('Building request body section from response inference');
+
 
             if (!schema) {
-                this.log('No request body schema available');
                 return this.buildFlexibleRequestSection();
             }
 
@@ -182,19 +165,7 @@
 
             return `
                 <div class="form-section">
-                    <div class="section-header">
-                        <h6 class="section-title">
-                            <i class="ri-code-box-line"></i>
-                            Request Payload
-                            ${schema.required ? '<span class="txt-danger">*</span>' : ''}
-                        </h6>
-                        <p class="section-description">
-                            ${schema.description}
-                            ${(!schema.schema?.properties || Object.keys(schema.schema.properties).length === 0) ?
-                                '<br><small class="txt-hint">📝 Fields inferred from response structure. Adjust as needed.</small>' :
-                                '<br><small class="txt-success">✓ Fields auto-detected from response schema</small>'}
-                        </p>
-                    </div>
+
                     <div class="request-body-fields" id="request-body-fields">
                         ${fields}
                     </div>
@@ -245,17 +216,14 @@
         // Generate form fields from schema (ONLY from response inference)
         generateFormFieldsFromSchema(schema) {
             if (!schema || !schema.schema || !schema.schema.properties) {
-                this.log('No inferred properties available from response');
                 return this.generateEmptyStateMessage();
             }
 
             const properties = schema.schema.properties;
             if (Object.keys(properties).length === 0) {
-                this.log('No fields found after filtering server-generated fields');
                 return this.generateEmptyStateMessage();
             }
 
-            this.log('Generating fields from inferred properties:', properties);
             return this.generateFieldsFromProperties(properties, schema.schema.required);
         },
 
@@ -300,8 +268,6 @@
                     </div>
                 </div>
             `;
-
-            this.log('Switched to raw JSON input mode');
         },
 
         // Generate fields from properties object (inferred from response)

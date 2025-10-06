@@ -4,18 +4,9 @@
     // =============================================================================
 
     const APIExampleGenerator = {
-        debug: true,
-
-        // Debug logging
-        log(...args) {
-            if (this.debug) {
-                console.log('[APIExampleGenerator]', ...args);
-            }
-        },
 
         // Generate request body example from schema
         generateRequestBodyExample(schema, endpoint) {
-            this.log('Generating request body example from:', schema);
 
             if (!schema || !schema.schema) {
                 return '{\n  "key": "value"\n}';
@@ -29,7 +20,6 @@
                 // If schema has no properties but response exists, infer from response
                 if ((!schema.schema.properties || Object.keys(schema.schema.properties).length === 0)
                     && endpoint.data?.response) {
-                    this.log('No request properties defined, inferring from response schema');
                     const example = this.generateExampleFromResponse(endpoint.data.response);
                     if (example && Object.keys(example).length > 0) {
                         return JSON.stringify(example, null, 2);
@@ -48,7 +38,6 @@
 
         // Generate example object from schema
         generateExampleFromSchema(schema) {
-            this.log('Generating example from schema:', schema);
 
             if (!schema || typeof schema !== 'object') return {};
 
@@ -104,13 +93,11 @@
                 });
             }
 
-            this.log('Generated example:', example);
             return example;
         },
 
         // Generate request example from response schema
         generateExampleFromResponse(responseSchema) {
-            this.log('Inferring request example from response schema');
 
             if (!responseSchema || !responseSchema.properties) return {};
 
@@ -123,7 +110,6 @@
             for (const key of dataKeys) {
                 if (responseSchema.properties[key] && responseSchema.properties[key].properties) {
                     mainDataProp = responseSchema.properties[key];
-                    this.log(`Found main data property: ${key}`);
                     break;
                 }
             }
@@ -131,7 +117,6 @@
             // If no nested data found, use response properties directly
             if (!mainDataProp && responseSchema.properties) {
                 mainDataProp = responseSchema;
-                this.log('Using response properties directly');
             }
 
             if (mainDataProp && mainDataProp.properties) {
@@ -157,7 +142,6 @@
                     );
 
                     if (shouldExclude) {
-                        this.log(`Skipping server-generated field: ${propName}`);
                         return;
                     }
 
@@ -196,16 +180,13 @@
                 });
             }
 
-            this.log('Inferred request example from response:', example);
             return example;
         },
 
         // Populate default values in form fields
         populateDefaultValues(parameterSchema) {
-            this.log('Populating default values');
 
             if (!parameterSchema) {
-                this.log('No parameter schema provided for default values');
                 return;
             }
 
@@ -218,7 +199,6 @@
                     const field = document.getElementById(fieldId);
                     if (field && !field.value) {
                         field.value = param.example;
-                        this.log(`Set default value for ${param.name}:`, param.example);
                     }
                 }
             });
@@ -232,13 +212,11 @@
                     const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
                     if (example && Object.keys(example).length > 0) {
                         rawJsonTextarea.value = JSON.stringify(example, null, 2);
-                        this.log('Set default JSON payload in raw textarea');
                     }
                 } else if (legacyJsonTextarea && !legacyJsonTextarea.value.trim()) {
                     const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
                     if (example && Object.keys(example).length > 0) {
                         legacyJsonTextarea.value = JSON.stringify(example, null, 2);
-                        this.log('Set default JSON payload in legacy textarea');
                     }
                 }
             }
@@ -297,7 +275,6 @@
 
         // Generate comprehensive example for complex schemas
         generateCompleteExample(schema, endpoint) {
-            this.log('Generating complete example for endpoint:', endpoint.method, endpoint.path);
 
             const example = {
                 path_parameters: {},

@@ -3,9 +3,12 @@
     // APPLICATION INITIALIZATION
     // =============================================================================
 
-    async function initializeApp() {
-        console.log('Initializing API Documentation System...');
+    // Global initialization guard
+    if (window.apiSystemInitialized) {
+        return;
+    }
 
+    async function initializeApp() {
         try {
             // Initialize UI controllers
             TabController.init();
@@ -21,7 +24,8 @@
             // Load API data
             await APILoader.loadVersions();
 
-            console.log('API Documentation System initialized successfully');
+            // Mark as initialized
+            window.apiSystemInitialized = true;
         } catch (error) {
             console.error('Failed to initialize API Documentation System:', error);
             ErrorHandler.showError('Failed to initialize the documentation system. Please refresh the page to try again.');

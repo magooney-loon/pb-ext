@@ -7,7 +7,6 @@
         async loadVersions() {
             try {
                 StatusManager.updateStatus('loading', 'Loading versions...');
-                console.log('Loading API versions...');
 
                 const response = await fetch('/api/docs/versions');
                 if (!response.ok) {
@@ -15,13 +14,9 @@
                 }
 
                 const data = await response.json();
-                console.log('Versions data received:', data);
 
                 APIState.availableVersions = data.versions || [];
                 APIState.currentVersion = data.default_version || (APIState.availableVersions.length > 0 ? APIState.availableVersions[0].version : null);
-
-                console.log('Available versions:', APIState.availableVersions);
-                console.log('Current version:', APIState.currentVersion);
 
                 this.populateVersionSelector();
 
@@ -53,7 +48,6 @@
                 StatusManager.updateStatus('loading', 'Loading schema...');
 
                 const url = `/api/docs/${APIState.currentVersion}`;
-                console.log('Loading OpenAPI schema from:', url);
 
                 const response = await fetch(url);
                 if (!response.ok) {
@@ -61,7 +55,6 @@
                 }
 
                 const schemaData = await response.json();
-                console.log('Schema data received:', schemaData);
 
                 // Validate and process the schema
                 this.processSchema(schemaData);
@@ -91,11 +84,8 @@
             const endpoints = schemaData.endpoints || [];
             APIState.setEndpoints(endpoints);
 
-            console.log('Processed endpoints:', APIState.allEndpoints.length);
-
             // Extract components
             APIState.apiComponents = schemaData.components || {};
-            console.log('Loaded components:', Object.keys(APIState.apiComponents));
 
             // Calculate statistics
             APIState.apiStats = SchemaProcessor.calculateStats(APIState.allEndpoints);
@@ -130,7 +120,6 @@
             newSelector.addEventListener('change', async (e) => {
                 if (e.target.value && e.target.value !== APIState.currentVersion) {
                     APIState.currentVersion = e.target.value;
-                    console.log('Version changed to:', APIState.currentVersion);
 
                     // Clear filters when version changes
                     FilterController.clearFilters();
