@@ -49,10 +49,9 @@
                     });
                 }
 
-                // For POST/PUT/PATCH methods, use actual request schema or fallback to response inference
+                // For POST/PUT/PATCH methods, use only actual request schema
                 if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
-
-                    // First priority: Use actual request schema from AST analysis
+                    // Only use actual request schema from AST analysis
                     if (endpointData.request) {
                         schema.requestBody = {
                             schema: endpointData.request,
@@ -60,10 +59,7 @@
                             contentType: 'application/json'
                         };
                     }
-                    // Fallback: Infer from response schema (legacy behavior)
-                    else {
-                        schema.requestBody = this.inferRequestBodyFromResponse(endpointData.response);
-                    }
+                    // No fallback - if no request schema, no form fields will be generated
                 }
 
                 // Extract examples
@@ -119,95 +115,9 @@
             return normalized;
         },
 
-        // Infer request body schema ONLY from response
-        inferRequestBodyFromResponse(responseSchema) {
 
-            if (!responseSchema) {
-                return this.getDefaultRequestBody();
-            }
 
-            // Dynamic detection of data structure in response
-            let resourceSchema = null;
 
-            // First, try to find a nested data object in the response
-            if (responseSchema.properties) {
-
-                // Fields to exclude when looking for data objects (these are metadata, not data)
-                const excludeKeys = ['message', 'error', 'errors', 'status', 'code', 'success', 'timestamp', 'meta', 'metadata'];
-
-                // Look for any property that looks like data (purely dynamic detection)
-                for (const [key, value] of Object.entries(responseSchema.properties)) {
-                    // Skip excluded fields
-                    if (excludeKeys.includes(key.toLowerCase())) {
-                        continue;
-                    }
-
-                    // Look for objects with properties (potential data objects)
-                    if (value.type === 'object' && value.properties) {
-                        resourceSchema = value;
-                        break;
-                    }
-                }
-
-                // If no nested object found, be smarter about using response schema
-                if (!resourceSchema && Object.keys(responseSchema.properties).length > 0) {
-                    // Check if response only contains metadata fields
-                    const metadataFields = ['message', 'error', 'errors', 'status', 'code', 'success', 'timestamp', 'meta', 'metadata'];
-                    const responseKeys = Object.keys(responseSchema.properties);
-                    const nonMetadataKeys = responseKeys.filter(key => !metadataFields.includes(key.toLowerCase()));
-
-                    if (nonMetadataKeys.length === 0) {
-                        // Only metadata fields, don't use response directly
-                    } else if (nonMetadataKeys.length === 1) {
-                        // Single non-metadata field, use it as the data source
-                        const dataKey = nonMetadataKeys[0];
-                        const dataSchema = responseSchema.properties[dataKey];
-                        if (dataSchema.type === 'object' && dataSchema.properties) {
-                            resourceSchema = dataSchema;
-                        } else {
-                            // Single field but not an object, use response directly but clean it
-                            resourceSchema = responseSchema;
-                        }
-                    } else {
-                        // Multiple non-metadata fields, use response directly but it will be cleaned
-                        resourceSchema = responseSchema;
-                    }
-                }
-            }
-
-            // If response is an array, look at the items schema
-            if (!resourceSchema && responseSchema.type === 'array' && responseSchema.items) {
-                resourceSchema = responseSchema.items;
-            }
-
-            if (resourceSchema) {
-                // Clean the schema by removing server-generated fields
-                const cleanedSchema = this.cleanSchemaForRequest(resourceSchema);
-
-                return {
-                    type: 'object',
-                    required: true,
-                    schema: cleanedSchema,
-                    description: 'Request payload (inferred from response structure)'
-                };
-            }
-
-            return this.getDefaultRequestBody();
-        },
-
-        // Get default request body when inference fails
-        getDefaultRequestBody() {
-            return {
-                type: 'object',
-                required: true,
-                schema: {
-                    type: 'object',
-                    properties: {},
-                    additionalProperties: true
-                },
-                description: 'Request payload (using flexible schema)'
-            };
-        },
 
         // Clean schema for request by removing server-generated fields
         cleanSchemaForRequest(schema) {

@@ -177,10 +177,6 @@
                 return this.buildFlexibleRequestSection();
             }
 
-            // Check if this is an actual request schema vs inferred from response
-            const isActualRequestSchema = schema.contentType === 'application/json' && schema.required !== undefined;
-            const schemaSource = isActualRequestSchema ? 'request schema' : 'response structure';
-
 
 
             const fields = this.generateFormFieldsFromSchema(schema);
@@ -191,13 +187,10 @@
                         <h6 class="section-title">
                             <i class="ri-code-box-line"></i>
                             Request Body
-                            ${isActualRequestSchema ? '<span class="badge badge-success">AST Detected</span>' : '<span class="badge badge-warning">Inferred</span>'}
+                            <span class="badge badge-success">Schema Detected</span>
                         </h6>
                         <p class="section-description">
-                            ${isActualRequestSchema ?
-                                `Based on actual ${method} request schema detected from your handler code.` :
-                                `Inferred from response structure - may need manual adjustment.`
-                            }
+                            Based on request schema detected from your handler code.
                         </p>
                     </div>
                     <div class="request-body-fields" id="request-body-fields">
@@ -206,23 +199,17 @@
                     <div class="form-field mt-2">
                         <small class="field-help">
                             <i class="ri-information-line"></i>
-                            ${isActualRequestSchema ?
-                                (method === 'POST' ? 'Creates a new resource with the specified fields.' :
-                                 method === 'PUT' ? 'Updates the entire resource with these fields.' :
-                                 method === 'PATCH' ? 'Partially updates the specified fields.' :
-                                 'Sends data with the detected structure.') :
-                                (method === 'POST' ? 'Creates a new resource - fields inferred from response.' :
-                                 method === 'PUT' ? 'Updates resource - structure inferred from response.' :
-                                 method === 'PATCH' ? 'Partially updates - fields inferred from response.' :
-                                 'Sends data - structure inferred from response.')
-                            }
+                            ${method === 'POST' ? 'Creates a new resource with the specified fields.' :
+                             method === 'PUT' ? 'Updates the entire resource with these fields.' :
+                             method === 'PATCH' ? 'Partially updates the specified fields.' :
+                             'Sends data with the detected structure.'}
                         </small>
                     </div>
                 </div>
             `;
         },
 
-        // Build flexible request section when no schema can be inferred
+        // Build flexible request section when no schema is available
         buildFlexibleRequestSection() {
             return `
                 <div class="form-section">
@@ -254,18 +241,12 @@
             `;
         },
 
-        // Generate form fields from schema (from AST request schema or response inference)
+        // Generate form fields from request schema
         generateFormFieldsFromSchema(schema) {
 
-
             if (!schema || !schema.schema || !schema.schema.properties) {
-
                 return this.generateRawJSONFallback();
             }
-
-
-            const isActualRequestSchema = schema.contentType === 'application/json' && schema.required !== undefined;
-
 
             const properties = schema.schema.properties;
             if (Object.keys(properties).length === 0) {
@@ -296,7 +277,7 @@
             `;
         },
 
-        // Generate empty state message when no fields can be inferred
+        // Generate empty state message when no fields are available
         generateEmptyStateMessage() {
             return `
                 <div class="empty-fields-state">
@@ -339,7 +320,7 @@
             `;
         },
 
-        // Generate fields from properties object (from request schema or response inference)
+        // Generate fields from properties object from request schema
         generateFieldsFromProperties(properties, requiredFields = []) {
 
 
@@ -356,16 +337,6 @@
             if (fieldCount === 0) {
                 return this.generateEmptyStateMessage();
             }
-
-            // Add a note about inferred fields
-            html += `
-                <div class="inference-note">
-                    <small class="txt-hint">
-                        <i class="ri-magic-line"></i>
-                        ${fieldCount} field${fieldCount > 1 ? 's' : ''} auto-detected from response schema
-                    </small>
-                </div>
-            `;
 
             return html;
         },

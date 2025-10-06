@@ -17,14 +17,7 @@
                     return JSON.stringify(schema.example, null, 2);
                 }
 
-                // If schema has no properties but response exists, infer from response
-                if ((!schema.schema.properties || Object.keys(schema.schema.properties).length === 0)
-                    && endpoint.data?.response) {
-                    const example = this.generateExampleFromResponse(endpoint.data.response);
-                    if (example && Object.keys(example).length > 0) {
-                        return JSON.stringify(example, null, 2);
-                    }
-                }
+                // Only use request schema properties
 
                 // Generate example from schema properties
                 const example = this.generateExampleFromSchema(schema.schema);
@@ -96,88 +89,6 @@
             return example;
         },
 
-        // Generate request example from response schema
-        generateExampleFromResponse(responseSchema) {
-
-            if (!responseSchema || !responseSchema.properties) return {};
-
-            const example = {};
-
-            // If response has a main data object (like 'post'), extract from it
-            const dataKeys = ['post', 'data', 'item', 'resource', 'object', 'entity', 'record'];
-            let mainDataProp = null;
-
-            for (const key of dataKeys) {
-                if (responseSchema.properties[key] && responseSchema.properties[key].properties) {
-                    mainDataProp = responseSchema.properties[key];
-                    break;
-                }
-            }
-
-            // If no nested data found, use response properties directly
-            if (!mainDataProp && responseSchema.properties) {
-                mainDataProp = responseSchema;
-            }
-
-            if (mainDataProp && mainDataProp.properties) {
-                // Fields to exclude from request (usually server-generated)
-                const excludeFields = [
-                    'id',
-                'created_at',
-                'updated_at',
-                ];
-
-                Object.entries(mainDataProp.properties).forEach(([propName, propSchema]) => {
-                    // Skip server-generated fields
-                    const lowerPropName = propName.toLowerCase();
-                    const shouldExclude = excludeFields.some(field =>
-                        lowerPropName === field ||
-                        lowerPropName === `${field}_id` ||
-                        lowerPropName.endsWith(`_${field}`)
-                    );
-
-                    if (shouldExclude) {
-                        return;
-                    }
-
-                    // Generate example value based on property schema
-                    if (propSchema.example !== undefined) {
-                        example[propName] = propSchema.example;
-                    } else if (propSchema.type === 'string') {
-                        if (propName === 'title') {
-                            example[propName] = 'My New Post';
-                        } else if (propName === 'content' || propName === 'body') {
-                            example[propName] = 'This is the content of my post...';
-                        } else if (propName === 'status') {
-                            example[propName] = propSchema.enum?.[0] || 'draft';
-                        } else if (propName === 'tags') {
-                            example[propName] = 'tag1, tag2';
-                        } else if (propName.includes('email')) {
-                            example[propName] = 'user@example.com';
-                        } else if (propName.includes('name')) {
-                            example[propName] = `Example ${propName}`;
-                        } else if (propName.includes('url') || propName.includes('link')) {
-                            example[propName] = 'https://example.com';
-                        } else {
-                            example[propName] = `Example ${propName}`;
-                        }
-                    } else if (propSchema.type === 'boolean') {
-                        example[propName] = false;
-                    } else if (propSchema.type === 'integer') {
-                        example[propName] = 1;
-                    } else if (propSchema.type === 'number') {
-                        example[propName] = 1.0;
-                    } else if (propSchema.type === 'array') {
-                        example[propName] = [];
-                    } else if (propSchema.type === 'object') {
-                        example[propName] = this.generateExampleFromSchema(propSchema);
-                    }
-                });
-            }
-
-            return example;
-        },
-
         // Populate default values in form fields
         populateDefaultValues(parameterSchema) {
 
@@ -200,13 +111,10 @@
 
             // Populate request body example if available
             if (parameterSchema.requestBody && parameterSchema.requestBody.schema) {
-                const isActualRequestSchema = parameterSchema.requestBody.contentType === 'application/json' &&
-                                              parameterSchema.requestBody.required !== undefined;
-
                 const rawJsonTextarea = document.getElementById('raw-json-payload');
                 const legacyJsonTextarea = document.getElementById('request-body-json');
 
-                if (rawJsonTextarea && (rawJsonTextarea.value.trim() === '{}' || rawJsonTextarea.value.trim() === '')) {
+                if (rawJsonTextarea && !rawJsonTextarea.value.trim()) {
                     const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
                     if (example && Object.keys(example).length > 0) {
                         rawJsonTextarea.value = JSON.stringify(example, null, 2);
@@ -395,9 +303,8 @@
             }
 
             // Generate request body example
+            // Add request body if method supports it
             if (schema.requestBody && ['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
-                const isActualRequestSchema = schema.requestBody.contentType === 'application/json' &&
-                                              schema.requestBody.required !== undefined;
                 example.body = this.generateRequestBodyExample(schema.requestBody, endpoint);
             }
 
