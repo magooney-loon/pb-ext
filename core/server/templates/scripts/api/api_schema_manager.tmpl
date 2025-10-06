@@ -9,6 +9,7 @@
         // Extract parameter schema from endpoint data
         extractParameterSchema(endpoint) {
 
+            console.log('[Schema Debug] extractParameterSchema called for endpoint:', endpoint);
 
             const schema = {
                 pathParameters: [],
@@ -25,38 +26,39 @@
 
                 // Extract path parameters from the path itself if not explicitly defined
                 const pathParams = this.extractPathParameters(endpoint.path);
+                console.log('[Schema Debug] Extracted path parameters from URL:', pathParams);
                 if (pathParams.length > 0 && (!endpointData.parameters || endpointData.parameters.length === 0)) {
-
+                    console.log('[Schema Debug] Using extracted path parameters since no explicit parameters found');
                     schema.pathParameters = pathParams;
                 }
 
                 // Extract parameters
                 if (endpointData.parameters && Array.isArray(endpointData.parameters)) {
-
+                    console.log('[Schema Debug] Processing explicit parameters:', endpointData.parameters);
 
                     endpointData.parameters.forEach((param, index) => {
-
+                        console.log(`[Schema Debug] Processing parameter ${index}:`, param);
 
                         const normalizedParam = this.normalizeParameter(param);
-
+                        console.log(`[Schema Debug] Normalized parameter:`, normalizedParam);
 
                         switch (param.in) {
                             case 'path':
                                 schema.pathParameters.push(normalizedParam);
-
+                                console.log('[Schema Debug] Added to path parameters');
                                 break;
                             case 'query':
                                 schema.queryParameters.push(normalizedParam);
-
+                                console.log('[Schema Debug] Added to query parameters');
                                 break;
                             case 'header':
                                 schema.headerParameters.push(normalizedParam);
-
+                                console.log('[Schema Debug] Added to header parameters');
                                 break;
                         }
                     });
                 } else if (schema.pathParameters.length === 0) {
-
+                    console.log('[Schema Debug] No explicit parameters found and no path parameters extracted');
                 }
 
                 // For POST/PUT/PATCH methods, ALWAYS infer request body from response schema
@@ -81,17 +83,20 @@
 
             }
 
+            console.log('[Schema Debug] Final extracted schema:', schema);
 
             return schema;
         },
 
         // Extract path parameters from URL path
         extractPathParameters(path) {
+            console.log('[Schema Debug] extractPathParameters called with path:', path);
             const params = [];
             const regex = /{([^}]+)}/g;
             let match;
 
             while ((match = regex.exec(path)) !== null) {
+                console.log('[Schema Debug] Found path parameter match:', match[1]);
                 params.push({
                     name: match[1],
                     type: 'string',
@@ -104,6 +109,7 @@
                 });
             }
 
+            console.log('[Schema Debug] Final extracted path parameters:', params);
             return params;
         },
 

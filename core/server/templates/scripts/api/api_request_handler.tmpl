@@ -249,11 +249,11 @@
 
 
 
-            // Replace path parameters
+            // Replace path parameters (curly brace syntax: {param})
             Object.entries(data.pathParams).forEach(([param, value]) => {
                 const oldUrl = url;
                 url = url.replace(`{${param}}`, encodeURIComponent(value));
-
+                console.log(`[API Debug] Replaced parameter ${param} with ${value}, URL: ${oldUrl} -> ${url}`);
             });
 
             // Build full URL

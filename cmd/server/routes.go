@@ -83,9 +83,10 @@ func registerRoutes(pbApp core.App) {
 		v2Router.GET("/api/v2/time", timeHandler)
 		v2Router.GET("/api/v2/guest-info", guestInfoHandler).Bind(apis.RequireGuestOnly())
 		v2Router.POST("/api/v2/posts", createPostHandler).Bind(apis.RequireAuth())
-		v2Router.PATCH("/api/v2/posts/:id", patchPostHandler).Bind(apis.RequireAuth())
-		v2Router.PUT("/api/v2/posts/:id", updatePostHandler).Bind(apis.RequireSuperuserOrOwnerAuth("id"))
-		v2Router.DELETE("/api/v2/posts/:id", deletePostHandler).Bind(apis.RequireSuperuserAuth())
+
+		v2Router.PATCH("/api/v2/posts/{id}", patchPostHandler).Bind(apis.RequireAuth())
+		v2Router.PUT("/api/v2/posts/{id}", updatePostHandler).Bind(apis.RequireSuperuserOrOwnerAuth("id"))
+		v2Router.DELETE("/api/v2/posts/{id}", deletePostHandler).Bind(apis.RequireSuperuserAuth())
 		v2Router.GET("/api/v2/admin/stats", adminStatsHandler).Bind(apis.RequireSuperuserAuth())
 
 		return e.Next()

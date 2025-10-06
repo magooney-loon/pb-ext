@@ -748,5 +748,41 @@ summary:hover {
     align-items: center;
     gap: 4px;
 }
+
+/* =============================================================================
+   SIMPLE FORM FIELD ENHANCEMENTS
+   ============================================================================= */
+
+/* Input Hints */
+.input-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--txtHintColor, #666);
+    line-height: 1.4;
+}
+
+.input-hint i {
+    font-size: 12px;
+    color: var(--primaryColor, #3b82f6);
+    opacity: 0.7;
+}
+
+/* Enhanced param-type styling */
+.param-type {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    background: var(--primaryColor, #3b82f6);
+    color: white;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 6px;
+}
 </style>
 {{end}}

@@ -266,6 +266,23 @@ func adminStatsHandler(c *core.RequestEvent) error {
 }
 
 // =============================================================================
+// Debug/Test Handlers
+// =============================================================================
+
+// API_DESC Test path parameter extraction (debug endpoint)
+// API_TAGS debug,test
+func testPathParamHandler(c *core.RequestEvent) error {
+	postID := c.Request.PathValue("id")
+	return c.JSON(http.StatusOK, map[string]any{
+		"message":      "Path parameter test",
+		"extracted_id": postID,
+		"url_path":     c.Request.URL.Path,
+		"method":       c.Request.Method,
+		"timestamp":    time.Now().Format(time.RFC3339),
+	})
+}
+
+// =============================================================================
 // Utility Functions
 // =============================================================================
 
