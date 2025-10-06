@@ -905,10 +905,10 @@ func (p *ASTParser) extractTypeFromExpressionWithContext(expr ast.Expr, handlerI
 					return typeResult
 				}
 			case "new":
-				// new(Type) - returns *Type, but we want Type
+				// new(Type) - returns *Type
 				if len(e.Args) > 0 {
 					typeResult := p.extractTypeFromExpressionWithContext(e.Args[0], handlerInfo)
-					return typeResult
+					return "*" + typeResult
 				}
 			case "len":
 				// len() always returns int
