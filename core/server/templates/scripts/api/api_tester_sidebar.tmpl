@@ -99,6 +99,11 @@
                 const isActive = content.id === `${tabName}-tab`;
                 content.classList.toggle('active', isActive);
                 content.style.display = isActive ? 'block' : 'none';
+
+                // Scroll to top when switching tabs
+                if (isActive) {
+                    content.scrollTop = 0;
+                }
             });
 
             // Trigger refresh event for other components
@@ -341,20 +346,39 @@
         showResponseContent() {
             const emptyState = document.getElementById('response-empty-state');
             const responseBody = document.getElementById('response-body');
+            const responseHeaders = document.getElementById('response-headers');
 
             if (emptyState) {
                 emptyState.style.display = 'none';
             }
 
-            if (responseBody) {
-                responseBody.style.display = 'block';
+            // Ensure proper visibility based on active response tab
+            const activeResponseTab = document.querySelector('.response-tab.active');
+            if (activeResponseTab) {
+                const tabName = activeResponseTab.dataset.tab;
+                if (responseBody) {
+                    responseBody.style.display = tabName === 'body' ? 'block' : 'none';
+                }
+                if (responseHeaders) {
+                    responseHeaders.style.display = tabName === 'headers' ? 'block' : 'none';
+                }
+            } else {
+                // Default to body tab
+                if (responseBody) {
+                    responseBody.style.display = 'block';
+                }
+                if (responseHeaders) {
+                    responseHeaders.style.display = 'none';
+                }
             }
 
             // Auto-switch to response tab
             this.switchTesterTab('response');
 
-            // Default to body tab
-            this.switchResponseTab('body');
+            // Default to body tab if none active
+            if (!activeResponseTab) {
+                this.switchResponseTab('body');
+            }
         },
 
         // Update response status display

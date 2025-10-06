@@ -206,19 +206,15 @@
                     console.log('No parameters found in endpoint data');
                 }
 
-                // Extract request body schema - check multiple possible locations
-                if (endpointData.request) {
-                    console.log('Found request schema:', endpointData.request);
-                    schema.requestBody = this.extractRequestBodySchema(endpointData.request);
-                    console.log('Processed request body schema:', schema.requestBody);
-                } else if (endpointData.requestBody) {
-                    console.log('Found standard requestBody:', endpointData.requestBody);
-                    schema.requestBody = this.extractRequestBodySchema(endpointData.requestBody);
-                    console.log('Processed request body schema:', schema.requestBody);
-                } else if (['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method)) {
-                    // For POST/PUT/PATCH, try to infer from response schema
-                    console.log('No explicit request schema found, inferring from response...');
+                // For POST/PUT/PATCH methods, ALWAYS infer request body from response schema
+                if (['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method)) {
+                    console.log('Inferring request body from response schema for', this.currentEndpoint.method);
                     schema.requestBody = this.inferRequestBodyFromResponse(endpointData.response);
+                    if (schema.requestBody) {
+                        console.log('Successfully inferred request body schema from response');
+                    } else {
+                        console.log('Could not infer request body from response, will use defaults');
+                    }
                 } else {
                     console.log('No request body needed for', this.currentEndpoint.method);
                 }
@@ -277,112 +273,121 @@
             return normalized;
         },
 
-        // Infer request body schema from response
+        // Infer request body schema ONLY from response
         inferRequestBodyFromResponse(responseSchema) {
-            console.log('Inferring request body from response:', responseSchema);
+            console.log('Inferring request body ONLY from response schema:', responseSchema);
 
-            if (!responseSchema) return null;
+            if (!responseSchema) {
+                console.log('No response schema available for inference');
+                return this.getDefaultRequestBody();
+            }
 
-            // Look for data structures in response that indicate the resource shape
-            const dataKeys = ['post', 'data', 'item', 'resource', 'object', 'entity', 'result'];
+            // Priority order for finding the main data structure in response
+            const dataKeys = ['data', 'post', 'item', 'resource', 'result', 'object', 'entity', 'record'];
             let resourceSchema = null;
 
+            // First, try to find a nested data object in the response
             if (responseSchema.properties) {
                 for (const key of dataKeys) {
-                    if (responseSchema.properties[key]) {
+                    if (responseSchema.properties[key] && responseSchema.properties[key].properties) {
                         resourceSchema = responseSchema.properties[key];
-                        console.log(`Found resource schema under '${key}'`);
+                        console.log(`Found nested resource schema under '${key}':`, resourceSchema);
                         break;
                     }
                 }
+
+                // If no nested object found but response has properties, use response directly
+                if (!resourceSchema && Object.keys(responseSchema.properties).length > 0) {
+                    console.log('Using response properties directly for inference');
+                    resourceSchema = responseSchema;
+                }
             }
 
-            if (!resourceSchema && responseSchema.type === 'object') {
-                // Use the response schema directly if it's an object
-                resourceSchema = responseSchema;
+            // If response is an array, look at the items schema
+            if (!resourceSchema && responseSchema.type === 'array' && responseSchema.items) {
+                console.log('Response is an array, using items schema');
+                resourceSchema = responseSchema.items;
             }
 
             if (resourceSchema) {
-                // Create a cleaned version without server-generated fields
+                // Clean the schema by removing server-generated fields
                 const cleanedSchema = this.cleanSchemaForRequest(resourceSchema);
 
                 return {
                     type: 'object',
                     required: true,
                     schema: cleanedSchema,
-                    description: 'Request body (inferred from response structure)'
+                    description: 'Request payload (inferred from response structure)'
                 };
             }
 
-            return null;
+            console.log('Could not infer schema from response, using defaults');
+            return this.getDefaultRequestBody();
+        },
+
+        // Get default request body when inference fails
+        getDefaultRequestBody() {
+            return {
+                type: 'object',
+                required: true,
+                schema: {
+                    type: 'object',
+                    properties: {},
+                    additionalProperties: true
+                },
+                description: 'Request payload (using flexible schema)'
+            };
         },
 
         // Clean schema for request by removing server-generated fields
         cleanSchemaForRequest(schema) {
-            if (!schema || !schema.properties) return schema;
+            if (!schema) return schema;
 
-            const excludeFields = ['id', '_id', 'created_at', 'updated_at', 'created', 'updated',
-                                   'modified', 'author', 'user', 'owner', 'creator', 'last_modified'];
+            // Expanded list of server-generated fields to exclude
+            const excludeFields = [
+                'id', '_id', 'uid', 'uuid',
+                'created', 'created_at', 'created_by', 'created_date', 'creation_time',
+                'updated', 'updated_at', 'updated_by', 'updated_date', 'modification_time',
+                'modified', 'modified_at', 'modified_by', 'last_modified',
+                'deleted', 'deleted_at', 'deleted_by',
+                'author', 'author_id', 'user', 'user_id', 'owner', 'owner_id',
+                'creator', 'creator_id', 'modifier', 'modifier_id',
+                'version', 'revision', 'etag', 'timestamp'
+            ];
 
-            const cleanedProperties = {};
+            // If schema has properties, filter them
+            if (schema.properties) {
+                const cleanedProperties = {};
 
-            Object.entries(schema.properties).forEach(([key, value]) => {
-                const lowerKey = key.toLowerCase();
-                if (!excludeFields.some(field => lowerKey === field || lowerKey.endsWith('_' + field))) {
-                    cleanedProperties[key] = value;
-                }
-            });
+                Object.entries(schema.properties).forEach(([key, value]) => {
+                    const lowerKey = key.toLowerCase();
+                    const shouldExclude = excludeFields.some(field =>
+                        lowerKey === field ||
+                        lowerKey === `${field}_id` ||
+                        lowerKey.endsWith(`_${field}`)
+                    );
 
-            return {
-                ...schema,
-                properties: cleanedProperties
-            };
-        },
+                    if (!shouldExclude) {
+                        cleanedProperties[key] = value;
+                        console.log(`Including field: ${key}`);
+                    } else {
+                        console.log(`Excluding server-generated field: ${key}`);
+                    }
+                });
 
-        // Extract request body schema
-        extractRequestBodySchema(requestSchema) {
-            console.log('Extracting request body schema from:', requestSchema);
-
-            if (!requestSchema) return null;
-
-            // Handle this system's request schema format
-            if (requestSchema.type === 'object') {
-                console.log('Found object type request schema');
                 return {
-                    type: requestSchema.type,
-                    required: true, // POST requests typically require body
-                    schema: requestSchema,
-                    description: requestSchema.description || 'Request body data'
+                    ...schema,
+                    properties: cleanedProperties,
+                    required: schema.required ? schema.required.filter(field =>
+                        !excludeFields.some(exclude => field.toLowerCase() === exclude)
+                    ) : []
                 };
             }
 
-            // Handle OpenAPI 3.0 request body structure as fallback
-            const content = requestSchema.content;
-            if (content) {
-                console.log('Found request body content:', content);
-
-                // Try JSON first
-                const jsonContent = content['application/json'];
-                if (jsonContent && jsonContent.schema) {
-                    console.log('Found JSON schema:', jsonContent.schema);
-                    return {
-                        type: 'object',
-                        required: requestSchema.required || false,
-                        schema: jsonContent.schema,
-                        example: jsonContent.example || jsonContent.examples || null,
-                        description: requestSchema.description || 'Request body'
-                    };
-                }
-            }
-
-            // Minimal fallback
-            return {
-                type: 'object',
-                required: true,
-                schema: requestSchema,
-                description: requestSchema.description || 'Request body'
-            };
+            return schema;
         },
+
+
 
         // Generate parameter form
         generateParameterForm(container) {
@@ -476,7 +481,7 @@
             console.log(`Building field for ${param.name} (${param.type})`);
 
             return `
-                <div class="form-field" data-param="${param.name}" data-in="${param.in}">
+                <div class="form-field param-field" data-param="${param.name}" data-in="${param.in}">
                     <label class="form-label" for="${fieldId}">
                         ${param.name} ${requiredMark}
                         <span class="param-type">(${param.type}${param.format ? `:${param.format}` : ''})</span>
@@ -545,9 +550,14 @@
 
         // Build request body section with form fields
         buildRequestBodySection() {
-            console.log('Building request body section with form fields');
+            console.log('Building request body section from response inference');
 
             const schema = this.parameterSchema.requestBody;
+            if (!schema) {
+                console.log('No request body schema available');
+                return this.buildFlexibleRequestSection();
+            }
+
             const fields = this.generateFormFieldsFromSchema(schema);
 
             return `
@@ -555,14 +565,14 @@
                     <div class="section-header">
                         <h6 class="section-title">
                             <i class="ri-code-box-line"></i>
-                            Request Body
+                            Request Payload
                             ${schema.required ? '<span class="txt-danger">*</span>' : ''}
                         </h6>
                         <p class="section-description">
-                            ${schema.description || 'Fill in the data for this endpoint'}
-                            ${schema.schema?.additionalProperties ?
-                                '<br><small class="txt-hint">This endpoint accepts flexible data - fields below are suggestions</small>' :
-                                ''}
+                            ${schema.description}
+                            ${(!schema.schema?.properties || Object.keys(schema.schema.properties).length === 0) ?
+                                '<br><small class="txt-hint">📝 Fields inferred from response structure. Adjust as needed.</small>' :
+                                '<br><small class="txt-success">✓ Fields auto-detected from response schema</small>'}
                         </p>
                     </div>
                     <div class="request-body-fields" id="request-body-fields">
@@ -571,133 +581,135 @@
                     <div class="form-field mt-2">
                         <small class="field-help">
                             <i class="ri-information-line"></i>
-                            ${this.currentEndpoint.method === 'POST' ? 'This will create a new resource.' :
-                              this.currentEndpoint.method === 'PUT' ? 'This will update the entire resource.' :
-                              this.currentEndpoint.method === 'PATCH' ? 'This will partially update the resource.' :
-                              'This will send data to the server.'}
+                            ${this.currentEndpoint.method === 'POST' ? 'Creates a new resource based on the response structure.' :
+                              this.currentEndpoint.method === 'PUT' ? 'Updates the entire resource to match response structure.' :
+                              this.currentEndpoint.method === 'PATCH' ? 'Partially updates fields from response structure.' :
+                              'Sends data matching the response structure.'}
                         </small>
                     </div>
                 </div>
             `;
         },
 
-        // Generate form fields from schema
+        // Build flexible request section when no schema can be inferred
+        buildFlexibleRequestSection() {
+            return `
+                <div class="form-section">
+                    <div class="section-header">
+                        <h6 class="section-title">
+                            <i class="ri-code-box-line"></i>
+                            Request Payload
+                        </h6>
+                        <p class="section-description">
+                            No response schema available for inference. Using flexible JSON input.
+                        </p>
+                    </div>
+                    <div class="request-body-fields">
+                        <div class="form-field raw-json-field">
+                            <label class="form-label">JSON Payload</label>
+                            <textarea class="form-control"
+                                      id="raw-json-payload"
+                                      rows="10"
+                                      placeholder='{\n  "field": "value"\n}'
+                                      style="font-family: monospace;">{}</textarea>
+                            <div class="field-help">
+                                <i class="ri-information-line"></i>
+                                Enter valid JSON data for the request body
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Generate form fields from schema (ONLY from response inference)
         generateFormFieldsFromSchema(schema) {
-            if (!schema || !schema.schema) {
-                console.log('No schema available, generating default fields');
-                return this.generateDefaultFormFields();
+            if (!schema || !schema.schema || !schema.schema.properties) {
+                console.log('No inferred properties available from response');
+                return this.generateEmptyStateMessage();
             }
 
-            // Generate fields from schema properties
-            if (schema.schema.properties && Object.keys(schema.schema.properties).length > 0) {
-                console.log('Generating fields from schema properties:', schema.schema.properties);
-                return this.generateFieldsFromProperties(schema.schema.properties, schema.schema.required);
+            const properties = schema.schema.properties;
+            if (Object.keys(properties).length === 0) {
+                console.log('No fields found after filtering server-generated fields');
+                return this.generateEmptyStateMessage();
             }
 
-            // If no properties but schema is an object, generate default fields
-            if (schema.schema.type === 'object') {
-                console.log('Schema is object type but no properties defined, using defaults');
-                return this.generateDefaultFormFields();
-            }
-
-            return this.generateDefaultFormFields();
+            console.log('Generating fields from inferred properties:', properties);
+            return this.generateFieldsFromProperties(properties, schema.schema.required);
         },
 
-        // Generate default form fields for common cases
-        generateDefaultFormFields() {
-            console.log('Generating default form fields based on endpoint path');
-
-            const path = this.currentEndpoint.path.toLowerCase();
-
-            // Determine likely fields based on path
-            if (path.includes('post') || path.includes('article') || path.includes('blog')) {
-                return this.generateBlogFields();
-            } else if (path.includes('user') || path.includes('profile')) {
-                return this.generateUserFields();
-            } else if (path.includes('comment')) {
-                return this.generateCommentFields();
-            } else {
-                // Generic data fields
-                return `
-                    <div class="form-field">
-                        <label class="form-label">Title</label>
-                        <input type="text" class="form-control" name="title" placeholder="Enter title">
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label">Content</label>
-                        <textarea class="form-control" name="content" rows="4" placeholder="Enter content"></textarea>
-                    </div>
-                    <div class="form-field">
-                        <label class="form-label">Tags</label>
-                        <input type="text" class="form-control" name="tags" placeholder="Enter tags (comma separated)">
-                    </div>
-                `;
-            }
-        },
-
-        // Generate blog/post specific fields
-        generateBlogFields() {
+        // Generate empty state message when no fields can be inferred
+        generateEmptyStateMessage() {
             return `
-                <div class="form-field">
-                    <label class="form-label">Title <span class="txt-danger">*</span></label>
-                    <input type="text" class="form-control" name="title" required placeholder="Post title">
-                </div>
-                <div class="form-field">
-                    <label class="form-label">Content <span class="txt-danger">*</span></label>
-                    <textarea class="form-control" name="content" rows="6" required placeholder="Post content (Markdown supported)"></textarea>
-                </div>
-                <div class="form-field">
-                    <label class="form-label">Tags</label>
-                    <input type="text" class="form-control" name="tags" placeholder="tag1, tag2, tag3">
-                </div>
-                <div class="form-field">
-                    <label class="form-label">Published</label>
-                    <select class="form-control" name="published">
-                        <option value="true">Yes</option>
-                        <option value="false">No</option>
-                    </select>
+                <div class="empty-fields-state">
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-file-search-line ri-xl"></i>
+                        <p><strong>No fields detected from response</strong></p>
+                        <p class="txt-sm">Unable to infer request structure from the response schema.</p>
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="APITester.useRawJSON()">
+                                <i class="ri-code-line"></i>
+                                Use Raw JSON Editor
+                            </button>
+                        </div>
+                    </div>
                 </div>
             `;
         },
 
-        // Generate user specific fields
-        generateUserFields() {
-            return `
-                <div class="form-field">
-                    <label class="form-label">Name</label>
-                    <input type="text" class="form-control" name="name" placeholder="Full name">
-                </div>
-                <div class="form-field">
-                    <label class="form-label">Email</label>
-                    <input type="email" class="form-control" name="email" placeholder="email@example.com">
-                </div>
-                <div class="form-field">
-                    <label class="form-label">Bio</label>
-                    <textarea class="form-control" name="bio" rows="3" placeholder="User bio"></textarea>
+        // Switch to raw JSON input mode
+        useRawJSON() {
+            const container = document.getElementById('schema-form-container');
+            if (!container) return;
+
+            container.innerHTML = `
+                <div class="form-field raw-json-field">
+                    <label class="form-label">
+                        JSON Payload
+                        <span class="param-type">(raw JSON)</span>
+                    </label>
+                    <textarea class="form-control"
+                              id="raw-json-payload"
+                              rows="12"
+                              placeholder='{\n  "field": "value"\n}'
+                              style="font-family: monospace;">{}</textarea>
+                    <div class="field-help">
+                        <i class="ri-information-line"></i>
+                        Enter valid JSON data. The structure will be sent as the request body.
+                    </div>
                 </div>
             `;
+
+            console.log('Switched to raw JSON input mode');
         },
 
-        // Generate comment specific fields
-        generateCommentFields() {
-            return `
-                <div class="form-field">
-                    <label class="form-label">Comment <span class="txt-danger">*</span></label>
-                    <textarea class="form-control" name="content" rows="4" required placeholder="Enter your comment"></textarea>
-                </div>
-            `;
-        },
-
-        // Generate fields from properties object
+        // Generate fields from properties object (inferred from response)
         generateFieldsFromProperties(properties, requiredFields = []) {
             let html = '';
+            let fieldCount = 0;
 
             Object.entries(properties).forEach(([propName, propSchema]) => {
                 const isRequired = requiredFields && requiredFields.includes(propName);
                 html += this.generateFormField(propName, propSchema, isRequired);
+                fieldCount++;
             });
 
-            return html || this.generateDefaultFormFields();
+            if (fieldCount === 0) {
+                return this.generateEmptyStateMessage();
+            }
+
+            // Add a note about inferred fields
+            html += `
+                <div class="inference-note">
+                    <small class="txt-hint">
+                        <i class="ri-magic-line"></i>
+                        ${fieldCount} field${fieldCount > 1 ? 's' : ''} auto-detected from response schema
+                    </small>
+                </div>
+            `;
+
+            return html;
         },
 
         // Generate individual form field
@@ -778,7 +790,7 @@
             }
 
             return `
-                <div class="form-field">
+                <div class="form-field body-field" data-body-field="${name}">
                     <label class="form-label" for="${fieldId}">
                         ${name}
                         ${required ? '<span class="txt-danger">*</span>' : ''}
@@ -946,11 +958,27 @@
 
         // Get no parameters message
         getNoParametersMessage() {
+            const needsBody = ['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method);
+
+            if (needsBody) {
+                return `
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-file-search-line ri-xl"></i>
+                        <p>No request structure detected</p>
+                        <p class="txt-sm">Unable to infer fields from response schema</p>
+                        <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="APITester.useRawJSON()">
+                            <i class="ri-code-line"></i>
+                            Use Raw JSON
+                        </button>
+                    </div>
+                `;
+            }
+
             return `
                 <div class="txt-center txt-hint p-4">
-                    <i class="ri-info-line ri-xl"></i>
+                    <i class="ri-check-line ri-xl txt-success"></i>
                     <p>No parameters required</p>
-                    <p class="txt-sm">This endpoint doesn't require any parameters</p>
+                    <p class="txt-sm">This endpoint can be called without any parameters</p>
                 </div>
             `;
         },
@@ -1029,7 +1057,7 @@
             console.log('Collecting form data...');
 
             // Collect parameter fields
-            const paramFields = document.querySelectorAll('[data-param]');
+            const paramFields = document.querySelectorAll('.param-field[data-param]');
             console.log(`Found ${paramFields.length} parameter fields`);
 
             paramFields.forEach(field => {
@@ -1037,7 +1065,7 @@
                 if (input && input.value.trim()) {
                     const paramName = input.name;
                     const paramType = input.dataset.type;
-                    const paramIn = input.dataset.in;
+                    const paramIn = field.dataset.in; // Get from parent field div
                     const value = this.convertValue(input.value.trim(), paramType);
 
                     console.log(`Collecting ${paramIn} param: ${paramName} = ${value} (${paramType})`);
@@ -1054,13 +1082,13 @@
             });
 
             // Collect request body from form fields
-            const bodyFields = document.querySelectorAll('[data-body-field]');
+            const bodyFields = document.querySelectorAll('.body-field[data-body-field]');
             if (bodyFields.length > 0) {
                 const bodyData = {};
                 bodyFields.forEach(field => {
                     const input = field.querySelector('input, select, textarea');
                     if (input && input.value.trim()) {
-                        const fieldName = input.name;
+                        const fieldName = field.dataset.bodyField; // Use data attribute
                         const fieldValue = input.value.trim();
 
                         // Try to convert to appropriate type
@@ -1078,12 +1106,27 @@
                     data.body = JSON.stringify(bodyData, null, 2);
                     console.log('Collected request body from fields:', data.body);
                 }
-            } else {
-                // Fallback to JSON textarea if exists
+            }
+
+            // Also check for raw JSON input
+            const rawJsonTextarea = document.getElementById('raw-json-payload');
+            if (rawJsonTextarea && rawJsonTextarea.value.trim()) {
+                try {
+                    // Validate JSON
+                    JSON.parse(rawJsonTextarea.value.trim());
+                    data.body = rawJsonTextarea.value.trim();
+                    console.log('Using raw JSON payload:', data.body);
+                } catch (e) {
+                    console.error('Invalid JSON in raw textarea:', e);
+                }
+            }
+
+            // Legacy fallback to old JSON textarea
+            if (!data.body) {
                 const jsonTextarea = document.getElementById('request-body-json');
                 if (jsonTextarea && jsonTextarea.value.trim()) {
                     data.body = jsonTextarea.value.trim();
-                    console.log('Collected request body from JSON textarea:', data.body);
+                    console.log('Collected request body from legacy JSON textarea:', data.body);
                 }
             }
 
@@ -1257,7 +1300,7 @@
             console.log('Resetting form to defaults');
 
             // Clear all parameter fields
-            const paramFields = document.querySelectorAll('[data-param] input, [data-param] select, [data-param] textarea');
+            const paramFields = document.querySelectorAll('.param-field input, .param-field select, .param-field textarea');
             paramFields.forEach(field => {
                 if (field.type === 'checkbox' || field.type === 'radio') {
                     field.checked = false;
@@ -1267,19 +1310,34 @@
             });
 
             // Clear request body fields
-            const bodyFields = document.querySelectorAll('[data-body-field] input, [data-body-field] select, [data-body-field] textarea');
+            const bodyFields = document.querySelectorAll('.body-field input, .body-field select, .body-field textarea');
             bodyFields.forEach(field => {
-                field.value = '';
+                if (field.type === 'checkbox' || field.type === 'radio') {
+                    field.checked = false;
+                } else {
+                    field.value = '';
+                }
             });
 
-            // Also clear JSON textarea if exists
+            // Clear raw JSON textarea if exists
+            const rawJsonTextarea = document.getElementById('raw-json-payload');
+            if (rawJsonTextarea) {
+                rawJsonTextarea.value = '{}';
+            }
+
+            // Also clear legacy JSON textarea if exists
             const jsonTextarea = document.getElementById('request-body-json');
             if (jsonTextarea) {
                 jsonTextarea.value = '';
             }
 
-            // Repopulate default values
-            this.populateDefaultValues();
+            // Reset response state
+            if (typeof APITesterSidebar !== 'undefined') {
+                APITesterSidebar.resetResponseState();
+            }
+
+            // Re-process the endpoint schema to regenerate clean form
+            this.processEndpointSchema();
 
             console.log('Form reset completed');
         },

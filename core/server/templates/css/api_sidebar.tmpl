@@ -17,7 +17,8 @@
     display: flex;
     flex-direction: column;
     transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 1000;
+    z-index: 9999;
+    overflow: hidden;
 }
 
 .api-tester-sidebar.open {
@@ -147,18 +148,49 @@
 /* Content Area */
 .api-tester-content {
     flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding: 20px;
+    overflow: hidden;
     background: var(--baseColor, #ffffff);
+    min-height: 0;
+    position: relative;
 }
 
 .tester-tab-content {
     display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 20px;
+    scroll-behavior: smooth;
 }
 
 .tester-tab-content.active {
     display: block;
+}
+
+/* Scrollbar styling for tab content */
+.tester-tab-content::-webkit-scrollbar {
+    width: 10px;
+}
+
+.tester-tab-content::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 5px;
+}
+
+.tester-tab-content::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+.tester-tab-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
+    background-clip: content-box;
 }
 
 /* Form Sections */
@@ -168,6 +200,22 @@
 
 .form-section {
     margin-bottom: 24px;
+}
+
+/* Schema Form Container */
+#schema-form-container {
+    /* No scrolling here - parent tab content handles it */
+    padding-bottom: 40px; /* Extra padding for comfortable scrolling */
+}
+
+/* Parameters specific padding for bottom */
+#parameters-tab {
+    padding-bottom: 40px;
+}
+
+/* Response tab specific styling */
+#response-tab {
+    padding-bottom: 40px;
 }
 
 .section-header {
@@ -227,7 +275,6 @@
     border: 1px solid var(--baseAlt2Color, #e5e5e5);
     border-radius: 6px;
     font-size: 14px;
-    background: var(--baseColor, #ffffff);
     color: var(--txtPrimaryColor, #333);
     transition: all 0.2s ease;
 }
@@ -264,10 +311,14 @@ textarea.form-control {
 }
 
 /* Response Section */
-#response-section {
-    height: 100%;
+.section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txtPrimaryColor, #333);
+    margin: 0 0 16px 0;
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    gap: 8px;
 }
 
 .response-tabs {
@@ -304,18 +355,18 @@ textarea.form-control {
 
 /* Response Content */
 .response-content {
-    flex: 1;
     margin-top: 16px;
     position: relative;
-    min-height: 200px;
+    flex: 1;
+    min-height: 300px;
 }
 
 .response-empty-state {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 100%;
-    min-height: 200px;
+    min-height: 300px;
+    padding: 40px 20px;
 }
 
 .response-empty-state .txt-center {
@@ -330,25 +381,22 @@ textarea.form-control {
 
 .response-tab-content {
     display: none;
-    height: 100%;
-    max-height: 400px;
-    overflow: hidden;
 }
 
 .response-tab-content.active {
     display: block;
 }
 
-/* Scrollable Code Blocks */
+/* Code Blocks - now just regular blocks, not absolutely positioned */
 .response-tab-content .code-block {
-    height: 100%;
-    max-height: 400px;
-    overflow: auto;
     background: var(--baseAlt1Color, #f8f9fa);
     border: 1px solid var(--baseAlt2Color, #e5e5e5);
     border-radius: 6px;
     margin: 0;
-    position: relative;
+    min-height: 100px;
+    max-height: 600px;
+    overflow: auto;
+    resize: vertical;
 }
 
 .response-tab-content .code-block code {
@@ -359,7 +407,8 @@ textarea.form-control {
     line-height: 1.5;
     color: var(--txtPrimaryColor, #333);
     white-space: pre;
-    word-wrap: normal;
+    word-wrap: break-word;
+    word-break: break-all;
 }
 
 /* Custom Scrollbar for Code Blocks */
@@ -440,6 +489,7 @@ textarea.form-control {
     padding: 20px;
     border-top: 1px solid var(--baseAlt2Color, #e5e5e5);
     background: var(--baseAlt1Color, #f8f9fa);
+    flex-shrink: 0; /* Never shrink */
 }
 
 /* Buttons */
@@ -521,12 +571,14 @@ textarea.form-control {
     opacity: 0;
     visibility: hidden;
     transition: all 0.3s ease;
-    z-index: 999;
+    z-index: 9998;
+    pointer-events: none;
 }
 
 .api-sidebar-overlay.active {
     opacity: 1;
     visibility: visible;
+    pointer-events: auto;
 }
 
 /* Main Content Adjustment */
@@ -590,32 +642,7 @@ details pre {
     font-size: 11px;
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
-    .api-tester-sidebar {
-        width: 100%;
-        right: -100%;
-    }
 
-    .api-main-content.with-sidebar {
-        margin-right: 0;
-    }
-
-    .api-tester-sidebar.open {
-        right: 0;
-    }
-}
-
-@media (min-width: 1440px) {
-    .api-tester-sidebar {
-        width: 480px;
-        right: -480px;
-    }
-
-    .api-main-content.with-sidebar {
-        margin-right: 480px;
-    }
-}
 
 /* Utility Classes */
 .txt-mono {
@@ -680,6 +707,90 @@ details pre {
 
 .ml-auto {
     margin-left: auto;
+}
+
+/* Inference and Empty States */
+.empty-fields-state {
+    padding: 24px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 2px dashed var(--baseAlt2Color, #e5e5e5);
+    border-radius: 8px;
+    margin: 16px 0;
+}
+
+.empty-fields-state i.ri-xl {
+    font-size: 48px;
+    color: var(--txtHintColor, #666);
+    opacity: 0.5;
+    margin-bottom: 12px;
+}
+
+.inference-note {
+    margin-top: 16px;
+    padding: 12px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
+    border-left: 3px solid var(--primaryColor, #3b82f6);
+    border-radius: 4px;
+}
+
+.inference-note small {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.inference-note i {
+    color: var(--primaryColor, #3b82f6);
+    font-size: 14px;
+}
+
+/* Raw JSON Mode */
+#raw-json-payload {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace !important;
+    font-size: 13px;
+    line-height: 1.6;
+    tab-size: 2;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+}
+
+#raw-json-payload:focus {
+    background: var(--baseColor, #ffffff);
+    border-color: var(--primaryColor, #3b82f6);
+}
+
+/* Success Indicators */
+.txt-success {
+    color: #22c55e;
+}
+
+.ri-check-line.txt-success {
+    color: #22c55e !important;
+}
+
+.ri-magic-line {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* Field Detection Status */
+.section-description small.txt-success {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #22c55e;
+    font-weight: 500;
+}
+
+.section-description small.txt-hint {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 </style>
 {{end}}

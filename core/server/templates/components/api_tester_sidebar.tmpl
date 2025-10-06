@@ -38,55 +38,51 @@
     <div class="api-tester-content">
         <!-- Parameters Tab -->
         <div id="parameters-tab" class="tester-tab-content active">
-            <div class="tester-section">
-                <!-- Auto-generated form fields based on schema -->
-                <div id="schema-form-container" class="schema-form">
-                    <div class="txt-center txt-hint p-4">
-                        <i class="ri-loader-4-line animate-spin"></i>
-                        <p>Loading schema...</p>
-                    </div>
+            <!-- Auto-generated form fields based on schema -->
+            <div id="schema-form-container" class="schema-form">
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-loader-4-line animate-spin"></i>
+                    <p>Loading schema...</p>
                 </div>
             </div>
         </div>
 
         <!-- Response Tab -->
-        <div id="response-tab" class="tester-tab-content" style="display: none;">
-            <div id="response-section" class="tester-section" style="display: block;">
-                <div class="section-title">
-                    <i class="ri-file-text-line"></i>
-                    Response
-                    <div class="flex align-center gap-2 ml-auto">
-                        <span id="response-status-info" class="response-status">
-                            <span class="status-badge">200 OK</span>
-                            <span class="response-time">145ms</span>
-                        </span>
-                        <button id="copy-response-btn" class="btn btn-xs btn-secondary">
-                            <i class="ri-file-copy-line"></i>
-                        </button>
+        <div id="response-tab" class="tester-tab-content">
+            <div class="section-title">
+                <i class="ri-file-text-line"></i>
+                Response
+                <div class="flex align-center gap-2 ml-auto">
+                    <span id="response-status-info" class="response-status">
+                        <span class="status-badge status-ready">Ready</span>
+                        <span class="response-time">Send a request</span>
+                    </span>
+                    <button id="copy-response-btn" class="btn btn-xs btn-secondary">
+                        <i class="ri-file-copy-line"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="response-tabs">
+                <button class="response-tab active" data-tab="body">Body</button>
+                <button class="response-tab" data-tab="headers">Headers</button>
+            </div>
+
+            <div class="response-content">
+                <!-- Empty state for when no response is available -->
+                <div id="response-empty-state" class="response-empty-state">
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-inbox-line ri-xl"></i>
+                        <p>No response yet</p>
+                        <p class="txt-sm">Send a request to see the response here</p>
                     </div>
                 </div>
 
-                <div class="response-tabs">
-                    <button class="response-tab active" data-tab="body">Body</button>
-                    <button class="response-tab" data-tab="headers">Headers</button>
+                <div id="response-body" class="response-tab-content active" style="display: none;">
+                    <pre class="code-block"><code></code></pre>
                 </div>
-
-                <div class="response-content">
-                    <!-- Empty state for when no response is available -->
-                    <div id="response-empty-state" class="response-empty-state">
-                        <div class="txt-center txt-hint p-4">
-                            <i class="ri-inbox-line ri-xl"></i>
-                            <p>No response yet</p>
-                            <p class="txt-sm">Send a request to see the response here</p>
-                        </div>
-                    </div>
-
-                    <div id="response-body" class="response-tab-content active" style="display: none;">
-                        <pre class="code-block"><code></code></pre>
-                    </div>
-                    <div id="response-headers" class="response-tab-content" style="display: none;">
-                        <pre class="code-block"><code></code></pre>
-                    </div>
+                <div id="response-headers" class="response-tab-content" style="display: none;">
+                    <pre class="code-block"><code></code></pre>
                 </div>
             </div>
         </div>
@@ -105,9 +101,6 @@
         </button>
     </div>
 </aside>
-
-<!-- Resize Handle -->
-<div id="api-resize-handle" class="api-resize-handle" style="display: none;"></div>
 
 <!-- Mobile Overlay -->
 <div id="api-sidebar-overlay" class="api-sidebar-overlay"></div>
