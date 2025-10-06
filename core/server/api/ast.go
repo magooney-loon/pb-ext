@@ -480,17 +480,8 @@ func (p *ASTParser) processAssignment(assign *ast.AssignStmt, handlerInfo *ASTHa
 				handlerInfo.Variables[varName] = varType
 			}
 
-			// Only exact variable name matches
-			if varName == "request" || varName == "req" {
-				if handlerInfo.RequestType == "" {
-					handlerInfo.RequestType = varType
-				}
-			}
-			if varName == "response" || varName == "resp" || varName == "result" {
-				if handlerInfo.ResponseType == "" {
-					handlerInfo.ResponseType = varType
-				}
-			}
+			// Let type detection happen through actual usage patterns
+			// rather than hardcoded variable names
 		}
 	}
 }
@@ -517,12 +508,8 @@ func (p *ASTParser) processVarDeclaration(decl *ast.GenDecl, handlerInfo *ASTHan
 					// Track the variable in our map
 					handlerInfo.Variables[varName] = typeName
 
-					// Check if this looks like a request variable
-					if varName == "req" || varName == "request" {
-						if handlerInfo.RequestType == "" {
-							handlerInfo.RequestType = typeName
-						}
-					}
+					// Let type detection happen through actual usage patterns
+					// rather than hardcoded variable names
 				}
 			}
 		}
@@ -532,7 +519,12 @@ func (p *ASTParser) processVarDeclaration(decl *ast.GenDecl, handlerInfo *ASTHan
 // isJSONDecodeCall checks if a call expression is a JSON decode operation
 func (p *ASTParser) isJSONDecodeCall(call *ast.CallExpr) bool {
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		return sel.Sel.Name == "Decode" || sel.Sel.Name == "Unmarshal"
+		methodName := strings.ToLower(sel.Sel.Name)
+		// More flexible pattern matching for JSON decode operations
+		return strings.Contains(methodName, "decode") ||
+			strings.Contains(methodName, "unmarshal") ||
+			strings.Contains(methodName, "parse") ||
+			(strings.Contains(methodName, "json") && (strings.Contains(methodName, "read") || strings.Contains(methodName, "load")))
 	}
 	return false
 }
@@ -540,7 +532,13 @@ func (p *ASTParser) isJSONDecodeCall(call *ast.CallExpr) bool {
 // isJSONResponseCall checks if a call expression is a JSON response operation
 func (p *ASTParser) isJSONResponseCall(call *ast.CallExpr) bool {
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		return sel.Sel.Name == "JSON" || sel.Sel.Name == "WriteJSON"
+		methodName := strings.ToLower(sel.Sel.Name)
+		// More flexible pattern matching for JSON response operations
+		return strings.Contains(methodName, "json") ||
+			strings.Contains(methodName, "marshal") ||
+			(strings.Contains(methodName, "write") && len(call.Args) > 0) ||
+			(strings.Contains(methodName, "send") && len(call.Args) > 0) ||
+			(strings.Contains(methodName, "return") && len(call.Args) > 0)
 	}
 	return false
 }
@@ -688,30 +686,8 @@ func (p *ASTParser) analyzeValueForSchemaWithContext(expr ast.Expr, fieldName st
 	case *ast.Ident:
 		// Handle variable references - try to infer from common patterns
 
-		// Common variable patterns
-		if strings.Contains(e.Name, "todos") || strings.Contains(e.Name, "items") || strings.Contains(e.Name, "records") {
-			return map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-				},
-			}
-		}
-
-		// ID patterns
-		if strings.Contains(e.Name, "ID") || strings.Contains(e.Name, "Id") || e.Name == "id" {
-			return map[string]interface{}{
-				"type": "string",
-			}
-		}
-
-		// Updates/data patterns
-		if strings.Contains(e.Name, "updates") || strings.Contains(e.Name, "data") || strings.Contains(e.Name, "changes") {
-			return map[string]interface{}{
-				"type":                 "object",
-				"additionalProperties": true,
-			}
-		}
+		// Without hardcoded patterns, return generic schema for identifiers
+		// Let the actual type analysis happen elsewhere
 
 		return nil
 	case *ast.SelectorExpr:
@@ -719,20 +695,21 @@ func (p *ASTParser) analyzeValueForSchemaWithContext(expr ast.Expr, fieldName st
 
 		// e.Sel is already *ast.Ident, no need to type assert
 		sel := e.Sel
-		// Common field patterns
-		if sel.Name == "Id" || sel.Name == "ID" {
-			return map[string]interface{}{
-				"type": "string",
-			}
-		}
-		if strings.Contains(strings.ToLower(sel.Name), "time") || strings.Contains(strings.ToLower(sel.Name), "date") {
-			return map[string]interface{}{
-				"type":   "string",
-				"format": "date-time",
+		// Try to infer from actual context rather than hardcoded field patterns
+		// Look up in the base expression if possible
+		if baseSchema := p.analyzeValueForSchemaWithContext(e.X, fieldName); baseSchema != nil {
+			if properties, exists := baseSchema["properties"]; exists {
+				if propMap, ok := properties.(map[string]interface{}); ok {
+					if fieldSchema, exists := propMap[sel.Name]; exists {
+						if schemaMap, ok := fieldSchema.(map[string]interface{}); ok {
+							return schemaMap
+						}
+					}
+				}
 			}
 		}
 
-		// Default for selector expressions
+		// Generic fallback - don't assume type based on field name
 		return map[string]interface{}{
 			"type": "string",
 		}
