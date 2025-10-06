@@ -28,20 +28,7 @@
 
             const sections = [];
 
-            // Build path parameters section
-            if (parameterSchema.pathParameters.length > 0) {
-                console.log('[Form Builder Debug] Building path parameters section with:', parameterSchema.pathParameters);
-                sections.push(this.buildParameterSection(
-                    'Path Parameters',
-                    'ri-route-line',
-                    parameterSchema.pathParameters,
-                    'These parameters are part of the URL path and are typically required.'
-                ));
-            } else {
-                console.log('[Form Builder Debug] No path parameters found, length:', parameterSchema.pathParameters.length);
-            }
-
-            // Build query parameters section
+            // Build query parameters section first
             if (parameterSchema.queryParameters.length > 0) {
                 console.log('[Form Builder Debug] Building query parameters section with:', parameterSchema.queryParameters);
                 sections.push(this.buildParameterSection(
@@ -56,6 +43,19 @@
 
             // Build manual query parameter section for all methods
             sections.push(this.buildManualQueryParamSection(endpoint.method));
+
+            // Build path parameters section
+            if (parameterSchema.pathParameters.length > 0) {
+                console.log('[Form Builder Debug] Building path parameters section with:', parameterSchema.pathParameters);
+                sections.push(this.buildParameterSection(
+                    'Path Parameters',
+                    'ri-route-line',
+                    parameterSchema.pathParameters,
+                    'These parameters are part of the URL path and are typically required.'
+                ));
+            } else {
+                console.log('[Form Builder Debug] No path parameters found, length:', parameterSchema.pathParameters.length);
+            }
 
             // Build request body section for POST/PUT/PATCH
             if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
@@ -537,7 +537,7 @@
                             Query Parameters
                         </h6>
                         <p class="section-description">
-                            Add query parameters that will be appended to the URL (e.g., ?name=value&age=25)
+                            Add query parameters that will be appended to the URL
                         </p>
                     </div>
                     <div class="query-param-fields" id="query-param-fields">
