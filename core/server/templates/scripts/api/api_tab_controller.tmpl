@@ -123,8 +123,6 @@
         },
 
         recoverFromTabSwitchError(fallbackButton, fallbackTabName) {
-            console.warn('Recovering from tab switch error');
-
             // Restore previous active button
             document.querySelectorAll('#api-tabs .tab-item').forEach(btn =>
                 btn.classList.remove('active'));

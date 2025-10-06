@@ -170,8 +170,6 @@
         openSidebar(method, path, endpointData) {
             if (typeof APITesterSidebar !== 'undefined') {
                 APITesterSidebar.openSidebar(method, path, endpointData);
-            } else {
-                console.warn('APITesterSidebar not available');
             }
         },
 
@@ -183,7 +181,6 @@
         // Generate example for current endpoint (public API)
         generateExample() {
             if (!this.parameterSchema || !this.currentEndpoint) {
-                console.warn('Cannot generate example: missing schema or endpoint');
                 return null;
             }
 

@@ -219,8 +219,6 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		return
 	}
 
-	log.Printf("Discovered %d template files: %v", len(templateFiles), templateFiles)
-
 	// Parse all discovered templates
 	tmpl, err := template.New("").Funcs(templateFuncs).ParseFS(TemplateFS, templateFiles...)
 	if err != nil {

@@ -8,10 +8,7 @@
 
         // Generate parameter form from schema
         generateParameterForm(container, parameterSchema, endpoint) {
-            console.log('[Form Builder Debug] generateParameterForm called with:', {
-                parameterSchema: parameterSchema,
-                endpoint: endpoint
-            });
+
 
             if (!parameterSchema) {
                 console.error('No parameter schema available');
@@ -19,18 +16,13 @@
                 return;
             }
 
-            console.log('[Form Builder Debug] Parameter schema details:', {
-                pathParameters: parameterSchema.pathParameters,
-                queryParameters: parameterSchema.queryParameters,
-                headerParameters: parameterSchema.headerParameters,
-                requestBody: parameterSchema.requestBody
-            });
+
 
             const sections = [];
 
             // Build query parameters section first
             if (parameterSchema.queryParameters.length > 0) {
-                console.log('[Form Builder Debug] Building query parameters section with:', parameterSchema.queryParameters);
+
                 sections.push(this.buildParameterSection(
                     'Query Parameters',
                     'ri-search-line',
@@ -38,7 +30,7 @@
                     'These parameters are added to the URL as query string.'
                 ));
             } else {
-                console.log('[Form Builder Debug] No query parameters found, length:', parameterSchema.queryParameters.length);
+
             }
 
             // Build manual query parameter section for all methods
@@ -46,7 +38,7 @@
 
             // Build path parameters section
             if (parameterSchema.pathParameters.length > 0) {
-                console.log('[Form Builder Debug] Building path parameters section with:', parameterSchema.pathParameters);
+
                 sections.push(this.buildParameterSection(
                     'Path Parameters',
                     'ri-route-line',
@@ -54,7 +46,7 @@
                     'These parameters are part of the URL path and are typically required.'
                 ));
             } else {
-                console.log('[Form Builder Debug] No path parameters found, length:', parameterSchema.pathParameters.length);
+
             }
 
             // Build request body section for POST/PUT/PATCH
@@ -178,10 +170,10 @@
 
         // Build request body section with form fields
         buildRequestBodySection(schema, method) {
-            console.log('[Form Builder Debug] buildRequestBodySection called with:', { schema, method });
+
 
             if (!schema) {
-                console.log('[Form Builder Debug] No schema provided, using flexible section');
+
                 return this.buildFlexibleRequestSection();
             }
 
@@ -189,7 +181,7 @@
             const isActualRequestSchema = schema.contentType === 'application/json' && schema.required !== undefined;
             const schemaSource = isActualRequestSchema ? 'request schema' : 'response structure';
 
-            console.log('[Form Builder Debug] Schema source:', schemaSource, 'isActual:', isActualRequestSchema);
+
 
             const fields = this.generateFormFieldsFromSchema(schema);
 
@@ -264,16 +256,16 @@
 
         // Generate form fields from schema (from AST request schema or response inference)
         generateFormFieldsFromSchema(schema) {
-            console.log('[Form Builder Debug] generateFormFieldsFromSchema called with schema:', schema);
+
 
             if (!schema || !schema.schema || !schema.schema.properties) {
-                console.log('[Form Builder Debug] No valid schema found, generating raw JSON fallback');
+
                 return this.generateRawJSONFallback();
             }
 
-            console.log('[Form Builder Debug] Schema properties found:', Object.keys(schema.schema.properties));
+
             const isActualRequestSchema = schema.contentType === 'application/json' && schema.required !== undefined;
-            console.log('[Form Builder Debug] Is actual request schema:', isActualRequestSchema);
+
 
             const properties = schema.schema.properties;
             if (Object.keys(properties).length === 0) {
@@ -349,14 +341,13 @@
 
         // Generate fields from properties object (from request schema or response inference)
         generateFieldsFromProperties(properties, requiredFields = []) {
-            console.log('[Form Builder Debug] generateFieldsFromProperties called with properties:', properties);
-            console.log('[Form Builder Debug] Required fields:', requiredFields);
+
 
             let html = '';
             let fieldCount = 0;
 
             Object.entries(properties).forEach(([propName, propSchema]) => {
-                console.log(`[Form Builder Debug] Processing property: ${propName}, schema:`, propSchema);
+
                 const isRequired = requiredFields && requiredFields.includes(propName);
                 html += this.generateFormField(propName, propSchema, isRequired);
                 fieldCount++;
@@ -403,11 +394,11 @@
             );
 
             if (suggestsArray && type === 'string') {
-                console.log(`[Form Builder Debug] Field '${name}' suggests array type, overriding schema type '${type}' to 'array'`);
+
                 type = 'array';
             }
 
-            console.log(`[Form Builder Debug] Generating field: ${name}, schema:`, schema, `final type: ${type}`);
+
 
             let inputHtml = '';
 

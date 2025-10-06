@@ -73,8 +73,6 @@
             // Collect parameter fields
             const paramFields = document.querySelectorAll('.param-field[data-param]');
 
-            console.log('[API Debug] Found param fields:', paramFields.length);
-
             paramFields.forEach(field => {
                 const input = field.querySelector('input, select, textarea');
                 if (input && input.value.trim()) {
@@ -82,11 +80,7 @@
                     const paramType = input.dataset.type;
                     const paramIn = field.dataset.in; // Get from parent field div
 
-                    console.log(`[API Debug] Processing param: ${paramName}, type: ${paramType}, in: ${paramIn}, raw value: "${input.value.trim()}"`);
-
                     const value = this.convertValue(input.value.trim(), paramType);
-
-                    console.log(`[API Debug] Converted value for ${paramName}:`, value, typeof value);
 
 
 
@@ -106,7 +100,6 @@
 
             // Collect manual query parameters
             const manualQueryEntries = document.querySelectorAll('.query-param-entry');
-            console.log('[API Debug] Found manual query entries:', manualQueryEntries.length);
 
             manualQueryEntries.forEach(entry => {
                 const keyInput = entry.querySelector('.query-param-key');
@@ -116,8 +109,6 @@
                     const paramName = keyInput.value.trim();
                     const paramValue = valueInput.value.trim();
 
-                    console.log(`[API Debug] Processing manual query param: ${paramName} = "${paramValue}"`);
-
                     // Add to query parameters (manual parameters override auto-detected ones)
                     data.queryParams[paramName] = paramValue;
                 }
@@ -125,7 +116,6 @@
 
             // Collect request body from form fields
             const bodyFields = document.querySelectorAll('.body-field[data-body-field]');
-            console.log('[API Debug] Found body fields:', bodyFields.length);
 
             if (bodyFields.length > 0) {
                 const bodyData = {};
@@ -137,24 +127,18 @@
                         const inputType = input.type;
                         const dataType = input.dataset.type; // Get the schema type from data attribute
 
-                        console.log(`[API Debug] Processing body field: ${fieldName}, input type: ${inputType}, data-type: ${dataType}, raw value: "${fieldValue}"`);
-
                         // Try to convert to appropriate type based on data-type attribute
                         if (dataType === 'array') {
-                            console.log(`[API Debug] Processing array field: ${fieldName}`);
                             if (fieldValue.startsWith('[') && fieldValue.endsWith(']')) {
                                 // Try to parse as JSON array
                                 try {
                                     bodyData[fieldName] = JSON.parse(fieldValue);
-                                    console.log(`[API Debug] Parsed JSON array for ${fieldName}:`, bodyData[fieldName]);
                                 } catch (e) {
-                                    console.log(`[API Debug] JSON parse failed for ${fieldName}, treating as comma-separated`);
                                     bodyData[fieldName] = fieldValue.split(',').map(v => v.trim()).filter(v => v);
                                 }
                             } else {
                                 // Treat as comma-separated values
                                 bodyData[fieldName] = fieldValue.split(',').map(v => v.trim()).filter(v => v);
-                                console.log(`[API Debug] Converted comma-separated array for ${fieldName}:`, bodyData[fieldName]);
                             }
                         } else if (input.type === 'number') {
                             bodyData[fieldName] = input.step === '1' ? parseInt(fieldValue, 10) : parseFloat(fieldValue);
@@ -163,14 +147,11 @@
                         } else {
                             bodyData[fieldName] = fieldValue;
                         }
-
-                        console.log(`[API Debug] Final value for ${fieldName}:`, bodyData[fieldName], typeof bodyData[fieldName]);
                     }
                 });
 
                 if (Object.keys(bodyData).length > 0) {
                     data.body = JSON.stringify(bodyData, null, 2);
-                    console.log('[API Debug] Generated body from form fields:', data.body);
                 }
             }
 
@@ -203,76 +184,56 @@
                 }
             }
 
-
-            console.log('[API Debug] Final collected data:', {
-                pathParams: data.pathParams,
-                queryParams: data.queryParams,
-                headerParams: data.headerParams,
-                body: data.body ? JSON.parse(data.body) : null
-            });
-
             return data;
         },
 
         // Convert value based on parameter type
         convertValue(value, type) {
-            console.log(`[API Debug] convertValue called with value: "${value}", type: ${type}`);
-
             try {
                 switch (type) {
                     case 'integer':
                         const intVal = parseInt(value, 10);
                         if (isNaN(intVal)) throw new Error(`Invalid integer: ${value}`);
-                        console.log(`[API Debug] Converted integer: ${intVal}`);
                         return intVal;
 
                     case 'number':
                         const numVal = parseFloat(value);
                         if (isNaN(numVal)) throw new Error(`Invalid number: ${value}`);
-                        console.log(`[API Debug] Converted number: ${numVal}`);
                         return numVal;
 
                     case 'boolean':
                         const boolVal = value === 'true';
-                        console.log(`[API Debug] Converted boolean: ${boolVal}`);
                         return boolVal;
 
                     case 'array':
-                        console.log(`[API Debug] Processing array value: "${value}"`);
                         try {
                             const jsonArray = JSON.parse(value);
-                            console.log(`[API Debug] Successfully parsed as JSON array:`, jsonArray);
                             return jsonArray;
                         } catch (e) {
-                            console.log(`[API Debug] JSON parse failed, treating as comma-separated: ${e.message}`);
                             // If not JSON, treat as comma-separated values
                             const csvArray = value.split(',').map(v => v.trim()).filter(v => v);
-                            console.log(`[API Debug] Converted comma-separated to array:`, csvArray);
                             return csvArray;
                         }
 
                     default:
-                        console.log(`[API Debug] No conversion needed for type: ${type}`);
                         return value;
                 }
             } catch (error) {
-                console.warn(`[API Debug] Value conversion error for type ${type}:`, error);
+                console.warn(`Value conversion error for type ${type}:`, error);
                 return value;
             }
         },
 
         // Make HTTP request
         async makeRequest(endpoint, data) {
+            const startTime = Date.now();
+
             let url = endpoint.path;
             const method = endpoint.method;
 
-
-
             // Replace path parameters (curly brace syntax: {param})
             Object.entries(data.pathParams).forEach(([param, value]) => {
-                const oldUrl = url;
                 url = url.replace(`{${param}}`, encodeURIComponent(value));
-                console.log(`[API Debug] Replaced parameter ${param} with ${value}, URL: ${oldUrl} -> ${url}`);
             });
 
             // Build full URL
@@ -284,7 +245,6 @@
                 const params = new URLSearchParams(data.queryParams);
                 const separator = fullUrl.includes('?') ? '&' : '?';
                 fullUrl += separator + params.toString();
-
             }
 
             // Get authentication token from localStorage
@@ -295,7 +255,6 @@
                     const parsed = JSON.parse(authData);
                     if (parsed.token) {
                         authHeaders['Authorization'] = `Bearer ${parsed.token}`;
-
                     }
                 }
             } catch (error) {
@@ -327,22 +286,12 @@
                         JSON.parse(data.body);
                     }
                     options.body = data.body;
-
                 } catch (e) {
                     throw new Error(`Invalid JSON in request body: ${e.message}`);
                 }
             }
 
-            const startTime = Date.now();
-            console.log('[API Debug] Making request:', {
-                url: fullUrl,
-                method: method,
-                headers: headers,
-                body: options.body
-            });
-
             try {
-
                 const response = await fetch(fullUrl, options);
                 const endTime = Date.now();
 
@@ -367,13 +316,10 @@
                     ok: response.ok
                 };
 
-
-
                 return responseData;
 
             } catch (error) {
                 const endTime = Date.now();
-
 
                 throw {
                     message: `Network error: ${error.message}`,

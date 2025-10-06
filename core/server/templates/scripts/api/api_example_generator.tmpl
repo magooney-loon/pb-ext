@@ -203,8 +203,6 @@
                 const isActualRequestSchema = parameterSchema.requestBody.contentType === 'application/json' &&
                                               parameterSchema.requestBody.required !== undefined;
 
-                console.log('[Example Generator Debug] Generating request body example, isActual:', isActualRequestSchema);
-
                 const rawJsonTextarea = document.getElementById('raw-json-payload');
                 const legacyJsonTextarea = document.getElementById('request-body-json');
 
@@ -212,13 +210,11 @@
                     const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
                     if (example && Object.keys(example).length > 0) {
                         rawJsonTextarea.value = JSON.stringify(example, null, 2);
-                        console.log('[Example Generator Debug] Populated raw JSON textarea with example');
                     }
                 } else if (legacyJsonTextarea && !legacyJsonTextarea.value.trim()) {
                     const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
                     if (example && Object.keys(example).length > 0) {
                         legacyJsonTextarea.value = JSON.stringify(example, null, 2);
-                        console.log('[Example Generator Debug] Populated legacy JSON textarea with example');
                     }
                 }
 
@@ -237,7 +233,6 @@
                     const example = this.generateFieldExample(fieldSchema, fieldName);
                     if (example !== null && example !== undefined) {
                         fieldElement.value = example;
-                        console.log(`[Example Generator Debug] Set field ${fieldName} to:`, example);
                     }
                 }
             });
@@ -403,7 +398,6 @@
             if (schema.requestBody && ['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
                 const isActualRequestSchema = schema.requestBody.contentType === 'application/json' &&
                                               schema.requestBody.required !== undefined;
-                console.log('[Example Generator Debug] Generating request body for example, isActual:', isActualRequestSchema);
                 example.body = this.generateRequestBodyExample(schema.requestBody, endpoint);
             }
 
