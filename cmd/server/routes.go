@@ -1,7 +1,7 @@
 package main
 
 // API_SOURCE
-// Route definitions
+// Route example
 
 import (
 	"github.com/magooney-loon/pb-ext/core/server/api"

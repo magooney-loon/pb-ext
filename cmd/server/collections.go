@@ -1,6 +1,6 @@
 package main
 
-// Collection definitions and database setup for the pb-ext server
+// Collection example
 
 import (
 	"github.com/pocketbase/pocketbase/core"
