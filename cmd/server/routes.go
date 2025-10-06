@@ -11,7 +11,7 @@ import (
 )
 
 func registerRoutes(pbApp core.App) {
-	// Create config for v1 API only
+	// Create config for v1 API
 	v1Config := &api.APIDocsConfig{
 		Title:       "pb-ext demo api",
 		Version:     "1.0.0",
@@ -40,7 +40,7 @@ func registerRoutes(pbApp core.App) {
 		// Version 1 routes
 		v1Router.GET("/api/v1/time", timeHandler)
 
-		// v1 Todo CRUD routes - GET endpoints public, POST/PATCH/DELETE require auth
+		// v1 Example Todo CRUD routes
 		v1Router.GET("/api/v1/todos", getTodosHandler)
 		v1Router.POST("/api/v1/todos", createTodoHandler).Bind(apis.RequireAuth())
 		v1Router.GET("/api/v1/todos/{id}", getTodoHandler)

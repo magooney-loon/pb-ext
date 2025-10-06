@@ -95,9 +95,6 @@
                 // Generate form using APIFormBuilder
                 APIFormBuilder.generateParameterForm(container, this.parameterSchema, this.currentEndpoint);
 
-                // Populate default values using APIExampleGenerator
-                APIExampleGenerator.populateDefaultValues(this.parameterSchema);
-
             } catch (error) {
                 console.error('Schema processing error:', error);
                 this.showError(container, error);
@@ -176,15 +173,6 @@
         // Switch to raw JSON input mode (public API for form builder)
         useRawJSON() {
             APIFormBuilder.switchToRawJSON();
-        },
-
-        // Generate example for current endpoint (public API)
-        generateExample() {
-            if (!this.parameterSchema || !this.currentEndpoint) {
-                return null;
-            }
-
-            return APIExampleGenerator.generateCompleteExample(this.parameterSchema, this.currentEndpoint);
         },
 
         // Get current endpoint info (public API)

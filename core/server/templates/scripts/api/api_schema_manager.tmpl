@@ -13,8 +13,7 @@
                 pathParameters: [],
                 queryParameters: [],
                 headerParameters: [],
-                requestBody: null,
-                examples: {}
+                requestBody: null
             };
 
             // Extract from OpenAPI endpoint data if available
@@ -62,11 +61,7 @@
                     // No fallback - if no request schema, no form fields will be generated
                 }
 
-                // Extract examples
-                if (endpointData.examples) {
-                    schema.examples = endpointData.examples;
 
-                }
             } else {
 
             }
@@ -86,7 +81,6 @@
                     type: 'string',
                     required: true,
                     description: `Path parameter: ${match[1]}`,
-                    example: '',
                     enum: null,
                     format: null,
                     in: 'path'
@@ -105,7 +99,6 @@
                 type: param.schema?.type || param.type || 'string',
                 required: param.required || false,
                 description: param.description || `${param.in} parameter`,
-                example: param.example || param.schema?.example || '',
                 enum: param.schema?.enum || param.enum || null,
                 format: param.schema?.format || param.format || null,
                 in: param.in || 'query'

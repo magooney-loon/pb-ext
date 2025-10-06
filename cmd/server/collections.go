@@ -35,7 +35,7 @@ func todoCollection(app core.App) error {
 		return err
 	}
 
-	// Add optional user relation (for v2 authenticated routes)
+	// Add optional user relation
 	collection.Fields.Add(&core.RelationField{
 		Name:          "user",
 		Required:      false, // Optional - v1 routes won't use this
@@ -80,7 +80,7 @@ func todoCollection(app core.App) error {
 		OnUpdate: true,
 	})
 
-	// Set collection rules - public access for v1, v2 will handle auth at route level
+	// Set collection rules - public access for v1
 	collection.ViewRule = nil   // Public read
 	collection.CreateRule = nil // Public create
 	collection.UpdateRule = nil // Public update

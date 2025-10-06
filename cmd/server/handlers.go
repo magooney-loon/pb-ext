@@ -27,10 +27,6 @@ type TodoPatchRequest struct {
 	Completed   *bool   `json:"completed,omitempty"`
 }
 
-// =============================================================================
-// Public Handlers (No Auth Required)
-// =============================================================================
-
 // API_DESC Get current server time in multiple formats
 // API_TAGS public,utility,time
 func timeHandler(c *core.RequestEvent) error {
@@ -46,10 +42,6 @@ func timeHandler(c *core.RequestEvent) error {
 		"version": "1.0.0",
 	})
 }
-
-// =============================================================================
-// Todo CRUD Handlers (Works for both v1 public and v2 authenticated)
-// =============================================================================
 
 // API_DESC Create a new todo item
 // API_TAGS todos,create
