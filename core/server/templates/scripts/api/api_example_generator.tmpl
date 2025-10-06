@@ -122,14 +122,9 @@
             if (mainDataProp && mainDataProp.properties) {
                 // Fields to exclude from request (usually server-generated)
                 const excludeFields = [
-                    'id', '_id', 'uid', 'uuid',
-                    'created', 'created_at', 'created_by', 'created_date', 'creation_time',
-                    'updated', 'updated_at', 'updated_by', 'updated_date', 'modification_time',
-                    'modified', 'modified_at', 'modified_by', 'last_modified',
-                    'deleted', 'deleted_at', 'deleted_by',
-                    'author', 'author_id', 'user', 'user_id', 'owner', 'owner_id',
-                    'creator', 'creator_id', 'modifier', 'modifier_id',
-                    'version', 'revision', 'etag', 'timestamp'
+                    'id',
+                'created_at',
+                'updated_at',
                 ];
 
                 Object.entries(mainDataProp.properties).forEach(([propName, propSchema]) => {

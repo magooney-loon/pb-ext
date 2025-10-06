@@ -201,10 +201,7 @@ func (r *APIRegistry) enhanceEndpointWithAnalysis(endpoint *APIEndpoint) {
 		if endpoint.Response == nil {
 			if responseSchema, err := r.schemaGenerator.AnalyzeResponseSchema(endpoint); err == nil {
 				endpoint.Response = responseSchema
-				fmt.Printf("  📋 Path schema: %s %s\n", endpoint.Method, endpoint.Path)
 			}
-		} else {
-			fmt.Printf("  📤 AST schema: %s %s (%d props)\n", endpoint.Method, endpoint.Path, len(endpoint.Response))
 		}
 	}
 }

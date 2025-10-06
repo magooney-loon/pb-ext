@@ -1,7 +1,5 @@
 package api
 
-import "fmt"
-
 // PocketBaseFieldTypeMapping contains mappings from PocketBase field types to JSON Schema types
 type PocketBaseFieldTypeMapping struct {
 	// Core field type mappings
@@ -23,11 +21,8 @@ func NewPocketBaseFieldTypeMapping() *PocketBaseFieldTypeMapping {
 func (m *PocketBaseFieldTypeMapping) GetSchemaForField(fieldType string, fieldConfig map[string]interface{}) map[string]interface{} {
 	if mapper, exists := m.fieldTypeMap[fieldType]; exists {
 		schema := mapper(fieldConfig)
-		fmt.Printf("[DEBUG] PocketBase mapping - Found mapping for '%s': %+v\n", fieldType, schema)
 		return schema
 	}
-
-	fmt.Printf("[DEBUG] PocketBase mapping - No mapping found for field type '%s'\n", fieldType)
 	// No fallback - return nil if no explicit mapping found
 	return nil
 }
@@ -327,21 +322,15 @@ func GetRecordGetterMethodMapping() map[string]map[string]interface{} {
 		},
 	}
 
-	fmt.Printf("[DEBUG] Record getter mappings - Available methods: %d\n", len(mapping))
 	return mapping
 }
 
 // IsSystemField checks if a field name represents a system-generated field - exact matches only
 func IsSystemField(fieldName string) bool {
 	systemFields := []string{
-		"id", "_id", "uid", "uuid",
-		"created", "created_at", "created_by", "created_date", "creation_time",
-		"updated", "updated_at", "updated_by", "updated_date", "modification_time",
-		"modified", "modified_at", "modified_by", "last_modified",
-		"deleted", "deleted_at", "deleted_by",
-		"author", "author_id", "user", "user_id", "owner", "owner_id",
-		"creator", "creator_id", "modifier", "modifier_id",
-		"version", "revision", "etag", "timestamp",
+		"id",
+		"created_at",
+		"updated_at",
 	}
 
 	// Only exact matches - no case conversion or pattern matching

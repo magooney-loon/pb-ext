@@ -398,7 +398,7 @@ func InitializeVersionManager(versions map[string]*APIDocsConfig, defaultVersion
 	// Register all versions
 	for version, config := range versions {
 		if err := vm.RegisterVersion(version, config); err != nil {
-			fmt.Printf("Warning: Failed to register version %s: %v\n", version, err)
+			// Skip failed version registration
 			continue
 		}
 	}

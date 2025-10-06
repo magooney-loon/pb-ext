@@ -83,7 +83,6 @@ func (r *AutoAPIRouter) Group(prefix string) *AutoAPIRouter {
 func (r *AutoAPIRouter) registerRoute(method, path string, handler func(*core.RequestEvent) error) *RouteChain {
 	// Register with the underlying router using reflection
 	if err := r.callRouterMethod(method, path, handler); err != nil {
-		fmt.Printf("[ERROR] registerRoute - Failed to register route %s %s: %v\n", method, path, err)
 		// Continue with documentation registration even if router registration fails
 	}
 
@@ -104,24 +103,16 @@ func (r *AutoAPIRouter) registerRoute(method, path string, handler func(*core.Re
 
 // callRouterMethod calls the appropriate method on the underlying router using reflection
 func (r *AutoAPIRouter) callRouterMethod(method, path string, handler func(*core.RequestEvent) error) error {
-	fmt.Printf("[DEBUG] callRouterMethod - Attempting to register: %s %s\n", method, path)
-
 	if r.router == nil {
-		fmt.Printf("[DEBUG] callRouterMethod - Error: router is nil\n")
 		return fmt.Errorf("router is nil")
 	}
 
 	routerValue := reflect.ValueOf(r.router)
-	fmt.Printf("[DEBUG] callRouterMethod - Router type: %v\n", routerValue.Type())
-
 	methodValue := routerValue.MethodByName(strings.ToUpper(method))
 
 	if !methodValue.IsValid() {
-		fmt.Printf("[DEBUG] callRouterMethod - Error: Method %s not found on router type %v\n", strings.ToUpper(method), routerValue.Type())
 		return fmt.Errorf("method %s not found on router", method)
 	}
-
-	fmt.Printf("[DEBUG] callRouterMethod - Found method %s, calling with args: path=%s, handler=%p\n", strings.ToUpper(method), path, handler)
 
 	// Call the method with path and handler
 	args := []reflect.Value{
@@ -143,19 +134,14 @@ func (r *AutoAPIRouter) callRouterMethod(method, path string, handler func(*core
 	}()
 
 	if callErr != nil {
-		fmt.Printf("[DEBUG] callRouterMethod - Error during method call: %v\n", callErr)
 		return callErr
 	}
 
-	fmt.Printf("[DEBUG] callRouterMethod - Method call successful, results count: %d\n", len(results))
-
 	// Store the returned route for middleware binding if available
 	if len(results) > 0 && !results[0].IsNil() {
-		fmt.Printf("[DEBUG] callRouterMethod - Route result received: %v\n", results[0].Type())
 		// The actual route object would be stored here for middleware binding
 	}
 
-	fmt.Printf("[DEBUG] callRouterMethod - Successfully registered: %s %s\n", method, path)
 	return nil
 }
 
