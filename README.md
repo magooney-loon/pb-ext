@@ -1,6 +1,6 @@
 # pb-ext
 
-Enhanced PocketBase server with extensive monitoring & logging.
+Enhanced PocketBase server with monitoring, logging & API docs.
 
 <img width="3840" height="2160" alt="pb-ext" src="https://github.com/user-attachments/assets/fef2f3b3-852c-41d6-b428-cf53bf69dcec" />
 
@@ -8,21 +8,16 @@ Enhanced PocketBase server with extensive monitoring & logging.
 
 ## Core Features
 
-- **API Schema**: Automatic endpoint openapi style docs UI generation
-- **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and runtime stats
-- **Structured Logging**: Comprehensive logging with error tracking and request tracing
-- **Visitor Analytics**: Track and analyze visitor statistics, page views, device types, and browsers
-- **PocketBase Integration**: Seamlessly piggybacks off PocketBase's superuser authentication and CSS
+- **API Schema**: Auto-generates OpenAPI docs UI for your endpoints
+- **System Monitoring**: Real-time CPU, memory, disk, network, and runtime metrics
+- **Structured Logging**: Complete logging with error tracking and request tracing
+- **Visitor Analytics**: Track visitor stats, page views, device types, and browsers
+- **PocketBase Integration**: Uses PocketBase's auth system and styling
 
 ## Access
 
 - Admin panel: `127.0.0.1:8090/_`
-- Server dashboard: `127.0.0.1:8090/_/_`
-
-## Authentication
-
-The dashboard utilizes PocketBase's superuser authentication system, ensuring that only authorized administrators can access the monitoring and analytics features.
-
+- pb-ext dashboard: `127.0.0.1:8090/_/_`
 
 ## Quick Start
 

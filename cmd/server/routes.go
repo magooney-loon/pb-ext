@@ -12,6 +12,17 @@ import (
 
 func registerRoutes(pbApp core.App) {
 	// Create configs for API versions
+	v0Config := &api.APIDocsConfig{
+		Title:       "pb-ext legacy",
+		Version:     "0.0.1",
+		Description: "Hello",
+		Status:      "deprecated",
+		Enabled:     true,
+		AutoDiscovery: &api.AutoDiscoveryConfig{
+			Enabled: true,
+		},
+	}
+
 	v1Config := &api.APIDocsConfig{
 		Title:       "pb-ext demo api",
 		Version:     "1.0.0",
@@ -34,8 +45,9 @@ func registerRoutes(pbApp core.App) {
 		},
 	}
 
-	// Initialize version manager with both versions
+	// Initialize version manager
 	versions := map[string]*api.APIDocsConfig{
+		"v0": v0Config,
 		"v1": v1Config,
 		"v2": v2Config,
 	}
@@ -44,6 +56,11 @@ func registerRoutes(pbApp core.App) {
 
 	pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		// Get version-specific routers
+		v0Router, err := versionManager.GetVersionRouter("v0", e)
+		if err != nil {
+			return err
+		}
+
 		v1Router, err := versionManager.GetVersionRouter("v1", e)
 		if err != nil {
 			return err
@@ -53,6 +70,9 @@ func registerRoutes(pbApp core.App) {
 		if err != nil {
 			return err
 		}
+
+		// Version 0 routes
+		v0Router.GET("/api/v0/time", timeHandler)
 
 		// Version 1 routes
 		v1Router.GET("/api/v1/time", timeHandler)
