@@ -268,17 +268,7 @@ func DescriptionFromHandlerName(handlerName string) string {
 	words[0] = strings.Title(words[0])
 	description := strings.Join(words, " ")
 
-	// Add action context based on common patterns
-	lowerDesc := strings.ToLower(description)
-	if strings.Contains(lowerDesc, "get") || strings.Contains(lowerDesc, "list") || strings.Contains(lowerDesc, "fetch") {
-		return description
-	} else if strings.Contains(lowerDesc, "create") || strings.Contains(lowerDesc, "add") {
-		return description
-	} else if strings.Contains(lowerDesc, "update") || strings.Contains(lowerDesc, "modify") {
-		return description
-	} else if strings.Contains(lowerDesc, "delete") || strings.Contains(lowerDesc, "remove") {
-		return description
-	}
+	// Return description without hardcoded action pattern assumptions
 
 	return description
 }
