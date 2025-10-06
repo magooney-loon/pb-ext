@@ -54,6 +54,11 @@ func timeHandler(c *core.RequestEvent) error {
 // API_DESC Create a new todo item
 // API_TAGS todos,create
 func createTodoHandler(c *core.RequestEvent) error {
+	// Check authentication - required for creation
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
+	}
+
 	var req TodoRequest
 	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid JSON payload"})
@@ -81,10 +86,12 @@ func createTodoHandler(c *core.RequestEvent) error {
 		"completed":   req.Completed,
 	}
 
-	// Add user relation for v2 authenticated routes
-	if c.Auth != nil {
+	// Only set user field if authenticated user is from users collection
+	// Superusers/admins don't have records in users collection
+	if c.Auth.Collection().Name == "users" {
 		todoData["user"] = c.Auth.Id
 	}
+	// If authenticated as superuser, leave user field empty or handle differently
 
 	// Create record in todos collection
 	collection, err := c.App.FindCollectionByNameOrId("todos")
@@ -109,6 +116,7 @@ func createTodoHandler(c *core.RequestEvent) error {
 			"completed":   record.GetBool("completed"),
 			"created_at":  record.GetDateTime("created"),
 			"user_id":     record.GetString("user"),
+			"created_by":  c.Auth.Collection().Name, // Show if created by user or admin
 		},
 	})
 }
@@ -143,8 +151,8 @@ func getTodosHandler(c *core.RequestEvent) error {
 		filterParams["priority"] = priority
 	}
 
-	// For v2 authenticated routes, filter by user
-	if c.Auth != nil {
+	// For authenticated requests, filter by user (only if user is from users collection)
+	if c.Auth != nil && c.Auth.Collection().Name == "users" {
 		if filter != "" {
 			filter += " && "
 		}
@@ -201,8 +209,8 @@ func getTodoHandler(c *core.RequestEvent) error {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "Todo not found"})
 	}
 
-	// For v2 authenticated routes, check ownership
-	if c.Auth != nil {
+	// For authenticated requests, check ownership (only enforce for regular users)
+	if c.Auth != nil && c.Auth.Collection().Name == "users" {
 		if userID := record.GetString("user"); userID != "" && userID != c.Auth.Id {
 			return c.JSON(http.StatusForbidden, map[string]any{"error": "Access denied"})
 		}
@@ -226,6 +234,11 @@ func getTodoHandler(c *core.RequestEvent) error {
 // API_DESC Update a todo item (partial update)
 // API_TAGS todos,update,patch
 func updateTodoHandler(c *core.RequestEvent) error {
+	// Check authentication - required for updates
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
+	}
+
 	todoID := c.Request.PathValue("id")
 
 	collection, err := c.App.FindCollectionByNameOrId("todos")
@@ -238,10 +251,10 @@ func updateTodoHandler(c *core.RequestEvent) error {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "Todo not found"})
 	}
 
-	// For v2 authenticated routes, check ownership
-	if c.Auth != nil {
-		if userID := record.GetString("user"); userID != "" && userID != c.Auth.Id {
-			return c.JSON(http.StatusForbidden, map[string]any{"error": "Access denied"})
+	// Check ownership - regular users can only update their own todos, superusers can update any
+	if c.Auth.Collection().Name == "users" {
+		if userID := record.GetString("user"); userID != c.Auth.Id {
+			return c.JSON(http.StatusForbidden, map[string]any{"error": "Access denied - you can only update your own todos"})
 		}
 	}
 
@@ -296,6 +309,11 @@ func updateTodoHandler(c *core.RequestEvent) error {
 // API_DESC Delete a todo item
 // API_TAGS todos,delete
 func deleteTodoHandler(c *core.RequestEvent) error {
+	// Check authentication - required for deletion
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
+	}
+
 	todoID := c.Request.PathValue("id")
 
 	collection, err := c.App.FindCollectionByNameOrId("todos")
@@ -308,10 +326,10 @@ func deleteTodoHandler(c *core.RequestEvent) error {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "Todo not found"})
 	}
 
-	// For v2 authenticated routes, check ownership
-	if c.Auth != nil {
-		if userID := record.GetString("user"); userID != "" && userID != c.Auth.Id {
-			return c.JSON(http.StatusForbidden, map[string]any{"error": "Access denied"})
+	// Check ownership - regular users can only delete their own todos, superusers can delete any
+	if c.Auth.Collection().Name == "users" {
+		if userID := record.GetString("user"); userID != c.Auth.Id {
+			return c.JSON(http.StatusForbidden, map[string]any{"error": "Access denied - you can only delete your own todos"})
 		}
 	}
 
