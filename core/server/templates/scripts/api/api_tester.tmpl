@@ -1,1193 +1,589 @@
 {{define "api_tester_js"}}
     // =============================================================================
-    // SIMPLIFIED SCHEMA-DRIVEN API TESTER
+    // API TESTER - SCHEMA PROCESSING AND REQUEST HANDLING
     // =============================================================================
 
     const APITester = {
         currentEndpoint: null,
-        sidebarOpen: false,
         schemaFields: {},
-        debug: false, // Set to true for detailed logging
+        debug: false,
 
         // Initialize the API tester
         init() {
             this.log('APITester initializing...');
-
-            // Check for required utilities
-            if (typeof SchemaProcessor === 'undefined') {
-                console.warn('SchemaProcessor not available - some features may be limited');
-            }
-            if (typeof APIState === 'undefined') {
-                console.warn('APIState not available - using fallback validation');
-            }
-
             this.bindEvents();
             this.log('APITester initialized successfully');
         },
 
-        // Debug logging helper
+        // Debug logging
         log(...args) {
             if (this.debug) {
                 console.log('[APITester]', ...args);
             }
         },
 
-        // Utility methods leveraging existing schema processing infrastructure
-        extractSchemaParameters(schema) {
-            if (!schema || !SchemaProcessor) return [];
-
-            const params = [];
-            try {
-                // Use existing validation from APIState
-                if (schema.properties && typeof schema.properties === 'object') {
-                    Object.entries(schema.properties).forEach(([key, prop]) => {
-                        params.push({
-                            name: key,
-                            type: prop.type || 'string',
-                            required: schema.required?.includes(key) || false,
-                            description: prop.description || `Field: ${key}`,
-                            example: prop.example,
-                            enum: prop.enum,
-                            default: prop.default
-                        });
-                    });
-                }
-            } catch (e) {
-                this.log('Schema parameter extraction failed:', e.message);
-            }
-            return params;
-        },
-
-        generateExampleFromSchema(schema) {
-            if (!schema || !SchemaProcessor) return {};
-
-            try {
-                if (schema.properties) {
-                    const example = {};
-                    Object.entries(schema.properties).forEach(([key, prop]) => {
-                        if (prop.example !== undefined) {
-                            example[key] = prop.example;
-                        } else if (prop.default !== undefined) {
-                            example[key] = prop.default;
-                        }
-                    });
-                    return example;
-                }
-            } catch (e) {
-                this.log('Example generation failed:', e.message);
-            }
-            return {};
-        },
-
-        validateRequestData(data, schema) {
-            if (!schema || !SchemaProcessor) return { valid: true };
-
-            try {
-                const errors = [];
-                if (schema.required && Array.isArray(schema.required)) {
-                    schema.required.forEach(field => {
-                        if (!data[field]) {
-                            errors.push(`Required field '${field}' is missing`);
-                        }
-                    });
-                }
-                return { valid: errors.length === 0, errors };
-            } catch (e) {
-                this.log('Validation failed:', e.message);
-                return { valid: true };
-            }
-        },
-
         // Bind event listeners
         bindEvents() {
-            // Sidebar controls
-            document.getElementById('close-tester-btn')?.addEventListener('click', () => this.closeSidebar());
-            document.getElementById('api-sidebar-overlay')?.addEventListener('click', () => this.closeSidebar());
-
-            // Form actions
-            document.getElementById('send-request-btn')?.addEventListener('click', () => this.sendRequest());
-            document.getElementById('reset-form-btn')?.addEventListener('click', () => this.resetForm());
-
-            // Response actions
-            document.getElementById('copy-response-btn')?.addEventListener('click', () => this.copyResponse());
-
-            // Main tester tabs (Parameters/Response)
-            document.addEventListener('click', (e) => {
-                if (e.target.classList.contains('tester-tab')) {
-                    this.switchTesterTab(e.target.dataset.tab);
-                }
+            // Listen for sidebar events
+            document.addEventListener('apiTesterSidebarOpened', (e) => {
+                this.handleSidebarOpened(e.detail);
             });
 
-            // Response tabs
-            document.addEventListener('click', (e) => {
-                if (e.target.classList.contains('response-tab')) {
-                    this.switchResponseTab(e.target.dataset.tab);
-                }
+            document.addEventListener('apiTesterSidebarClosed', () => {
+                this.handleSidebarClosed();
             });
 
-            // Escape key to close sidebar
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && this.sidebarOpen) {
-                    this.closeSidebar();
-                }
-            });
-        },
-
-        // Reset response state to show empty state
-        resetResponseState() {
-            // Show empty state
-            const emptyState = document.getElementById('response-empty-state');
-            if (emptyState) {
-                emptyState.style.display = 'flex';
-            }
-
-            // Hide response content and reset tab states
-            const responseBody = document.getElementById('response-body');
-            const responseHeaders = document.getElementById('response-headers');
-            if (responseBody) {
-                responseBody.style.display = 'none';
-                responseBody.classList.remove('active');
-            }
-            if (responseHeaders) {
-                responseHeaders.style.display = 'none';
-                responseHeaders.classList.remove('active');
-            }
-
-            // Reset response tabs to body as default
-            document.querySelectorAll('.response-tab').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === 'body');
+            document.addEventListener('apiTesterTabChange', (e) => {
+                this.handleTabChange(e.detail);
             });
 
-            // Clear response content
-            const responseBodyCode = document.querySelector('#response-body code');
-            const responseHeadersCode = document.querySelector('#response-headers code');
-            if (responseBodyCode) {
-                responseBodyCode.textContent = '';
-            }
-            if (responseHeadersCode) {
-                responseHeadersCode.textContent = '';
-            }
-            this.debugResponseState('after resetResponseState');
-        },
+            // Form action buttons
+            const sendBtn = document.getElementById('send-request-btn');
+            const resetBtn = document.getElementById('reset-form-btn');
 
-        // Debug function to track response state
-        debugResponseState(context = '') {
-            if (this.debug) {
-                console.log(`[API Tester Debug - ${context}]`, {
-                    hasResponse: this.hasResponse,
-                    emptyStateVisible: document.getElementById('response-empty-state')?.style.display !== 'none',
-                    responseBodyVisible: document.getElementById('response-body')?.style.display !== 'none',
-                    responseHeadersVisible: document.getElementById('response-headers')?.style.display !== 'none',
-                    responseTabsVisible: document.querySelector('.response-tabs')?.style.display !== 'none',
-                    currentTesterTab: document.querySelector('.tester-tab.active')?.dataset.tab,
-                    currentResponseTab: document.querySelector('.response-tab.active')?.dataset.tab
-                });
+            if (sendBtn) {
+                sendBtn.addEventListener('click', () => this.sendRequest());
+            }
+
+            if (resetBtn) {
+                resetBtn.addEventListener('click', () => this.resetForm());
             }
         },
 
-        // Open the sidebar with endpoint details
-        openSidebar(method, path, endpointData) {
-            this.log('Opening sidebar for:', { method, path });
+        // Handle sidebar opened event
+        handleSidebarOpened(detail) {
+            this.log('Sidebar opened with endpoint:', detail);
 
-            // Reset response state for new endpoint
-            this.resetResponseState();
+            this.currentEndpoint = {
+                method: detail.method,
+                path: detail.path,
+                data: detail.data || {}
+            };
 
-            // Ensure Parameters tab is active by default
-            this.switchTesterTab('parameters');
-            this.debugResponseState('after openSidebar');
-
-            try {
-                // Handle both string and object inputs
-                let rawEndpoint;
-                if (typeof endpointData === 'string') {
-                    try {
-                        rawEndpoint = JSON.parse(endpointData);
-                    } catch (parseError) {
-                        this.log('JSON parse error, using fallback:', parseError.message);
-                        throw parseError;
-                    }
-                } else if (typeof endpointData === 'object' && endpointData !== null) {
-                    rawEndpoint = endpointData;
-                } else {
-                    throw new Error('Invalid endpoint data type');
-                }
-
-                // Use APIState validation for consistent endpoint structure
-                this.currentEndpoint = APIState.validateEndpoints([rawEndpoint])[0];
-                this.log('Parsed endpoint data successfully');
-            } catch (e) {
-                console.warn('Failed to parse endpoint data, using fallback:', e);
-                // Use APIState validation for fallback too
-                this.currentEndpoint = APIState.validateEndpoints([{
-                    method: method?.toUpperCase() || 'GET',
-                    path: path || '/api/endpoint',
-                    description: 'Test endpoint',
-                    auth: { required: false, type: 'none' },
-                    request: null,
-                    response: null
+            // Validate endpoint using APIState if available
+            if (typeof APIState !== 'undefined') {
+                const validated = APIState.validateEndpoints([{
+                    method: this.currentEndpoint.method,
+                    path: this.currentEndpoint.path,
+                    ...this.currentEndpoint.data
                 }])[0];
-            }
 
-            this.populateEndpointInfo(method, path);
-            this.showSidebar();
-            this.clearPreviousResponse();
-            this.generateSchemaForm();
-        },
-
-        // Show the sidebar
-        showSidebar() {
-            const sidebar = document.getElementById('api-tester-sidebar');
-            const mainContent = document.querySelector('.api-main-content');
-            const overlay = document.getElementById('api-sidebar-overlay');
-
-            if (sidebar && mainContent) {
-                sidebar.classList.add('open');
-                mainContent.classList.add('with-sidebar');
-                if (overlay) {
-                    overlay.classList.add('active');
-                }
-                this.sidebarOpen = true;
-
-                // Prevent body scroll on mobile
-                if (window.innerWidth <= 1024) {
-                    document.body.style.overflow = 'hidden';
+                if (validated) {
+                    this.currentEndpoint.data = validated;
                 }
             }
+
+            // Generate parameter form
+            this.generateParameterForm();
         },
 
-        // Close the sidebar
-        closeSidebar() {
-            const sidebar = document.getElementById('api-tester-sidebar');
-            const mainContent = document.querySelector('.api-main-content');
-            const overlay = document.getElementById('api-sidebar-overlay');
-
-            if (sidebar && mainContent) {
-                sidebar.classList.remove('open');
-                mainContent.classList.remove('with-sidebar');
-                if (overlay) {
-                    overlay.classList.remove('active');
-                }
-                this.sidebarOpen = false;
-
-                // Restore body scroll
-                document.body.style.overflow = '';
-            }
+        // Handle sidebar closed event
+        handleSidebarClosed() {
+            this.log('Sidebar closed, cleaning up');
+            this.currentEndpoint = null;
+            this.schemaFields = {};
         },
 
-        // Populate endpoint information
-        populateEndpointInfo(method, path) {
-            const methodEl = document.getElementById('tester-method');
-            const pathEl = document.getElementById('tester-path');
-            const descEl = document.getElementById('tester-description');
-            const authEl = document.getElementById('tester-auth-info');
-
-            if (methodEl) {
-                methodEl.textContent = method.toUpperCase();
-                methodEl.className = `http-method ${method.toLowerCase()}`;
-            }
-
-            if (pathEl) {
-                pathEl.textContent = path;
-            }
-
-            if (descEl && this.currentEndpoint) {
-                descEl.textContent = this.currentEndpoint.description || 'Test this API endpoint';
-            }
-
-            if (authEl && this.currentEndpoint?.auth) {
-                const authBadge = authEl.querySelector('.auth-badge');
-                if (authBadge) {
-                    if (this.currentEndpoint.auth.required) {
-                        authBadge.textContent = this.currentEndpoint.auth.description || 'Auth required';
-                        authBadge.classList.add('required');
-                    } else {
-                        authBadge.textContent = 'No auth required';
-                        authBadge.classList.remove('required');
-                    }
-                }
+        // Handle tab change event
+        handleTabChange(detail) {
+            if (detail.tab === 'response') {
+                this.refreshResponseDisplay();
             }
         },
 
-        // Clear previous response when opening new endpoint
-        clearPreviousResponse() {
-            const responseSection = document.getElementById('response-section');
-            if (responseSection) {
-                responseSection.style.display = 'none';
-            }
-        },
-
-        // Generate form based on endpoint schema
-        generateSchemaForm() {
+        // Generate parameter form using SchemaProcessor
+        generateParameterForm() {
             const container = document.getElementById('schema-form-container');
             if (!container) return;
 
-            this.log('Generating schema form for endpoint:', this.currentEndpoint.path);
+            // Show loading state
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-loader-4-line animate-spin"></i>
+                    <p>Processing schema...</p>
+                </div>
+            `;
 
-            this.schemaFields = {};
-            let html = '';
+            // Use SchemaProcessor if available
+            if (typeof SchemaProcessor !== 'undefined' && this.currentEndpoint.data.request) {
+                try {
+                    const schema = this.currentEndpoint.data.request;
+                    this.schemaFields = SchemaProcessor.extractParameters(schema) || [];
 
-            // Parse path parameters
-            const pathParams = this.extractPathParameters();
+                    if (this.schemaFields.length > 0) {
+                        const formHtml = this.buildFormFromSchema(this.schemaFields);
+                        container.innerHTML = formHtml;
+                        return;
+                    }
+                } catch (error) {
+                    this.log('SchemaProcessor error:', error);
+                    // Continue to path parameter extraction
+                }
+            }
+
+            // Extract path parameters as fallback
+            this.extractPathParameters(container);
+        },
+
+        // Extract path parameters from endpoint path
+        extractPathParameters(container) {
+            const pathParams = [];
+            const pathMatches = this.currentEndpoint.path.match(/{([^}]+)}/g);
+
+            if (pathMatches) {
+                pathMatches.forEach(match => {
+                    const paramName = match.replace(/[{}]/g, '');
+                    pathParams.push({
+                        name: paramName,
+                        type: 'string',
+                        required: true,
+                        description: `Path parameter: ${paramName}`
+                    });
+                });
+            }
+
+            // Add query parameters for GET requests
+            if (this.currentEndpoint.method === 'GET') {
+                pathParams.push({
+                    name: 'limit',
+                    type: 'integer',
+                    required: false,
+                    description: 'Number of records to return'
+                }, {
+                    name: 'offset',
+                    type: 'integer',
+                    required: false,
+                    description: 'Number of records to skip'
+                });
+            }
+
             if (pathParams.length > 0) {
-                html += this.renderParameterGroup('Path Parameters', 'ri-route-line', pathParams);
+                this.schemaFields = pathParams;
+                container.innerHTML = this.buildFormFromSchema(this.schemaFields);
+            } else {
+                this.generateFallbackForm(container);
             }
+        },
 
-            // Parse query parameters
-            const queryParams = this.extractQueryParameters();
-            if (queryParams.length > 0) {
-                html += this.renderParameterGroup('Query Parameters', 'ri-search-line', queryParams);
-            }
-
-            // Parse request body
-            const bodyFields = this.extractBodyParameters();
-            if (bodyFields.length > 0) {
-                html += this.renderParameterGroup('Request Body', 'ri-file-text-line', bodyFields);
-            }
-
-            this.log('Form sections generated:', {
-                pathParams: pathParams.length,
-                queryParams: queryParams.length,
-                bodyFields: bodyFields.length
-            });
-
-            if (html === '') {
-                html = `
-                    <div class="txt-center txt-hint p-4">
-                        <i class="ri-information-line ri-xl"></i>
+        // Build form HTML from schema fields
+        buildFormFromSchema(fields) {
+            if (!fields.length) {
+                return `
+                    <div class="txt-center txt-hint p-3">
+                        <i class="ri-info-line"></i>
                         <p>No parameters required for this endpoint</p>
                     </div>
                 `;
             }
 
-            container.innerHTML = html;
-        },
+            const fieldGroups = this.groupFields(fields);
+            let html = '';
 
-        // Extract path parameters from URL
-        extractPathParameters() {
-            const path = this.currentEndpoint.path || '';
-            const params = [];
+            Object.entries(fieldGroups).forEach(([group, groupFields]) => {
+                if (group !== 'default') {
+                    html += `<div class="form-group">
+                        <h6 class="form-group-title">${group}</h6>
+                    `;
+                }
 
-            // Match both {id} and :id style parameters
-            const openApiMatches = path.match(/{([^}]+)}/g) || [];
-            const expressMatches = path.match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g) || [];
-
-            this.log('Extracting path parameters from:', path);
-
-            // Handle OpenAPI style {id} parameters
-            openApiMatches.forEach(match => {
-                const paramName = match.slice(1, -1);
-                const paramInfo = this.getSmartParameterInfo(paramName, path);
-                params.push({
-                    name: paramName,
-                    type: paramInfo.type,
-                    required: true,
-                    description: paramInfo.description,
-                    example: paramInfo.example,
-                    in: 'path'
+                groupFields.forEach(field => {
+                    html += `
+                        <div class="form-field">
+                            <label class="form-label">
+                                ${field.name}
+                                ${field.required ? '<span class="txt-danger">*</span>' : ''}
+                                <span class="txt-hint txt-xs">(${field.type})</span>
+                            </label>
+                            ${this.buildFieldInput(field)}
+                            ${field.description ? `<div class="help-block">${field.description}</div>` : ''}
+                        </div>
+                    `;
                 });
+
+                if (group !== 'default') {
+                    html += '</div>';
+                }
             });
 
-            // Handle Express.js style :id parameters
-            expressMatches.forEach(match => {
-                const paramName = match.slice(1); // Remove the :
-                const paramInfo = this.getSmartParameterInfo(paramName, path);
-                params.push({
-                    name: paramName,
-                    type: paramInfo.type,
-                    required: true,
-                    description: paramInfo.description,
-                    example: paramInfo.example,
-                    in: 'path'
-                });
-            });
-
-            this.log('Path parameters extracted:', params.length, 'parameters');
-            return params;
+            return html;
         },
 
-        // Get smart parameter info based on name and context
-        getSmartParameterInfo(paramName, path) {
-            const lowerParam = paramName.toLowerCase();
+        // Group fields by category
+        groupFields(fields) {
+            const groups = { default: [] };
 
-            // Common ID patterns
-            if (lowerParam === 'id' || lowerParam.endsWith('id')) {
-                if (path.includes('/users') || lowerParam.includes('user')) {
-                    return {
-                        type: 'string',
-                        description: 'User ID',
-                        example: 'user123'
-                    };
-                } else if (path.includes('/posts') || lowerParam.includes('post')) {
-                    return {
-                        type: 'string',
-                        description: 'Post ID',
-                        example: 'post_abc123'
-                    };
-                } else if (path.includes('/collections') || lowerParam.includes('collection')) {
-                    return {
-                        type: 'string',
-                        description: 'Collection name or ID',
-                        example: 'my_collection'
-                    };
+            fields.forEach(field => {
+                if (field.name.includes('_')) {
+                    const prefix = field.name.split('_')[0];
+                    if (!groups[prefix]) groups[prefix] = [];
+                    groups[prefix].push(field);
                 } else {
-                    return {
-                        type: 'string',
-                        description: `Record ID for ${paramName}`,
-                        example: 'rec123abc'
-                    };
-                }
-            }
-
-            // Collection name patterns
-            if (lowerParam === 'collection' || lowerParam === 'table') {
-                return {
-                    type: 'string',
-                    description: 'Collection/table name',
-                    example: 'users'
-                };
-            }
-
-            // Username patterns
-            if (lowerParam.includes('username') || lowerParam.includes('user')) {
-                return {
-                    type: 'string',
-                    description: 'Username',
-                    example: 'johndoe'
-                };
-            }
-
-            // Slug patterns
-            if (lowerParam.includes('slug')) {
-                return {
-                    type: 'string',
-                    description: 'URL slug',
-                    example: 'my-awesome-post'
-                };
-            }
-
-            // Version patterns
-            if (lowerParam.includes('version') || lowerParam === 'v') {
-                return {
-                    type: 'string',
-                    description: 'API version',
-                    example: 'v1'
-                };
-            }
-
-            // Default fallback
-            return {
-                type: 'string',
-                description: `Path parameter: ${paramName}`,
-                example: paramName.toLowerCase() + '123'
-            };
-        },
-
-        // Extract query parameters from schema
-        extractQueryParameters() {
-            const params = [];
-            const path = this.currentEndpoint.path || '';
-            const method = this.currentEndpoint.method?.toUpperCase();
-
-            this.log('Extracting query parameters for method:', method);
-
-            // Add common query parameters based on endpoint patterns
-            if (path.includes('/api/collections/') || path.includes('/records')) {
-                if (method === 'GET') {
-                    params.push({
-                        name: 'page',
-                        type: 'integer',
-                        required: false,
-                        description: 'Page number for pagination',
-                        default: 1,
-                        in: 'query'
-                    });
-                    params.push({
-                        name: 'perPage',
-                        type: 'integer',
-                        required: false,
-                        description: 'Number of records per page',
-                        default: 30,
-                        in: 'query'
-                    });
-                    params.push({
-                        name: 'sort',
-                        type: 'string',
-                        required: false,
-                        description: 'Sort field (prefix with - for DESC)',
-                        in: 'query'
-                    });
-                    params.push({
-                        name: 'filter',
-                        type: 'string',
-                        required: false,
-                        description: 'Filter expression',
-                        in: 'query'
-                    });
-                    params.push({
-                        name: 'expand',
-                        type: 'string',
-                        required: false,
-                        description: 'Relations to expand',
-                        in: 'query'
-                    });
-                }
-            }
-
-            this.log('Query parameters extracted:', params.length, 'parameters');
-            return params;
-        },
-
-        // Extract body parameters from schema
-        extractBodyParameters() {
-            const params = [];
-            const method = this.currentEndpoint?.method?.toUpperCase();
-
-            this.log('Extracting body parameters for method:', method);
-
-            if (!method || !['POST', 'PUT', 'PATCH'].includes(method)) {
-                this.log('Method does not support body, skipping');
-                return params;
-            }
-
-            try {
-                let schema = this.currentEndpoint.request;
-                this.log('Processing request schema...');
-
-                // Use SchemaProcessor for consistent schema handling
-                if (typeof schema === 'string' && schema.trim()) {
-                    try {
-                        schema = JSON.parse(schema);
-                    } catch (jsonError) {
-                        this.log('Invalid JSON in request schema:', jsonError.message);
-                        schema = null;
-                    }
-                } else if (!schema || typeof schema !== 'object') {
-                    schema = null;
-                }
-
-                this.log('Schema processed successfully');
-
-                if (schema && schema.properties && typeof schema.properties === 'object') {
-                    // Use utility method with SchemaProcessor integration
-                    const schemaParams = this.extractSchemaParameters(schema);
-                    schemaParams.forEach(param => {
-                        params.push({ ...param, in: 'body' });
-                    });
-                } else if (schema && schema.type === 'object') {
-                    // Generic object schema - provide common fields based on endpoint
-                    const path = this.currentEndpoint.path || '';
-                    const method = this.currentEndpoint.method?.toUpperCase();
-
-                    // Add common parameters based on endpoint patterns
-                    if (path.includes('/posts') && method === 'POST') {
-                        params.push({
-                            name: 'title',
-                            type: 'string',
-                            required: true,
-                            description: 'Post title',
-                            in: 'body'
-                        });
-                        params.push({
-                            name: 'content',
-                            type: 'string',
-                            required: true,
-                            description: 'Post content',
-                            in: 'body'
-                        });
-                        params.push({
-                            name: 'status',
-                            type: 'string',
-                            required: false,
-                            description: 'Post status',
-                            default: 'draft',
-                            enum: ['draft', 'published'],
-                            in: 'body'
-                        });
-                        params.push({
-                            name: 'tags',
-                            type: 'string',
-                            required: false,
-                            description: 'Comma-separated tags',
-                            in: 'body'
-                        });
-                    } else if (path.includes('/users') && method === 'POST') {
-                        params.push({
-                            name: 'username',
-                            type: 'string',
-                            required: true,
-                            description: 'Username',
-                            in: 'body'
-                        });
-                        params.push({
-                            name: 'email',
-                            type: 'string',
-                            required: true,
-                            description: 'Email address',
-                            in: 'body'
-                        });
-                        params.push({
-                            name: 'password',
-                            type: 'string',
-                            required: true,
-                            description: 'Password',
-                            in: 'body'
-                        });
-                    } else if (path.includes('/collections/') && method === 'POST') {
-                        params.push({
-                            name: 'name',
-                            type: 'string',
-                            required: true,
-                            description: 'Record name',
-                            in: 'body'
-                        });
-                        params.push({
-                            name: 'data',
-                            type: 'string',
-                            required: false,
-                            description: 'JSON data (as string)',
-                            placeholder: '{"key": "value"}',
-                            in: 'body'
-                        });
-                    } else {
-                        // Generic parameters for any object
-                        params.push({
-                            name: 'name',
-                            type: 'string',
-                            required: false,
-                            description: 'Name field',
-                            in: 'body'
-                        });
-                        params.push({
-                            name: 'description',
-                            type: 'string',
-                            required: false,
-                            description: 'Description field',
-                            in: 'body'
-                        });
-                    }
-                }
-            } catch (e) {
-                console.error('Error extracting body parameters:', e);
-                // Add generic fallback parameters on error
-                if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
-                    params.push({
-                        name: 'data',
-                        type: 'string',
-                        required: false,
-                        description: 'Request data (JSON string)',
-                        placeholder: '{"key": "value"}',
-                        in: 'body'
-                    });
-                }
-            }
-
-            this.log('Body parameters extracted:', params.length, 'parameters');
-            return params;
-        },
-
-        // Render a parameter group
-        renderParameterGroup(title, icon, params) {
-            if (params.length === 0) return '';
-
-            const fields = params.map(param => this.renderSchemaField(param)).join('');
-
-            return `
-                <div class="schema-param-group">
-                    <div class="param-group-title">
-                        <i class="${icon}"></i>
-                        ${title}
-                    </div>
-                    ${fields}
-                </div>
-            `;
-        },
-
-        // Render individual schema field
-        renderSchemaField(param) {
-            const fieldId = `param_${param.in}_${param.name}`;
-            this.schemaFields[fieldId] = param;
-
-            const requiredMark = param.required ? '<span class="field-required">*</span>' : '';
-
-            let input = '';
-
-            if (param.type === 'boolean') {
-                input = `
-                    <select class="form-control schema-field-input" id="${fieldId}">
-                        <option value="">-- Select --</option>
-                        <option value="true">true</option>
-                        <option value="false">false</option>
-                    </select>
-                `;
-            } else if (param.enum) {
-                const options = param.enum.map(value =>
-                    `<option value="${value}">${value}</option>`
-                ).join('');
-                input = `
-                    <select class="form-control schema-field-input" id="${fieldId}">
-                        <option value="">-- Select --</option>
-                        ${options}
-                    </select>
-                `;
-            } else if (param.type === 'integer' || param.type === 'number') {
-                input = `
-                    <input type="number"
-                           class="form-control schema-field-input"
-                           id="${fieldId}"
-                           placeholder="${param.description}"
-                           ${param.required ? 'required' : ''}>
-                `;
-            } else {
-                // String or text input
-                const placeholder = param.placeholder || param.description || '';
-                input = `
-                    <input type="text"
-                           class="form-control schema-field-input"
-                           id="${fieldId}"
-                           placeholder="${placeholder}"
-                           ${param.required ? 'required' : ''}>
-                `;
-            }
-
-            return `
-                <div class="schema-field">
-                    <div class="schema-field-label">
-                        <span class="field-name">${param.name}</span>
-                        ${requiredMark}
-                        <span class="field-type">${param.type}</span>
-                    </div>
-                    ${param.description ? `<div class="field-description">${param.description}</div>` : ''}
-                    ${input}
-                </div>
-            `;
-        },
-
-        // Reset form to default values using schema defaults
-        resetForm() {
-            Object.keys(this.schemaFields).forEach(fieldId => {
-                const field = document.getElementById(fieldId);
-                const param = this.schemaFields[fieldId];
-                if (field && param) {
-                    // Use schema default if available, otherwise empty
-                    field.value = param.default || '';
+                    groups.default.push(field);
                 }
             });
 
-            // Reset response state when resetting form
-            this.resetResponseState();
-            this.debugResponseState('after resetForm');
+            return groups;
         },
 
-        // Collect form data
-        collectFormData() {
-            const pathParams = {};
-            const queryParams = {};
-            const bodyData = {};
+        // Build input field based on field type
+        buildFieldInput(field) {
+            const baseAttrs = `name="${field.name}" id="field-${field.name}"`;
+            const requiredAttr = field.required ? 'required' : '';
+            const placeholder = field.example ? `placeholder="${field.example}"` : '';
 
-            Object.entries(this.schemaFields).forEach(([fieldId, param]) => {
-                const field = document.getElementById(fieldId);
-                if (field && field.value.trim()) {
-                    let value = field.value.trim();
+            switch (field.type) {
+                case 'boolean':
+                    return `
+                        <select class="form-control" ${baseAttrs} ${requiredAttr}>
+                            <option value="">Select...</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                        </select>
+                    `;
 
-                    // Convert types
-                    if (param.type === 'integer') {
-                        value = parseInt(value, 10);
-                    } else if (param.type === 'number') {
-                        value = parseFloat(value);
-                    } else if (param.type === 'boolean') {
-                        value = value === 'true';
+                case 'integer':
+                case 'number':
+                    return `
+                        <input type="number" class="form-control" ${baseAttrs} ${requiredAttr} ${placeholder}
+                            ${field.type === 'integer' ? 'step="1"' : 'step="any"'} />
+                    `;
+
+                case 'array':
+                    return `
+                        <textarea class="form-control" ${baseAttrs} ${requiredAttr}
+                            placeholder="Enter JSON array or comma-separated values" rows="3"></textarea>
+                        <small class="form-text">Format: ["item1", "item2"] or item1, item2, item3</small>
+                    `;
+
+                case 'object':
+                    return `
+                        <textarea class="form-control" ${baseAttrs} ${requiredAttr}
+                            placeholder="Enter JSON object" rows="4"></textarea>
+                        <small class="form-text">Format: {"key": "value"}</small>
+                    `;
+
+                case 'string':
+                    if (field.enum && field.enum.length > 0) {
+                        const options = field.enum.map(value =>
+                            `<option value="${value}">${value}</option>`
+                        ).join('');
+                        return `
+                            <select class="form-control" ${baseAttrs} ${requiredAttr}>
+                                <option value="">Select...</option>
+                                ${options}
+                            </select>
+                        `;
                     }
+                    return `<input type="text" class="form-control" ${baseAttrs} ${requiredAttr} ${placeholder} />`;
 
-                    if (param.in === 'path') {
-                        pathParams[param.name] = value;
-                    } else if (param.in === 'query') {
-                        queryParams[param.name] = value;
-                    } else if (param.in === 'body') {
-                        bodyData[param.name] = value;
-                    }
-                }
-            });
-
-            return { pathParams, queryParams, bodyData };
-        },
-
-        // Get authentication token
-        getAuthToken() {
-            let token = null;
-            let authType = 'none';
-
-            try {
-                // Check for superuser auth first
-                const superuserAuth = localStorage.getItem('__pb_superuser_auth__');
-                if (superuserAuth) {
-                    const authData = JSON.parse(superuserAuth);
-                    if (authData && authData.token) {
-                        token = authData.token;
-                        authType = 'superuser';
-                        return { token, authType, email: authData.record?.email };
-                    }
-                }
-
-                // Check for regular user auth
-                const authKeys = Object.keys(localStorage).filter(key => key.startsWith('pb_auth_'));
-                if (authKeys.length > 0) {
-                    const authData = JSON.parse(localStorage.getItem(authKeys[0]));
-                    if (authData && authData.token) {
-                        token = authData.token;
-                        authType = 'user';
-                        return { token, authType, email: authData.record?.email };
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to get auth token:', error);
+                default:
+                    return `<input type="text" class="form-control" ${baseAttrs} ${requiredAttr} ${placeholder} />`;
             }
-
-            return { token: null, authType: 'none', email: null };
         },
 
-        // Send the request
+        // Generate fallback form for manual input
+        generateFallbackForm(container) {
+            const isPostPutPatch = ['POST', 'PUT', 'PATCH'].includes(this.currentEndpoint.method);
+
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-3 mb-3">
+                    <i class="ri-settings-3-line"></i>
+                    <p>No schema available</p>
+                    <p class="txt-xs">Manual parameter entry</p>
+                </div>
+
+                ${isPostPutPatch ? `
+                    <div class="form-field">
+                        <label class="form-label">Request Body (JSON)</label>
+                        <textarea class="form-control" name="request-body"
+                            placeholder="Enter JSON request body" rows="8"></textarea>
+                        <small class="form-text">Enter the complete JSON payload for this ${this.currentEndpoint.method} request</small>
+                    </div>
+                ` : `
+                    <div class="form-field">
+                        <label class="form-label">Query Parameters</label>
+                        <textarea class="form-control" name="query-params"
+                            placeholder="param1=value1&param2=value2" rows="3"></textarea>
+                        <small class="form-text">Enter query parameters in URL format</small>
+                    </div>
+                `}
+            `;
+        },
+
+        // Send HTTP request
         async sendRequest() {
+            if (!this.currentEndpoint) return;
+
+            this.log('Sending request...');
+
             const sendBtn = document.getElementById('send-request-btn');
-            if (!sendBtn) return;
+            const originalText = sendBtn.innerHTML;
 
             try {
-                sendBtn.classList.add('loading');
+                // Update button state
+                sendBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Sending...';
                 sendBtn.disabled = true;
 
-                const formData = this.collectFormData();
-                const auth = this.getAuthToken();
+                // Collect and validate form data
+                const requestData = this.collectFormData();
 
-                // Check auth requirements
-                if (this.currentEndpoint?.auth?.required && !auth.token) {
-                    throw new Error('This endpoint requires authentication. Please log in first.');
+                // Make the HTTP request
+                const response = await this.makeRequest(requestData);
+
+                // Display response
+                this.displayResponse(response);
+
+                // Switch to response tab via sidebar
+                if (typeof APITesterSidebar !== 'undefined') {
+                    APITesterSidebar.switchTesterTab('response');
                 }
-
-                // Build URL with path parameters
-                let url = window.location.origin + this.currentEndpoint.path;
-                Object.entries(formData.pathParams).forEach(([key, value]) => {
-                    // Handle both {id} and :id parameter formats
-                    url = url.replace(`{${key}}`, encodeURIComponent(value));
-                    url = url.replace(`:${key}`, encodeURIComponent(value));
-                });
-
-                // Add query parameters
-                const queryString = new URLSearchParams(formData.queryParams).toString();
-                if (queryString) {
-                    url += '?' + queryString;
-                }
-
-                // Build fetch options
-                const fetchOptions = {
-                    method: this.currentEndpoint.method.toUpperCase(),
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                };
-
-                // Add auth header
-                if (auth.token) {
-                    fetchOptions.headers['Authorization'] = `Bearer ${auth.token}`;
-                }
-
-                // Add body for appropriate methods with validation
-                if (['POST', 'PUT', 'PATCH'].includes(fetchOptions.method) && Object.keys(formData.bodyData).length > 0) {
-                    // Use existing validation if schema is available
-                    if (this.currentEndpoint.request) {
-                        const validation = this.validateRequestData(formData.bodyData, this.currentEndpoint.request);
-                        if (!validation.valid) {
-                            this.log('Request validation warnings:', validation.errors);
-                        }
-                    }
-                    fetchOptions.body = JSON.stringify(formData.bodyData);
-                }
-
-                const startTime = Date.now();
-                const response = await fetch(url, fetchOptions);
-                const endTime = Date.now();
-
-                let responseText = '';
-                let responseData = null;
-
-                try {
-                    responseText = await response.text();
-                } catch (e) {
-                    console.error('Failed to read response text:', e.message);
-                    responseText = 'Error reading response';
-                }
-
-                // Try to parse as JSON, fall back to text
-                try {
-                    if (responseText.trim()) {
-                        responseData = JSON.parse(responseText);
-                    } else {
-                        responseData = { message: 'Empty response' };
-                    }
-                } catch (e) {
-                    this.log('Response is not JSON, treating as text');
-                    responseData = responseText;
-                }
-
-                this.displayResponse(response, responseData, endTime - startTime);
 
             } catch (error) {
-                console.error('Request failed:', error);
-                let errorMessage = 'Request failed';
+                this.log('Request error:', error);
+                this.displayError(error);
 
-                if (error instanceof TypeError && error.message.includes('fetch')) {
-                    errorMessage = 'Network error - check your connection and try again';
-                } else if (error.message) {
-                    errorMessage = error.message;
+                if (typeof APITesterSidebar !== 'undefined') {
+                    APITesterSidebar.switchTesterTab('response');
                 }
-
-                this.displayError(errorMessage);
             } finally {
-                sendBtn.classList.remove('loading');
+                // Restore button state
+                sendBtn.innerHTML = originalText;
                 sendBtn.disabled = false;
             }
         },
 
-        // Display response
-        displayResponse(response, data, responseTime) {
-            const responseSection = document.getElementById('response-section');
-            if (!responseSection) {
-                console.error('Response section not found');
-                return;
-            }
+        // Collect and validate form data
+        collectFormData() {
+            const formData = {};
+            const container = document.getElementById('schema-form-container');
 
-            // Mark that we now have a response
-            this.hasResponse = true;
+            if (!container) return formData;
 
-            // Show response section
-            responseSection.style.display = 'block';
+            const inputs = container.querySelectorAll('input, select, textarea');
 
-            // Hide empty state and show response content
-            const emptyState = document.getElementById('response-empty-state');
-            if (emptyState) {
-                emptyState.style.display = 'none';
-            }
-
-            // Show response tabs
-            const responseTabs = document.querySelector('.response-tabs');
-            if (responseTabs) {
-                responseTabs.style.display = 'flex';
-            }
-
-            // Update status in the new structure
-            const statusBadge = document.querySelector('#response-status-info .status-badge');
-            const timeEl = document.querySelector('#response-status-info .response-time');
-
-            if (statusBadge) {
-                statusBadge.textContent = `${response.status} ${response.statusText}`;
-                statusBadge.className = 'status-badge ' + (response.ok ? 'success' : 'error');
-            }
-
-            if (timeEl) {
-                timeEl.textContent = `${responseTime}ms`;
-            }
-
-            // Show response tab content and set body as active by default
-            const responseBody = document.getElementById('response-body');
-            const responseHeaders = document.getElementById('response-headers');
-
-            // Reset response tabs to body as default
-            document.querySelectorAll('.response-tab').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === 'body');
+            inputs.forEach(input => {
+                const value = input.value.trim();
+                if (value) {
+                    const field = this.schemaFields.find(f => f.name === input.name);
+                    formData[input.name] = this.convertValue(value, field);
+                }
             });
 
-            // Update response body using SchemaProcessor for consistent formatting
-            if (responseBody) {
-                const bodyEl = responseBody.querySelector('code');
-                if (bodyEl) {
-                    try {
-                        // Use SchemaProcessor for syntax highlighting and formatting
-                        bodyEl.innerHTML = SchemaProcessor.syntaxHighlight(data);
-                    } catch (e) {
-                        console.error('Error formatting response body:', e.message);
-                        bodyEl.textContent = String(data || 'Error formatting response');
-                    }
-                }
-                responseBody.classList.add('active');
-                responseBody.style.display = 'block';
-            }
+            // Validate required fields
+            this.validateFormData(formData);
 
-            // Update response headers
-            if (responseHeaders) {
-                const headersEl = responseHeaders.querySelector('code');
-                if (headersEl) {
-                    try {
-                        const headersObj = {};
-                        response.headers.forEach((value, key) => {
-                            headersObj[key] = value;
-                        });
-                        // Use SchemaProcessor for consistent formatting
-                        headersEl.innerHTML = SchemaProcessor.syntaxHighlight(headersObj);
-                    } catch (e) {
-                        console.error('Error formatting response headers:', e.message);
-                        headersEl.textContent = 'Error reading headers';
-                    }
-                }
-                responseHeaders.classList.remove('active');
-                responseHeaders.style.display = 'none';
-            }
+            this.log('Collected form data:', formData);
+            return formData;
+        },
 
-            // Automatically switch to response tab when we get a response
-            this.switchTesterTab('response');
-            this.debugResponseState('after displayResponse');
+        // Convert form value based on field type
+        convertValue(value, field) {
+            if (!field) return value;
 
-            // Scroll the response into view
             try {
-                responseSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            } catch (e) {
-                this.log('Scroll error:', e.message);
-            }
-        },
+                switch (field.type) {
+                    case 'integer':
+                        const intValue = parseInt(value, 10);
+                        if (isNaN(intValue)) throw new Error(`Invalid integer: ${value}`);
+                        return intValue;
 
-        // Display error
-        displayError(message) {
-            const responseSection = document.getElementById('response-section');
-            if (!responseSection) return;
+                    case 'number':
+                        const numValue = parseFloat(value);
+                        if (isNaN(numValue)) throw new Error(`Invalid number: ${value}`);
+                        return numValue;
 
-            // Mark that we now have a response (even if it's an error)
-            this.hasResponse = true;
+                    case 'boolean':
+                        return value === 'true';
 
-            // Show response section
-            responseSection.style.display = 'block';
+                    case 'array':
+                        if (value.startsWith('[')) {
+                            return JSON.parse(value);
+                        }
+                        return value.split(',').map(v => v.trim()).filter(v => v);
 
-            // Hide empty state and show response content
-            const emptyState = document.getElementById('response-empty-state');
-            if (emptyState) {
-                emptyState.style.display = 'none';
-            }
+                    case 'object':
+                        return JSON.parse(value);
 
-            // Show response tabs
-            const responseTabs = document.querySelector('.response-tabs');
-            if (responseTabs) {
-                responseTabs.style.display = 'flex';
-            }
-
-            const statusBadge = document.querySelector('#response-status-info .status-badge');
-            const timeEl = document.querySelector('#response-status-info .response-time');
-
-            if (statusBadge) {
-                statusBadge.textContent = 'Error';
-                statusBadge.className = 'status-badge error';
-            }
-
-            if (timeEl) {
-                timeEl.textContent = '';
-            }
-
-            // Show response tab content and set body as active by default
-            const responseBody = document.getElementById('response-body');
-            const responseHeaders = document.getElementById('response-headers');
-
-            // Reset response tabs to body as default
-            document.querySelectorAll('.response-tab').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === 'body');
-            });
-
-            // Update response body with error message
-            if (responseBody) {
-                const bodyEl = responseBody.querySelector('code');
-                if (bodyEl) {
-                    bodyEl.textContent = message;
+                    default:
+                        return value;
                 }
-                responseBody.classList.add('active');
-                responseBody.style.display = 'block';
+            } catch (error) {
+                this.log(`Type conversion error for ${field.name}:`, error);
+                throw new Error(`Invalid ${field.type} value for ${field.name}: ${error.message}`);
             }
-
-            // Hide headers tab for errors
-            if (responseHeaders) {
-                responseHeaders.classList.remove('active');
-                responseHeaders.style.display = 'none';
-            }
-
-            // Automatically switch to response tab when we get an error
-            this.switchTesterTab('response');
-            this.debugResponseState('after displayError');
         },
 
-        // Switch main tester tab (Parameters/Response)
-        switchTesterTab(tab) {
-            this.debugResponseState('before switchTesterTab to ' + tab);
+        // Validate form data
+        validateFormData(formData) {
+            const missingRequired = this.schemaFields
+                .filter(field => field.required && !(field.name in formData))
+                .map(field => field.name);
 
-            // Update tab buttons
-            document.querySelectorAll('.tester-tab').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === tab);
+            if (missingRequired.length > 0) {
+                throw new Error(`Missing required fields: ${missingRequired.join(', ')}`);
+            }
+        },
+
+        // Make HTTP request
+        async makeRequest(data) {
+            let url = this.currentEndpoint.path;
+            const method = this.currentEndpoint.method;
+            let bodyData = { ...data };
+
+            // Replace path parameters in URL
+            Object.keys(data).forEach(key => {
+                const placeholder = `{${key}}`;
+                if (url.includes(placeholder)) {
+                    url = url.replace(placeholder, encodeURIComponent(data[key]));
+                    delete bodyData[key];
+                }
             });
 
-            // Update tab content
-            document.querySelectorAll('.tester-tab-content').forEach(content => {
-                if (content.id === `${tab}-tab`) {
-                    content.classList.add('active');
-                    content.style.display = 'flex';
+            // Build full URL
+            const baseUrl = window.location.origin;
+            const fullUrl = url.startsWith('http') ? url : baseUrl + url;
+
+            const options = {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json, text/plain, */*'
+                }
+            };
+
+            // Add authentication if required
+            if (this.currentEndpoint.data.auth?.required) {
+                // This could be extended to handle different auth types
+                this.log('Auth required - extend this for your auth mechanism');
+            }
+
+            // Handle request body/query params based on method
+            if (['POST', 'PUT', 'PATCH'].includes(method)) {
+                if (Object.keys(bodyData).length > 0) {
+                    options.body = JSON.stringify(bodyData);
+                }
+            } else if (['GET', 'DELETE'].includes(method)) {
+                if (Object.keys(bodyData).length > 0) {
+                    const params = new URLSearchParams();
+                    Object.entries(bodyData).forEach(([key, value]) => {
+                        if (value !== null && value !== undefined) {
+                            params.append(key, String(value));
+                        }
+                    });
+                    if (params.toString()) {
+                        url += (url.includes('?') ? '&' : '?') + params.toString();
+                    }
+                }
+            }
+
+            const startTime = Date.now();
+
+            try {
+                this.log('Making request to:', url, 'with options:', options);
+
+                const response = await fetch(url, options);
+                const endTime = Date.now();
+
+                const responseData = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: await response.text(),
+                    time: endTime - startTime,
+                    url: url
+                };
+
+                this.log('Request completed:', {
+                    status: response.status,
+                    time: responseData.time
+                });
+
+                return responseData;
+
+            } catch (error) {
+                const endTime = Date.now();
+                this.log('Request failed:', error);
+
+                throw {
+                    message: `Network error: ${error.message}`,
+                    time: endTime - startTime,
+                    url: url
+                };
+            }
+        },
+
+        // Display successful response
+        displayResponse(response) {
+            if (typeof APITesterSidebar !== 'undefined') {
+                APITesterSidebar.updateResponseStatus(response.status, response.statusText, response.time);
+                APITesterSidebar.updateResponseContent(response.body, response.headers);
+                APITesterSidebar.showResponseContent();
+            }
+        },
+
+        // Display error response
+        displayError(error) {
+            const errorResponse = {
+                error: {
+                    message: error.message || 'Unknown error',
+                    type: 'RequestError',
+                    timestamp: new Date().toISOString(),
+                    url: error.url
+                }
+            };
+
+            if (typeof APITesterSidebar !== 'undefined') {
+                APITesterSidebar.updateResponseStatus('Error', error.message || 'Request failed', error.time || 0);
+                APITesterSidebar.updateResponseContent(JSON.stringify(errorResponse, null, 2), {
+                    'content-type': 'application/json',
+                    'x-error': 'true'
+                });
+                APITesterSidebar.showResponseContent();
+            }
+
+            // Use ErrorHandler if available
+            if (typeof ErrorHandler !== 'undefined') {
+                ErrorHandler.logError('API Tester Request Failed', error);
+            }
+        },
+
+        // Reset form to default values
+        resetForm() {
+            const container = document.getElementById('schema-form-container');
+            if (!container) return;
+
+            const inputs = container.querySelectorAll('input, select, textarea');
+            inputs.forEach(input => {
+                if (input.type === 'checkbox' || input.type === 'radio') {
+                    input.checked = false;
                 } else {
-                    content.classList.remove('active');
-                    content.style.display = 'none';
+                    input.value = '';
                 }
             });
+
+            this.log('Form reset');
         },
 
-        // Switch response tab
-        switchResponseTab(tab) {
-            document.querySelectorAll('.response-tab').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === tab);
-            });
+        // Refresh response display when switching to response tab
+        refreshResponseDisplay() {
+            // Check if we have response content to display
+            const emptyState = document.getElementById('response-empty-state');
+            const hasContent = emptyState && emptyState.style.display === 'none';
 
-            document.querySelectorAll('.response-tab-content').forEach(content => {
-                const isActive = content.id === `response-${tab}`;
-                content.classList.toggle('active', isActive);
-                content.style.display = isActive ? 'block' : 'none';
-            });
-            this.debugResponseState('after switchResponseTab to ' + tab);
-        },
-
-        // Copy response
-        copyResponse() {
-            const activeContent = document.querySelector('.response-tab-content.active code');
-            if (!activeContent) return;
-
-            navigator.clipboard.writeText(activeContent.textContent).then(() => {
-                const btn = document.getElementById('copy-response-btn');
-                const originalHtml = btn.innerHTML;
-                btn.innerHTML = '<i class="ri-check-line"></i> Copied!';
-                btn.classList.add('btn-success');
-                btn.classList.remove('btn-secondary');
-
-                setTimeout(() => {
-                    btn.innerHTML = originalHtml;
-                    btn.classList.remove('btn-success');
-                    btn.classList.add('btn-secondary');
-                }, 2000);
-            });
-        },
-
-        // Legacy method for backward compatibility
-        testEndpoint(method, path, authRequired) {
-            // For simple GET requests without auth, just open in new tab
-            if (method.toUpperCase() === 'GET' && !authRequired) {
-                const url = window.location.origin + path;
-                window.open(url, '_blank');
-                return;
+            if (hasContent) {
+                this.log('Response content already displayed');
+            } else {
+                this.log('No response content to display');
             }
+        },
 
-            // Otherwise open in sidebar
-            this.openSidebar(method, path, {
-                method,
-                path,
-                description: 'Test endpoint',
-                auth: { required: authRequired }
-            });
+        // Public API for opening sidebar (for endpoint renderer integration)
+        openSidebar(method, path, endpointData) {
+            if (typeof APITesterSidebar !== 'undefined') {
+                APITesterSidebar.openSidebar(method, path, endpointData);
+            } else {
+                console.warn('APITesterSidebar not available');
+            }
         }
     };
-
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => APITester.init());
-    } else {
-        APITester.init();
-    }
-
-    // Expose APITester globally
-    window.APITester = APITester;
 {{end}}

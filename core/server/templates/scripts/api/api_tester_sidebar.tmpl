@@ -1,0 +1,388 @@
+{{define "api_tester_sidebar_js"}}
+    // =============================================================================
+    // API TESTER SIDEBAR - UI CONTROLLER
+    // =============================================================================
+
+    const APITesterSidebar = {
+        isOpen: false,
+        currentEndpoint: null,
+        debug: false,
+
+        // Initialize the sidebar controller
+        init() {
+            this.log('APITesterSidebar initializing...');
+            this.bindEvents();
+            this.initializeTabs();
+            this.log('APITesterSidebar initialized successfully');
+        },
+
+        // Debug logging
+        log(...args) {
+            if (this.debug) {
+                console.log('[APITesterSidebar]', ...args);
+            }
+        },
+
+        // Initialize tab controllers for sidebar
+        initializeTabs() {
+            // Initialize main tester tabs (parameters/response)
+            this.initializeTesterTabs();
+            // Initialize response sub-tabs (body/headers)
+            this.initializeResponseTabs();
+        },
+
+        // Initialize main tester tabs using TabController pattern
+        initializeTesterTabs() {
+            const tabButtons = document.querySelectorAll('.api-tester-tabs .tester-tab');
+
+            tabButtons.forEach(button => {
+                button.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.switchTesterTab(button.dataset.tab);
+                });
+            });
+
+            // Ensure parameters tab is active by default
+            this.switchTesterTab('parameters');
+        },
+
+        // Initialize response tabs using TabController pattern
+        initializeResponseTabs() {
+            const responseTabButtons = document.querySelectorAll('.response-tabs .response-tab');
+
+            responseTabButtons.forEach(button => {
+                button.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.switchResponseTab(button.dataset.tab);
+                });
+            });
+        },
+
+        // Bind event listeners
+        bindEvents() {
+            // Sidebar controls
+            const closeBtn = document.getElementById('close-tester-btn');
+            const overlay = document.getElementById('api-sidebar-overlay');
+            const copyBtn = document.getElementById('copy-response-btn');
+
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => this.closeSidebar());
+            }
+
+            if (overlay) {
+                overlay.addEventListener('click', () => this.closeSidebar());
+            }
+
+            if (copyBtn) {
+                copyBtn.addEventListener('click', () => this.copyResponse());
+            }
+
+            // Escape key to close sidebar
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && this.isOpen) {
+                    this.closeSidebar();
+                }
+            });
+        },
+
+        // Switch tester tabs (reusing TabController pattern)
+        switchTesterTab(tabName) {
+            this.log('Switching tester tab to:', tabName);
+
+            // Update button states
+            document.querySelectorAll('.tester-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tabName);
+            });
+
+            // Update content visibility
+            document.querySelectorAll('.tester-tab-content').forEach(content => {
+                const isActive = content.id === `${tabName}-tab`;
+                content.classList.toggle('active', isActive);
+                content.style.display = isActive ? 'block' : 'none';
+            });
+
+            // Trigger refresh event for other components
+            this.triggerTabChange(tabName);
+        },
+
+        // Switch response sub-tabs
+        switchResponseTab(tabName) {
+            this.log('Switching response tab to:', tabName);
+
+            // Update button states
+            document.querySelectorAll('.response-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tabName);
+            });
+
+            // Update content visibility
+            document.querySelectorAll('.response-tab-content').forEach(content => {
+                const isActive = content.id === `response-${tabName}`;
+                content.classList.toggle('active', isActive);
+                content.style.display = isActive ? 'block' : 'none';
+            });
+        },
+
+        // Trigger tab change event for other components to listen to
+        triggerTabChange(tabName) {
+            const event = new CustomEvent('apiTesterTabChange', {
+                detail: { tab: tabName, endpoint: this.currentEndpoint }
+            });
+            document.dispatchEvent(event);
+        },
+
+        // Open sidebar with endpoint data
+        openSidebar(method, path, endpointData) {
+            this.log('Opening sidebar for:', { method, path });
+
+            this.currentEndpoint = {
+                method: method.toUpperCase(),
+                path: path,
+                data: endpointData || {}
+            };
+
+            // Update endpoint info display
+            this.updateEndpointInfo();
+
+            // Reset to parameters tab
+            this.switchTesterTab('parameters');
+
+            // Reset response state
+            this.resetResponseState();
+
+            // Show sidebar
+            this.showSidebar();
+
+            // Trigger event for other components (like APITester)
+            const event = new CustomEvent('apiTesterSidebarOpened', {
+                detail: {
+                    method: this.currentEndpoint.method,
+                    path: this.currentEndpoint.path,
+                    data: this.currentEndpoint.data
+                }
+            });
+            document.dispatchEvent(event);
+        },
+
+        // Close sidebar
+        closeSidebar() {
+            this.log('Closing sidebar');
+            this.hideSidebar();
+
+            // Trigger event for cleanup
+            const event = new CustomEvent('apiTesterSidebarClosed');
+            document.dispatchEvent(event);
+
+            this.currentEndpoint = null;
+        },
+
+        // Show sidebar UI
+        showSidebar() {
+            const sidebar = document.getElementById('api-tester-sidebar');
+            const overlay = document.getElementById('api-sidebar-overlay');
+            const mainContent = document.querySelector('.api-main-content');
+
+            if (sidebar) {
+                sidebar.classList.add('open');
+            }
+
+            if (overlay) {
+                overlay.classList.add('active');
+            }
+
+            if (mainContent) {
+                mainContent.classList.add('with-sidebar');
+            }
+
+            this.isOpen = true;
+        },
+
+        // Hide sidebar UI
+        hideSidebar() {
+            const sidebar = document.getElementById('api-tester-sidebar');
+            const overlay = document.getElementById('api-sidebar-overlay');
+            const mainContent = document.querySelector('.api-main-content');
+
+            if (sidebar) {
+                sidebar.classList.remove('open');
+            }
+
+            if (overlay) {
+                overlay.classList.remove('active');
+            }
+
+            if (mainContent) {
+                mainContent.classList.remove('with-sidebar');
+            }
+
+            this.isOpen = false;
+        },
+
+        // Update endpoint info display
+        updateEndpointInfo() {
+            if (!this.currentEndpoint) return;
+
+            const methodEl = document.getElementById('tester-method');
+            const pathEl = document.getElementById('tester-path');
+            const descEl = document.getElementById('tester-description');
+            const authEl = document.getElementById('tester-auth-info');
+
+            if (methodEl) {
+                methodEl.textContent = this.currentEndpoint.method;
+                methodEl.className = `http-method method-${this.currentEndpoint.method.toLowerCase()}`;
+            }
+
+            if (pathEl) {
+                pathEl.textContent = this.currentEndpoint.path;
+            }
+
+            if (descEl) {
+                descEl.textContent = this.currentEndpoint.data.description || 'No description available';
+            }
+
+            if (authEl) {
+                const auth = this.currentEndpoint.data.auth || { required: false };
+                const badge = authEl.querySelector('.auth-badge');
+                if (badge) {
+                    badge.textContent = auth.required ?
+                        `${auth.icon || '🔐'} Auth required (${auth.type || 'unknown'})` :
+                        'No auth required';
+                    badge.className = auth.required ? 'auth-badge auth-required' : 'auth-badge';
+                }
+            }
+        },
+
+        // Reset response state to show empty state
+        resetResponseState() {
+            const emptyState = document.getElementById('response-empty-state');
+            const responseBody = document.getElementById('response-body');
+            const responseHeaders = document.getElementById('response-headers');
+
+            if (emptyState) {
+                emptyState.style.display = 'flex';
+            }
+
+            if (responseBody) {
+                responseBody.style.display = 'none';
+                const code = responseBody.querySelector('code');
+                if (code) code.textContent = '';
+            }
+
+            if (responseHeaders) {
+                responseHeaders.style.display = 'none';
+                const code = responseHeaders.querySelector('code');
+                if (code) code.textContent = '';
+            }
+
+            // Reset status display
+            const statusEl = document.querySelector('#response-status-info .status-badge');
+            const timeEl = document.querySelector('#response-status-info .response-time');
+
+            if (statusEl) {
+                statusEl.textContent = '200 OK';
+                statusEl.className = 'status-badge';
+            }
+
+            if (timeEl) {
+                timeEl.textContent = '145ms';
+            }
+
+            // Reset to body tab
+            this.switchResponseTab('body');
+        },
+
+        // Show response content and hide empty state
+        showResponseContent() {
+            const emptyState = document.getElementById('response-empty-state');
+            const responseBody = document.getElementById('response-body');
+
+            if (emptyState) {
+                emptyState.style.display = 'none';
+            }
+
+            if (responseBody) {
+                responseBody.style.display = 'block';
+            }
+
+            // Auto-switch to response tab
+            this.switchTesterTab('response');
+
+            // Default to body tab
+            this.switchResponseTab('body');
+        },
+
+        // Update response status display
+        updateResponseStatus(status, statusText, time) {
+            const statusEl = document.querySelector('#response-status-info .status-badge');
+            const timeEl = document.querySelector('#response-status-info .response-time');
+
+            if (statusEl) {
+                statusEl.textContent = `${status} ${statusText}`;
+                statusEl.className = `status-badge status-${Math.floor(status / 100)}xx`;
+            }
+
+            if (timeEl) {
+                timeEl.textContent = `${time}ms`;
+            }
+        },
+
+        // Update response content
+        updateResponseContent(body, headers) {
+            const bodyCode = document.querySelector('#response-body code');
+            const headersCode = document.querySelector('#response-headers code');
+
+            if (bodyCode) {
+                // Try to format JSON
+                try {
+                    if (typeof body === 'string' && body.trim()) {
+                        const parsed = JSON.parse(body);
+                        bodyCode.textContent = JSON.stringify(parsed, null, 2);
+                    } else {
+                        bodyCode.textContent = body || 'No response body';
+                    }
+                } catch {
+                    bodyCode.textContent = body || 'No response body';
+                }
+            }
+
+            if (headersCode) {
+                headersCode.textContent = JSON.stringify(headers || {}, null, 2);
+            }
+        },
+
+        // Copy response
+        copyResponse() {
+            const activeContent = document.querySelector('.response-tab-content.active code');
+            if (!activeContent?.textContent) return;
+
+            navigator.clipboard.writeText(activeContent.textContent).then(() => {
+                const btn = document.getElementById('copy-response-btn');
+                const originalHtml = btn.innerHTML;
+
+                btn.innerHTML = '<i class="ri-check-line"></i>';
+                btn.classList.add('btn-success');
+                btn.classList.remove('btn-secondary');
+
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-secondary');
+                }, 2000);
+            }).catch(err => {
+                this.log('Copy failed:', err);
+            });
+        },
+
+        // Get current endpoint data (for other components)
+        getCurrentEndpoint() {
+            return this.currentEndpoint;
+        },
+
+        // Check if sidebar is open (for other components)
+        isSidebarOpen() {
+            return this.isOpen;
+        }
+    };
+
+    // Expose globally for endpoint renderer integration
+    window.APITester = APITesterSidebar;
+{{end}}
