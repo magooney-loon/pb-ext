@@ -104,6 +104,25 @@
                 }
             });
 
+            // Collect manual query parameters
+            const manualQueryEntries = document.querySelectorAll('.query-param-entry');
+            console.log('[API Debug] Found manual query entries:', manualQueryEntries.length);
+
+            manualQueryEntries.forEach(entry => {
+                const keyInput = entry.querySelector('.query-param-key');
+                const valueInput = entry.querySelector('.query-param-value');
+
+                if (keyInput && valueInput && keyInput.value.trim()) {
+                    const paramName = keyInput.value.trim();
+                    const paramValue = valueInput.value.trim();
+
+                    console.log(`[API Debug] Processing manual query param: ${paramName} = "${paramValue}"`);
+
+                    // Add to query parameters (manual parameters override auto-detected ones)
+                    data.queryParams[paramName] = paramValue;
+                }
+            });
+
             // Collect request body from form fields
             const bodyFields = document.querySelectorAll('.body-field[data-body-field]');
             console.log('[API Debug] Found body fields:', bodyFields.length);

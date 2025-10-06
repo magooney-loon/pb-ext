@@ -54,6 +54,9 @@
                 console.log('[Form Builder Debug] No query parameters found, length:', parameterSchema.queryParameters.length);
             }
 
+            // Build manual query parameter section for all methods
+            sections.push(this.buildManualQueryParamSection(endpoint.method));
+
             // Build request body section for POST/PUT/PATCH
             if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
 
@@ -511,6 +514,162 @@
                     </div>
                 `;
             }
+        },
+
+        // Build manual query parameter section
+        buildManualQueryParamSection(method) {
+            return `
+                <div class="form-section manual-query-params">
+                    <div class="section-header">
+                        <h6 class="section-title">
+                            <i class="ri-search-line"></i>
+                            Query Parameters
+                        </h6>
+                        <p class="section-description">
+                            Add query parameters that will be appended to the URL (e.g., ?name=value&age=25)
+                        </p>
+                    </div>
+                    <div class="query-param-fields" id="query-param-fields">
+                        <div class="query-param-entry">
+                            <div class="query-param-pair">
+                                <input type="text"
+                                       class="form-control query-param-key"
+                                       placeholder="Parameter name (e.g., name)"
+                                       data-param-type="key">
+                                <input type="text"
+                                       class="form-control query-param-value"
+                                       placeholder="Parameter value (e.g., john)"
+                                       data-param-type="value">
+                                <button type="button" class="btn btn-sm btn-transparent remove-query-param" title="Remove parameter">
+                                    <i class="ri-close-line"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="query-param-actions">
+                        <button type="button" class="btn btn-sm btn-secondary" id="add-query-param">
+                            <i class="ri-add-line"></i>
+                            Add Parameter
+                        </button>
+                        <button type="button" class="btn btn-sm btn-transparent" id="clear-query-params">
+                            <i class="ri-delete-bin-line"></i>
+                            Clear All
+                        </button>
+                    </div>
+                    <div class="query-param-preview">
+                        <small class="field-help">
+                            <i class="ri-eye-line"></i>
+                            Preview: <code id="query-preview">No parameters</code>
+                        </small>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Initialize manual query parameter handlers
+        initializeQueryParamHandlers() {
+            // Add parameter button
+            document.addEventListener('click', (e) => {
+                if (e.target.closest('#add-query-param')) {
+                    this.addQueryParamField();
+                    this.updateQueryPreview();
+                }
+
+                // Remove parameter button
+                if (e.target.closest('.remove-query-param')) {
+                    const entry = e.target.closest('.query-param-entry');
+                    if (document.querySelectorAll('.query-param-entry').length > 1) {
+                        entry.remove();
+                    } else {
+                        // Clear the last entry instead of removing it
+                        entry.querySelectorAll('input').forEach(input => input.value = '');
+                    }
+                    this.updateQueryPreview();
+                }
+
+                // Clear all parameters
+                if (e.target.closest('#clear-query-params')) {
+                    const container = document.getElementById('query-param-fields');
+                    container.innerHTML = `
+                        <div class="query-param-entry">
+                            <div class="query-param-pair">
+                                <input type="text"
+                                       class="form-control query-param-key"
+                                       placeholder="Parameter name (e.g., name)"
+                                       data-param-type="key">
+                                <input type="text"
+                                       class="form-control query-param-value"
+                                       placeholder="Parameter value (e.g., john)"
+                                       data-param-type="value">
+                                <button type="button" class="btn btn-sm btn-transparent remove-query-param" title="Remove parameter">
+                                    <i class="ri-close-line"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    this.updateQueryPreview();
+                }
+            });
+
+            // Update preview on input
+            document.addEventListener('input', (e) => {
+                if (e.target.matches('.query-param-key, .query-param-value')) {
+                    this.updateQueryPreview();
+                }
+            });
+        },
+
+        // Add new query parameter field
+        addQueryParamField() {
+            const container = document.getElementById('query-param-fields');
+            const newEntry = document.createElement('div');
+            newEntry.className = 'query-param-entry';
+            newEntry.innerHTML = `
+                <div class="query-param-pair">
+                    <input type="text"
+                           class="form-control query-param-key"
+                           placeholder="Parameter name"
+                           data-param-type="key">
+                    <input type="text"
+                           class="form-control query-param-value"
+                           placeholder="Parameter value"
+                           data-param-type="value">
+                    <button type="button" class="btn btn-sm btn-transparent remove-query-param" title="Remove parameter">
+                        <i class="ri-close-line"></i>
+                    </button>
+                </div>
+            `;
+            container.appendChild(newEntry);
+        },
+
+        // Update query parameter preview
+        updateQueryPreview() {
+            const entries = document.querySelectorAll('.query-param-entry');
+            const params = [];
+
+            entries.forEach(entry => {
+                const key = entry.querySelector('.query-param-key').value.trim();
+                const value = entry.querySelector('.query-param-value').value.trim();
+                if (key) {
+                    params.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+                }
+            });
+
+            const preview = document.getElementById('query-preview');
+            if (preview) {
+                if (params.length > 0) {
+                    preview.textContent = `?${params.join('&')}`;
+                } else {
+                    preview.textContent = 'No parameters';
+                }
+            }
         }
     };
+
+    // Initialize query parameter handlers when the form builder is loaded
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof APIFormBuilder !== 'undefined') {
+            APIFormBuilder.initializeQueryParamHandlers();
+        }
+    });
 {{end}}

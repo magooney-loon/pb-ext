@@ -87,6 +87,7 @@ func registerRoutes(pbApp core.App) {
 		v2Router.PATCH("/api/v2/posts/{id}", patchPostHandler).Bind(apis.RequireAuth())
 		v2Router.PUT("/api/v2/posts/{id}", updatePostHandler).Bind(apis.RequireSuperuserOrOwnerAuth("id"))
 		v2Router.DELETE("/api/v2/posts/{id}", deletePostHandler).Bind(apis.RequireSuperuserAuth())
+		v2Router.GET("/api/v2/query-test", testQueryParamsHandler) // Demo query parameter extraction
 		v2Router.GET("/api/v2/admin/stats", adminStatsHandler).Bind(apis.RequireSuperuserAuth())
 
 		return e.Next()

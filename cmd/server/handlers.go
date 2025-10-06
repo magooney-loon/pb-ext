@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -280,6 +281,81 @@ func testPathParamHandler(c *core.RequestEvent) error {
 		"method":       c.Request.Method,
 		"timestamp":    time.Now().Format(time.RFC3339),
 	})
+}
+
+// API_DESC Test URL query parameter extraction (GET /api/v2/query-test?name=john&age=25&active=true&tags=web,api)
+// API_TAGS debug,test,query
+func testQueryParamsHandler(c *core.RequestEvent) error {
+	query := c.Request.URL.Query()
+
+	// Extract different types of query parameters
+	result := map[string]any{
+		"message": "Query parameter extraction test",
+		"url":     c.Request.URL.String(),
+		"method":  c.Request.Method,
+		"extracted_params": map[string]any{
+			// String parameter
+			"name": query.Get("name"), // Gets first value or empty string
+
+			// Integer parameter with default
+			"age": func() int {
+				if ageStr := query.Get("age"); ageStr != "" {
+					if age, err := strconv.Atoi(ageStr); err == nil {
+						return age
+					}
+				}
+				return 0 // default
+			}(),
+
+			// Boolean parameter
+			"active": func() bool {
+				activeStr := query.Get("active")
+				return activeStr == "true" || activeStr == "1"
+			}(),
+
+			// Array parameter (comma-separated or multiple values)
+			"tags": func() []string {
+				// Method 1: Get all values for a key (e.g., ?tags=web&tags=api)
+				if values := query["tags"]; len(values) > 0 {
+					// If multiple values, return them
+					if len(values) > 1 {
+						return values
+					}
+					// If single value, check if comma-separated
+					if strings.Contains(values[0], ",") {
+						return strings.Split(values[0], ",")
+					}
+					return values
+				}
+				return []string{}
+			}(),
+
+			// Optional parameter with default
+			"limit": func() int {
+				if limitStr := query.Get("limit"); limitStr != "" {
+					if limit, err := strconv.Atoi(limitStr); err == nil {
+						return limit
+					}
+				}
+				return 10 // default limit
+			}(),
+
+			// Check if parameter exists
+			"has_filter":   query.Has("filter"),
+			"filter_value": query.Get("filter"),
+		},
+		"all_query_params": map[string][]string(query), // Show all raw query params
+		"examples": []string{
+			"?name=john&age=25&active=true",
+			"?tags=web,api,go",
+			"?tags=web&tags=api&tags=go",
+			"?limit=20&filter=recent",
+			"?active=1&limit=50&name=test user",
+		},
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	return c.JSON(http.StatusOK, result)
 }
 
 // =============================================================================
