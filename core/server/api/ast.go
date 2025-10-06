@@ -595,7 +595,60 @@ func (p *ASTParser) analyzeValueForSchema(expr ast.Expr) map[string]interface{} 
 	case *ast.CallExpr:
 		// Handle function calls like time.Now().Format()
 		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
-			if sel.Sel.Name == "Format" || strings.Contains(sel.Sel.Name, "Time") {
+			methodName := sel.Sel.Name
+
+			// Handle PocketBase record getter methods
+			switch methodName {
+			case "GetBool":
+				return map[string]interface{}{
+					"type": "boolean",
+				}
+			case "GetInt", "GetInt64":
+				return map[string]interface{}{
+					"type": "integer",
+				}
+			case "GetFloat", "GetFloat64":
+				return map[string]interface{}{
+					"type": "number",
+				}
+			case "GetDateTime":
+				return map[string]interface{}{
+					"type":   "string",
+					"format": "date-time",
+				}
+			case "GetString":
+				return map[string]interface{}{
+					"type": "string",
+				}
+			case "GetStringSlice":
+				return map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "string",
+					},
+				}
+			case "GetBytes":
+				return map[string]interface{}{
+					"type":   "string",
+					"format": "byte",
+				}
+			case "GetUint", "GetUint64":
+				return map[string]interface{}{
+					"type": "integer",
+				}
+			case "Get":
+				return map[string]interface{}{
+					"type": "string",
+				}
+			case "Format":
+				return map[string]interface{}{
+					"type":   "string",
+					"format": "date-time",
+				}
+			}
+
+			// Handle time-related functions
+			if strings.Contains(methodName, "Time") {
 				return map[string]interface{}{
 					"type":   "string",
 					"format": "date-time",
