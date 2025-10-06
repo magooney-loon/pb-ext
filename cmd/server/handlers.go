@@ -1,31 +1,30 @@
 package main
 
 // API_SOURCE
-// Shared handlers demonstrating HTTP methods
+// Todo CRUD handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 )
 
 // Request types
-type PostRequest struct {
-	Title   string   `json:"title"`
-	Content string   `json:"content"`
-	Tags    []string `json:"tags,omitempty"`
+type TodoRequest struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Priority    string `json:"priority,omitempty"` // low, medium, high
+	Completed   bool   `json:"completed"`
 }
 
-type PostPatchRequest struct {
-	Title   *string   `json:"title,omitempty"`
-	Content *string   `json:"content,omitempty"`
-	Tags    *[]string `json:"tags,omitempty"`
-	Status  *string   `json:"status,omitempty"`
+type TodoPatchRequest struct {
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Priority    *string `json:"priority,omitempty"`
+	Completed   *bool   `json:"completed,omitempty"`
 }
 
 // =============================================================================
@@ -49,332 +48,283 @@ func timeHandler(c *core.RequestEvent) error {
 }
 
 // =============================================================================
-// Guest-Only Handlers
+// Todo CRUD Handlers (Works for both v1 public and v2 authenticated)
 // =============================================================================
 
-// API_DESC Get onboarding information for guest users
-// API_TAGS guest,onboarding
-func guestInfoHandler(c *core.RequestEvent) error {
-	return c.JSON(http.StatusOK, map[string]any{
-		"message": "Welcome Guest! 👋",
-		"info":    "This endpoint is only accessible to unauthenticated users",
-		"onboarding": map[string]any{
-			"signup_url":   "/signup",
-			"login_url":    "/login",
-			"features":     []string{"Create Posts", "Join Community", "Access Premium Content"},
-			"trial_period": "7 days",
-		},
-		"public_stats": map[string]any{
-			"total_posts":  1250,
-			"active_users": 89,
-			"categories":   15,
-		},
-		"timestamp": time.Now().Format(time.RFC3339),
-	})
-}
-
-// =============================================================================
-// Authenticated User Handlers
-// =============================================================================
-
-// API_DESC Create a new post
-// API_TAGS posts,create,authenticated
-func createPostHandler(c *core.RequestEvent) error {
-	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
-	}
-
-	var req PostRequest
+// API_DESC Create a new todo item
+// API_TAGS todos,create
+func createTodoHandler(c *core.RequestEvent) error {
+	var req TodoRequest
 	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid JSON payload"})
 	}
 
-	if req.Title == "" || req.Content == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Title and content are required"})
+	if req.Title == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Title is required"})
+	}
+
+	// Validate priority if provided
+	if req.Priority != "" && req.Priority != "low" && req.Priority != "medium" && req.Priority != "high" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Priority must be 'low', 'medium', or 'high'"})
+	}
+
+	// Default priority to medium if not provided
+	if req.Priority == "" {
+		req.Priority = "medium"
+	}
+
+	// Create todo record data
+	todoData := map[string]any{
+		"title":       req.Title,
+		"description": req.Description,
+		"priority":    req.Priority,
+		"completed":   req.Completed,
+	}
+
+	// Add user relation for v2 authenticated routes
+	if c.Auth != nil {
+		todoData["user"] = c.Auth.Id
+	}
+
+	// Create record in todos collection
+	collection, err := c.App.FindCollectionByNameOrId("todos")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Collection not found"})
+	}
+
+	record := core.NewRecord(collection)
+	record.Load(todoData)
+
+	if err := c.App.Save(record); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Failed to create todo"})
 	}
 
 	return c.JSON(http.StatusCreated, map[string]any{
-		"message": "Post created successfully! 📝",
-		"post": map[string]any{
-			"id":      generateID(),
-			"title":   req.Title,
-			"content": req.Content,
-			"tags":    req.Tags,
-			"author": map[string]any{
-				"id":       c.Auth.Id,
-				"username": getUserDisplayName(c),
-			},
-			"status":     "draft",
-			"created_at": time.Now().Format(time.RFC3339),
+		"message": "Todo created successfully! ✅",
+		"todo": map[string]any{
+			"id":          record.Id,
+			"title":       record.GetString("title"),
+			"description": record.GetString("description"),
+			"priority":    record.GetString("priority"),
+			"completed":   record.GetBool("completed"),
+			"created_at":  record.GetDateTime("created"),
+			"user_id":     record.GetString("user"),
 		},
 	})
 }
 
-// API_DESC Partially update a post
-// API_TAGS posts,update,patch,authenticated
-func patchPostHandler(c *core.RequestEvent) error {
-	postID := c.Request.PathValue("id")
-	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
+// API_DESC Get all todos with optional filtering
+// API_TAGS todos,list,read
+func getTodosHandler(c *core.RequestEvent) error {
+	collection, err := c.App.FindCollectionByNameOrId("todos")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Collection not found"})
 	}
 
-	var req PostPatchRequest
+	// Build query with optional filters
+	filter := ""
+	filterParams := make(map[string]any)
+
+	// Filter by completion status if provided
+	if completed := c.Request.URL.Query().Get("completed"); completed != "" {
+		if completed == "true" || completed == "1" {
+			filter = "completed = true"
+		} else if completed == "false" || completed == "0" {
+			filter = "completed = false"
+		}
+	}
+
+	// Filter by priority if provided
+	if priority := c.Request.URL.Query().Get("priority"); priority != "" {
+		if filter != "" {
+			filter += " && "
+		}
+		filter += "priority = {:priority}"
+		filterParams["priority"] = priority
+	}
+
+	// For v2 authenticated routes, filter by user
+	if c.Auth != nil {
+		if filter != "" {
+			filter += " && "
+		}
+		filter += "user = {:userId}"
+		filterParams["userId"] = c.Auth.Id
+	}
+
+	records, err := c.App.FindRecordsByFilter(collection, filter, "-created", 100, 0, filterParams)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Failed to fetch todos"})
+	}
+
+	todos := make([]map[string]any, len(records))
+	for i, record := range records {
+		todos[i] = map[string]any{
+			"id":          record.Id,
+			"title":       record.GetString("title"),
+			"description": record.GetString("description"),
+			"priority":    record.GetString("priority"),
+			"completed":   record.GetBool("completed"),
+			"created_at":  record.GetDateTime("created"),
+			"updated_at":  record.GetDateTime("updated"),
+		}
+
+		// Include user info if available
+		if userId := record.GetString("user"); userId != "" {
+			todos[i]["user_id"] = userId
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"message": "Todos retrieved successfully 📋",
+		"todos":   todos,
+		"count":   len(todos),
+		"filters": map[string]any{
+			"completed": c.Request.URL.Query().Get("completed"),
+			"priority":  c.Request.URL.Query().Get("priority"),
+		},
+	})
+}
+
+// API_DESC Get a specific todo by ID
+// API_TAGS todos,read,single
+func getTodoHandler(c *core.RequestEvent) error {
+	todoID := c.Request.PathValue("id")
+
+	collection, err := c.App.FindCollectionByNameOrId("todos")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Collection not found"})
+	}
+
+	record, err := c.App.FindRecordById(collection, todoID)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"error": "Todo not found"})
+	}
+
+	// For v2 authenticated routes, check ownership
+	if c.Auth != nil {
+		if userID := record.GetString("user"); userID != "" && userID != c.Auth.Id {
+			return c.JSON(http.StatusForbidden, map[string]any{"error": "Access denied"})
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"message": "Todo retrieved successfully 📖",
+		"todo": map[string]any{
+			"id":          record.Id,
+			"title":       record.GetString("title"),
+			"description": record.GetString("description"),
+			"priority":    record.GetString("priority"),
+			"completed":   record.GetBool("completed"),
+			"created_at":  record.GetDateTime("created"),
+			"updated_at":  record.GetDateTime("updated"),
+			"user_id":     record.GetString("user"),
+		},
+	})
+}
+
+// API_DESC Update a todo item (partial update)
+// API_TAGS todos,update,patch
+func updateTodoHandler(c *core.RequestEvent) error {
+	todoID := c.Request.PathValue("id")
+
+	collection, err := c.App.FindCollectionByNameOrId("todos")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Collection not found"})
+	}
+
+	record, err := c.App.FindRecordById(collection, todoID)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"error": "Todo not found"})
+	}
+
+	// For v2 authenticated routes, check ownership
+	if c.Auth != nil {
+		if userID := record.GetString("user"); userID != "" && userID != c.Auth.Id {
+			return c.JSON(http.StatusForbidden, map[string]any{"error": "Access denied"})
+		}
+	}
+
+	var req TodoPatchRequest
 	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid JSON payload"})
 	}
 
-	// Simulate ownership check (would query DB in real app)
-	isOwner := true
-	if !isOwner {
-		return c.JSON(http.StatusForbidden, map[string]any{"error": "You can only update your own posts"})
-	}
-
+	// Apply updates
 	updates := make(map[string]any)
 	if req.Title != nil {
+		if *req.Title == "" {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "Title cannot be empty"})
+		}
+		record.Set("title", *req.Title)
 		updates["title"] = *req.Title
 	}
-	if req.Content != nil {
-		updates["content"] = *req.Content
+	if req.Description != nil {
+		record.Set("description", *req.Description)
+		updates["description"] = *req.Description
 	}
-	if req.Tags != nil {
-		updates["tags"] = *req.Tags
+	if req.Priority != nil {
+		if *req.Priority != "low" && *req.Priority != "medium" && *req.Priority != "high" {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "Priority must be 'low', 'medium', or 'high'"})
+		}
+		record.Set("priority", *req.Priority)
+		updates["priority"] = *req.Priority
 	}
-	if req.Status != nil {
-		updates["status"] = *req.Status
+	if req.Completed != nil {
+		record.Set("completed", *req.Completed)
+		updates["completed"] = *req.Completed
+	}
+
+	if err := c.App.Save(record); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Failed to update todo"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"message": "Post updated successfully! ✏️",
-		"post": map[string]any{
-			"id":         postID,
-			"updates":    updates,
-			"updated_at": time.Now().Format(time.RFC3339),
+		"message": "Todo updated successfully! ✏️",
+		"todo": map[string]any{
+			"id":          record.Id,
+			"title":       record.GetString("title"),
+			"description": record.GetString("description"),
+			"priority":    record.GetString("priority"),
+			"completed":   record.GetBool("completed"),
+			"updated_at":  record.GetDateTime("updated"),
 		},
+		"updates": updates,
 	})
 }
 
-// =============================================================================
-// Superuser or Owner Handlers
-// =============================================================================
+// API_DESC Delete a todo item
+// API_TAGS todos,delete
+func deleteTodoHandler(c *core.RequestEvent) error {
+	todoID := c.Request.PathValue("id")
 
-// API_DESC Fully update/replace a post
-// API_TAGS posts,update,put,superuser,owner
-func updatePostHandler(c *core.RequestEvent) error {
-	postID := c.Request.PathValue("id")
-	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
+	collection, err := c.App.FindCollectionByNameOrId("todos")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Collection not found"})
 	}
 
-	isSuperuser := c.Auth.IsSuperuser()
-	isOwner := c.Auth.Id == "example_owner_id" // Simulated ownership check
-
-	var req PostRequest
-	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid JSON payload"})
+	record, err := c.App.FindRecordById(collection, todoID)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"error": "Todo not found"})
 	}
 
-	if req.Title == "" || req.Content == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Title and content are required"})
+	// For v2 authenticated routes, check ownership
+	if c.Auth != nil {
+		if userID := record.GetString("user"); userID != "" && userID != c.Auth.Id {
+			return c.JSON(http.StatusForbidden, map[string]any{"error": "Access denied"})
+		}
 	}
 
-	accessType := "owner"
-	if isSuperuser && !isOwner {
-		accessType = "superuser"
+	if err := c.App.Delete(record); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": "Failed to delete todo"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"message": "Post fully updated! 🔄",
-		"post": map[string]any{
-			"id":         postID,
-			"title":      req.Title,
-			"content":    req.Content,
-			"tags":       req.Tags,
-			"status":     "published",
-			"updated_at": time.Now().Format(time.RFC3339),
-		},
-		"access": map[string]any{
-			"type":         accessType,
-			"is_owner":     isOwner,
-			"is_superuser": isSuperuser,
-		},
-	})
-}
-
-// =============================================================================
-// Superuser Only Handlers
-// =============================================================================
-
-// API_DESC Delete a post
-// API_TAGS posts,delete,superuser
-func deletePostHandler(c *core.RequestEvent) error {
-	postID := c.Request.PathValue("id")
-	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"message": "Post deleted successfully! 🗑️",
-		"deleted_post": map[string]any{
-			"id": postID,
-		},
-		"deleted_by": map[string]any{
-			"id":       c.Auth.Id,
-			"username": getUserDisplayName(c),
-			"role":     "superuser",
+		"message": "Todo deleted successfully! 🗑️",
+		"deleted_todo": map[string]any{
+			"id":    todoID,
+			"title": record.GetString("title"),
 		},
 		"deleted_at": time.Now().Format(time.RFC3339),
 	})
-}
-
-// API_DESC Get admin dashboard statistics
-// API_TAGS admin,stats,superuser
-func adminStatsHandler(c *core.RequestEvent) error {
-	if c.Auth == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "Authentication required"})
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"message": "Admin Dashboard 👑",
-		"stats": map[string]any{
-			"total_posts":     1250,
-			"published_posts": 1100,
-			"draft_posts":     150,
-			"total_users":     2450,
-			"active_users":    1890,
-			"new_users_today": 15,
-			"reports":         3,
-			"storage_used":    "2.3 GB",
-			"bandwidth_month": "45.2 GB",
-		},
-		"recent_activity": []map[string]any{
-			{
-				"action":    "user_registered",
-				"timestamp": time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
-				"details":   "New user: john_doe",
-			},
-			{
-				"action":    "post_published",
-				"timestamp": time.Now().Add(-25 * time.Minute).Format(time.RFC3339),
-				"details":   "Post: 'Getting started with Go'",
-			},
-		},
-		"admin": map[string]any{
-			"id":       c.Auth.Id,
-			"username": getUserDisplayName(c),
-		},
-		"generated_at": time.Now().Format(time.RFC3339),
-	})
-}
-
-// =============================================================================
-// Debug/Test Handlers
-// =============================================================================
-
-// API_DESC Test path parameter extraction (debug endpoint)
-// API_TAGS debug,test
-func testPathParamHandler(c *core.RequestEvent) error {
-	postID := c.Request.PathValue("id")
-	return c.JSON(http.StatusOK, map[string]any{
-		"message":      "Path parameter test",
-		"extracted_id": postID,
-		"url_path":     c.Request.URL.Path,
-		"method":       c.Request.Method,
-		"timestamp":    time.Now().Format(time.RFC3339),
-	})
-}
-
-// API_DESC Test URL query parameter extraction (GET /api/v2/query-test?name=john&age=25&active=true&tags=web,api)
-// API_TAGS debug,test,query
-func testQueryParamsHandler(c *core.RequestEvent) error {
-	query := c.Request.URL.Query()
-
-	// Extract different types of query parameters
-	result := map[string]any{
-		"message": "Query parameter extraction test",
-		"url":     c.Request.URL.String(),
-		"method":  c.Request.Method,
-		"extracted_params": map[string]any{
-			// String parameter
-			"name": query.Get("name"), // Gets first value or empty string
-
-			// Integer parameter with default
-			"age": func() int {
-				if ageStr := query.Get("age"); ageStr != "" {
-					if age, err := strconv.Atoi(ageStr); err == nil {
-						return age
-					}
-				}
-				return 0 // default
-			}(),
-
-			// Boolean parameter
-			"active": func() bool {
-				activeStr := query.Get("active")
-				return activeStr == "true" || activeStr == "1"
-			}(),
-
-			// Array parameter (comma-separated or multiple values)
-			"tags": func() []string {
-				// Method 1: Get all values for a key (e.g., ?tags=web&tags=api)
-				if values := query["tags"]; len(values) > 0 {
-					// If multiple values, return them
-					if len(values) > 1 {
-						return values
-					}
-					// If single value, check if comma-separated
-					if strings.Contains(values[0], ",") {
-						return strings.Split(values[0], ",")
-					}
-					return values
-				}
-				return []string{}
-			}(),
-
-			// Optional parameter with default
-			"limit": func() int {
-				if limitStr := query.Get("limit"); limitStr != "" {
-					if limit, err := strconv.Atoi(limitStr); err == nil {
-						return limit
-					}
-				}
-				return 10 // default limit
-			}(),
-
-			// Check if parameter exists
-			"has_filter":   query.Has("filter"),
-			"filter_value": query.Get("filter"),
-		},
-		"all_query_params": map[string][]string(query), // Show all raw query params
-		"examples": []string{
-			"?name=john&age=25&active=true",
-			"?tags=web,api,go",
-			"?tags=web&tags=api&tags=go",
-			"?limit=20&filter=recent",
-			"?active=1&limit=50&name=test user",
-		},
-		"timestamp": time.Now().Format(time.RFC3339),
-	}
-
-	return c.JSON(http.StatusOK, result)
-}
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-func getUserDisplayName(c *core.RequestEvent) string {
-	if c.Auth == nil {
-		return "Anonymous"
-	}
-	if username := c.Auth.GetString("username"); username != "" {
-		return username
-	}
-	if email := c.Auth.GetString("email"); email != "" {
-		return email
-	}
-	return "User"
-}
-
-func generateID() string {
-	return fmt.Sprintf("post_%d", time.Now().UnixNano())
 }

@@ -74,21 +74,25 @@ func registerRoutes(pbApp core.App) {
 		// Version 0 routes
 		v0Router.GET("/api/v0/time", timeHandler)
 
-		// Version 1 routes
+		// Version 1 routes (Public - no authentication required)
 		v1Router.GET("/api/v1/time", timeHandler)
-		v1Router.GET("/api/v1/guest-info", guestInfoHandler).Bind(apis.RequireGuestOnly())
-		v1Router.GET("/api/v1/admin/stats", adminStatsHandler).Bind(apis.RequireSuperuserAuth())
 
-		// Version 2 routes
+		// v1 Todo CRUD routes (Public)
+		v1Router.GET("/api/v1/todos", getTodosHandler)
+		v1Router.POST("/api/v1/todos", createTodoHandler)
+		v1Router.GET("/api/v1/todos/{id}", getTodoHandler)
+		v1Router.PATCH("/api/v1/todos/{id}", updateTodoHandler)
+		v1Router.DELETE("/api/v1/todos/{id}", deleteTodoHandler)
+
+		// Version 2 routes (Authenticated - requires user login)
 		v2Router.GET("/api/v2/time", timeHandler)
-		v2Router.GET("/api/v2/guest-info", guestInfoHandler).Bind(apis.RequireGuestOnly())
-		v2Router.POST("/api/v2/posts", createPostHandler).Bind(apis.RequireAuth())
 
-		v2Router.PATCH("/api/v2/posts/{id}", patchPostHandler).Bind(apis.RequireAuth())
-		v2Router.PUT("/api/v2/posts/{id}", updatePostHandler).Bind(apis.RequireSuperuserOrOwnerAuth("id"))
-		v2Router.DELETE("/api/v2/posts/{id}", deletePostHandler).Bind(apis.RequireSuperuserAuth())
-		v2Router.GET("/api/v2/query-test", testQueryParamsHandler) // Demo query parameter extraction
-		v2Router.GET("/api/v2/admin/stats", adminStatsHandler).Bind(apis.RequireSuperuserAuth())
+		// v2 Todo CRUD routes (Authenticated)
+		v2Router.GET("/api/v2/todos", getTodosHandler).Bind(apis.RequireAuth())
+		v2Router.POST("/api/v2/todos", createTodoHandler).Bind(apis.RequireAuth())
+		v2Router.GET("/api/v2/todos/{id}", getTodoHandler).Bind(apis.RequireAuth())
+		v2Router.PATCH("/api/v2/todos/{id}", updateTodoHandler).Bind(apis.RequireAuth())
+		v2Router.DELETE("/api/v2/todos/{id}", deleteTodoHandler).Bind(apis.RequireAuth())
 
 		return e.Next()
 	})

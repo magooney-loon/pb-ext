@@ -142,25 +142,58 @@
                 return this.getDefaultRequestBody();
             }
 
-            // Priority order for finding the main data structure in response
-            const dataKeys = ['data', 'post', 'item', 'resource', 'result', 'object', 'entity', 'record'];
+            // Dynamic detection of data structure in response
             let resourceSchema = null;
 
             // First, try to find a nested data object in the response
             if (responseSchema.properties) {
                 console.log('[Schema Debug] Response has properties:', Object.keys(responseSchema.properties));
-                for (const key of dataKeys) {
-                    if (responseSchema.properties[key] && responseSchema.properties[key].properties) {
-                        resourceSchema = responseSchema.properties[key];
-                        console.log('[Schema Debug] Found nested data object under key:', key);
+
+                // Fields to exclude when looking for data objects (these are metadata, not data)
+                const excludeKeys = ['message', 'error', 'errors', 'status', 'code', 'success', 'timestamp', 'meta', 'metadata'];
+
+                // Look for any property that looks like data (purely dynamic detection)
+                for (const [key, value] of Object.entries(responseSchema.properties)) {
+                    // Skip excluded fields
+                    if (excludeKeys.includes(key.toLowerCase())) {
+                        continue;
+                    }
+
+                    // Look for objects with properties (potential data objects)
+                    if (value.type === 'object' && value.properties) {
+                        resourceSchema = value;
+                        console.log('[Schema Debug] Found dynamic data object under key:', key);
                         break;
                     }
                 }
 
-                // If no nested object found but response has properties, use response directly
+                // If no nested object found, be smarter about using response schema
                 if (!resourceSchema && Object.keys(responseSchema.properties).length > 0) {
-                    console.log('[Schema Debug] No nested data object found, using response schema directly');
-                    resourceSchema = responseSchema;
+                    // Check if response only contains metadata fields
+                    const metadataFields = ['message', 'error', 'errors', 'status', 'code', 'success', 'timestamp', 'meta', 'metadata'];
+                    const responseKeys = Object.keys(responseSchema.properties);
+                    const nonMetadataKeys = responseKeys.filter(key => !metadataFields.includes(key.toLowerCase()));
+
+                    if (nonMetadataKeys.length === 0) {
+                        // Only metadata fields, don't use response directly
+                        console.log('[Schema Debug] Response contains only metadata fields, not using for request body');
+                    } else if (nonMetadataKeys.length === 1) {
+                        // Single non-metadata field, use it as the data source
+                        const dataKey = nonMetadataKeys[0];
+                        const dataSchema = responseSchema.properties[dataKey];
+                        if (dataSchema.type === 'object' && dataSchema.properties) {
+                            resourceSchema = dataSchema;
+                            console.log('[Schema Debug] Using single non-metadata field as data source:', dataKey);
+                        } else {
+                            // Single field but not an object, use response directly but clean it
+                            resourceSchema = responseSchema;
+                            console.log('[Schema Debug] Using response schema directly (single non-object field)');
+                        }
+                    } else {
+                        // Multiple non-metadata fields, use response directly but it will be cleaned
+                        resourceSchema = responseSchema;
+                        console.log('[Schema Debug] Using response schema directly (multiple non-metadata fields)');
+                    }
                 }
             }
 

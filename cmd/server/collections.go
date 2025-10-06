@@ -4,57 +4,68 @@ package main
 
 import (
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 // registerCollections sets up all database collections for the application
 func registerCollections(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		if err := exampleCollection(e.App); err != nil {
-			app.Logger().Error("Failed to create example collection", "error", err)
+		if err := todoCollection(e.App); err != nil {
+			app.Logger().Error("Failed to create todo collection", "error", err)
 		}
 
 		return e.Next()
 	})
 }
 
-// exampleCollection creates an example collection with various field types and relationships
-func exampleCollection(app core.App) error {
-	// Example: Create a simple collection
-	existingCollection, _ := app.FindCollectionByNameOrId("example_collection")
+// todoCollection creates a todos collection for CRUD demo
+func todoCollection(app core.App) error {
+	// Check if todos collection already exists
+	existingCollection, _ := app.FindCollectionByNameOrId("todos")
 	if existingCollection != nil {
-		app.Logger().Info("Example collection already exists")
+		app.Logger().Info("Todos collection already exists")
 		return nil
 	}
 
-	// Create new collection
-	collection := core.NewBaseCollection("example_collection")
+	// Create new todos collection
+	collection := core.NewBaseCollection("todos")
 
-	// Find users collection for relation
+	// Find users collection for optional relation (v2 auth)
 	usersCollection, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		return err
 	}
 
-	// Add relation field to user FIRST
+	// Add optional user relation (for v2 authenticated routes)
 	collection.Fields.Add(&core.RelationField{
 		Name:          "user",
-		Required:      true,
+		Required:      false, // Optional - v1 routes won't use this
 		CollectionId:  usersCollection.Id,
 		CascadeDelete: true,
 	})
 
-	// Set collection rules AFTER adding the relation field
-	collection.ViewRule = types.Pointer("@request.auth.id != ''")
-	collection.CreateRule = types.Pointer("@request.auth.id != ''")
-	collection.UpdateRule = types.Pointer("@request.auth.id = user.id")
-	collection.DeleteRule = types.Pointer("@request.auth.id = user.id")
-
-	// Add other fields to collection
+	// Add title field (required)
 	collection.Fields.Add(&core.TextField{
 		Name:     "title",
 		Required: true,
-		Max:      100,
+		Max:      200,
+	})
+
+	// Add description field (optional)
+	collection.Fields.Add(&core.TextField{
+		Name:     "description",
+		Required: false,
+		Max:      1000,
+	})
+
+	// Add completed field (boolean, default false)
+	collection.Fields.Add(&core.BoolField{
+		Name: "completed",
+	})
+
+	// Add priority field (select)
+	collection.Fields.Add(&core.SelectField{
+		Name:   "priority",
+		Values: []string{"low", "medium", "high"},
 	})
 
 	// Add auto-date fields
@@ -69,15 +80,22 @@ func exampleCollection(app core.App) error {
 		OnUpdate: true,
 	})
 
-	// Add index for user relation
-	collection.AddIndex("idx_example_user", true, "user", "")
+	// Set collection rules - public access for v1, v2 will handle auth at route level
+	collection.ViewRule = nil   // Public read
+	collection.CreateRule = nil // Public create
+	collection.UpdateRule = nil // Public update
+	collection.DeleteRule = nil // Public delete
+
+	// Add indexes
+	collection.AddIndex("idx_todos_user", false, "user", "")
+	collection.AddIndex("idx_todos_completed", false, "completed", "")
 
 	// Save the collection
 	if err := app.Save(collection); err != nil {
-		app.Logger().Error("Failed to create example collection", "error", err)
+		app.Logger().Error("Failed to create todos collection", "error", err)
 		return err
 	}
 
-	app.Logger().Info("Created example collection")
+	app.Logger().Info("Created todos collection")
 	return nil
 }
