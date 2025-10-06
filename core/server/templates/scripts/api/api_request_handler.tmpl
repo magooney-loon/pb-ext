@@ -1,0 +1,456 @@
+{{define "api_request_handler_js"}}
+    // =============================================================================
+    // API REQUEST HANDLER - REQUEST EXECUTION AND RESPONSE HANDLING
+    // =============================================================================
+
+    const APIRequestHandler = {
+        debug: true,
+
+        // Debug logging
+        log(...args) {
+            if (this.debug) {
+                console.log('[APIRequestHandler]', ...args);
+            }
+        },
+
+        // Send HTTP request
+        async sendRequest(endpoint) {
+            if (!endpoint) {
+                console.error('No endpoint provided for request');
+                return;
+            }
+
+            this.log('Sending request to:', endpoint.method, endpoint.path);
+
+            const sendBtn = document.getElementById('send-request-btn');
+            const originalText = sendBtn ? sendBtn.innerHTML : '';
+
+            try {
+                // Update button state
+                if (sendBtn) {
+                    sendBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Sending...';
+                    sendBtn.disabled = true;
+                }
+
+                // Collect and validate form data
+                const requestData = this.collectFormData();
+                this.log('Request data collected:', requestData);
+
+                // Make the HTTP request
+                const response = await this.makeRequest(endpoint, requestData);
+
+                // Display response
+                this.displayResponse(response);
+
+                // Switch to response tab
+                if (typeof APITesterSidebar !== 'undefined') {
+                    APITesterSidebar.switchTesterTab('response');
+                }
+
+                return response;
+
+            } catch (error) {
+                this.log('Request error:', error);
+                this.displayError(error);
+
+                if (typeof APITesterSidebar !== 'undefined') {
+                    APITesterSidebar.switchTesterTab('response');
+                }
+
+                throw error;
+            } finally {
+                // Restore button state
+                if (sendBtn) {
+                    sendBtn.innerHTML = originalText;
+                    sendBtn.disabled = false;
+                }
+            }
+        },
+
+        // Collect form data from the UI
+        collectFormData() {
+            const data = {
+                pathParams: {},
+                queryParams: {},
+                headerParams: {},
+                body: null
+            };
+
+            this.log('Collecting form data...');
+
+            // Collect parameter fields
+            const paramFields = document.querySelectorAll('.param-field[data-param]');
+            this.log(`Found ${paramFields.length} parameter fields`);
+
+            paramFields.forEach(field => {
+                const input = field.querySelector('input, select, textarea');
+                if (input && input.value.trim()) {
+                    const paramName = input.name;
+                    const paramType = input.dataset.type;
+                    const paramIn = field.dataset.in; // Get from parent field div
+                    const value = this.convertValue(input.value.trim(), paramType);
+
+                    this.log(`Collecting ${paramIn} param: ${paramName} = ${value} (${paramType})`);
+
+                    switch (paramIn) {
+                        case 'path':
+                            data.pathParams[paramName] = value;
+                            break;
+                        case 'query':
+                            data.queryParams[paramName] = value;
+                            break;
+                        case 'header':
+                            data.headerParams[paramName] = value;
+                            break;
+                    }
+                }
+            });
+
+            // Collect request body from form fields
+            const bodyFields = document.querySelectorAll('.body-field[data-body-field]');
+            if (bodyFields.length > 0) {
+                const bodyData = {};
+                bodyFields.forEach(field => {
+                    const input = field.querySelector('input, select, textarea');
+                    if (input && input.value.trim()) {
+                        const fieldName = field.dataset.bodyField; // Use data attribute
+                        const fieldValue = input.value.trim();
+
+                        // Try to convert to appropriate type
+                        if (input.type === 'number') {
+                            bodyData[fieldName] = input.step === '1' ? parseInt(fieldValue, 10) : parseFloat(fieldValue);
+                        } else if (fieldValue === 'true' || fieldValue === 'false') {
+                            bodyData[fieldName] = fieldValue === 'true';
+                        } else {
+                            bodyData[fieldName] = fieldValue;
+                        }
+                    }
+                });
+
+                if (Object.keys(bodyData).length > 0) {
+                    data.body = JSON.stringify(bodyData, null, 2);
+                    this.log('Collected request body from fields:', data.body);
+                }
+            }
+
+            // Also check for raw JSON input
+            const rawJsonTextarea = document.getElementById('raw-json-payload');
+            if (rawJsonTextarea && rawJsonTextarea.value.trim()) {
+                try {
+                    // Validate JSON
+                    JSON.parse(rawJsonTextarea.value.trim());
+                    data.body = rawJsonTextarea.value.trim();
+                    this.log('Using raw JSON payload:', data.body);
+                } catch (e) {
+                    console.error('Invalid JSON in raw textarea:', e);
+                    throw new Error(`Invalid JSON in request body: ${e.message}`);
+                }
+            }
+
+            // Legacy fallback to old JSON textarea
+            if (!data.body) {
+                const jsonTextarea = document.getElementById('request-body-json');
+                if (jsonTextarea && jsonTextarea.value.trim()) {
+                    try {
+                        JSON.parse(jsonTextarea.value.trim());
+                        data.body = jsonTextarea.value.trim();
+                        this.log('Collected request body from legacy JSON textarea:', data.body);
+                    } catch (e) {
+                        console.error('Invalid JSON in legacy textarea:', e);
+                        throw new Error(`Invalid JSON in request body: ${e.message}`);
+                    }
+                }
+            }
+
+            this.log('Final collected data:', data);
+            return data;
+        },
+
+        // Convert value based on parameter type
+        convertValue(value, type) {
+            try {
+                switch (type) {
+                    case 'integer':
+                        const intVal = parseInt(value, 10);
+                        if (isNaN(intVal)) throw new Error(`Invalid integer: ${value}`);
+                        return intVal;
+
+                    case 'number':
+                        const numVal = parseFloat(value);
+                        if (isNaN(numVal)) throw new Error(`Invalid number: ${value}`);
+                        return numVal;
+
+                    case 'boolean':
+                        return value === 'true';
+
+                    case 'array':
+                        try {
+                            return JSON.parse(value);
+                        } catch (e) {
+                            // If not JSON, treat as comma-separated values
+                            return value.split(',').map(v => v.trim()).filter(v => v);
+                        }
+
+                    default:
+                        return value;
+                }
+            } catch (error) {
+                console.warn(`Value conversion error for type ${type}:`, error);
+                return value;
+            }
+        },
+
+        // Make HTTP request
+        async makeRequest(endpoint, data) {
+            let url = endpoint.path;
+            const method = endpoint.method;
+
+            this.log('Making request with data:', data);
+
+            // Replace path parameters
+            Object.entries(data.pathParams).forEach(([param, value]) => {
+                const oldUrl = url;
+                url = url.replace(`{${param}}`, encodeURIComponent(value));
+                this.log(`Replaced path param ${param}: ${oldUrl} → ${url}`);
+            });
+
+            // Build full URL
+            const baseUrl = window.location.origin;
+            let fullUrl = url.startsWith('http') ? url : baseUrl + url;
+
+            // Add query parameters
+            if (Object.keys(data.queryParams).length > 0) {
+                const params = new URLSearchParams(data.queryParams);
+                const separator = fullUrl.includes('?') ? '&' : '?';
+                fullUrl += separator + params.toString();
+                this.log('Added query params:', fullUrl);
+            }
+
+            // Get authentication token from localStorage
+            let authHeaders = {};
+            try {
+                const authData = localStorage.getItem('__pb_superuser_auth__');
+                if (authData) {
+                    const parsed = JSON.parse(authData);
+                    if (parsed.token) {
+                        authHeaders['Authorization'] = `Bearer ${parsed.token}`;
+                        this.log('Added superuser authentication');
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not parse auth data:', error);
+            }
+
+            // Build request headers
+            const headers = {
+                'Accept': 'application/json, text/plain, */*',
+                ...authHeaders,
+                ...data.headerParams
+            };
+
+            // Add Content-Type for requests with body
+            if (['POST', 'PUT', 'PATCH'].includes(method) && data.body) {
+                headers['Content-Type'] = 'application/json';
+            }
+
+            const options = {
+                method: method,
+                headers: headers
+            };
+
+            // Add request body for appropriate methods
+            if (['POST', 'PUT', 'PATCH'].includes(method) && data.body) {
+                try {
+                    // Validate JSON if it's a string
+                    if (typeof data.body === 'string') {
+                        JSON.parse(data.body);
+                    }
+                    options.body = data.body;
+                    this.log('Added request body:', data.body);
+                } catch (e) {
+                    throw new Error(`Invalid JSON in request body: ${e.message}`);
+                }
+            }
+
+            const startTime = Date.now();
+
+            try {
+                this.log('Fetching:', fullUrl, 'with options:', options);
+
+                const response = await fetch(fullUrl, options);
+                const endTime = Date.now();
+
+                let responseBody = '';
+                const contentType = response.headers.get('content-type') || '';
+
+                try {
+                    responseBody = await response.text();
+                } catch (e) {
+                    console.warn('Failed to read response body:', e);
+                    responseBody = '';
+                }
+
+                const responseData = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: responseBody,
+                    contentType: contentType,
+                    time: endTime - startTime,
+                    url: fullUrl,
+                    ok: response.ok
+                };
+
+                this.log('Request completed:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    time: responseData.time,
+                    ok: response.ok
+                });
+
+                return responseData;
+
+            } catch (error) {
+                const endTime = Date.now();
+                this.log('Request failed:', error);
+
+                throw {
+                    message: `Network error: ${error.message}`,
+                    time: endTime - startTime,
+                    url: fullUrl,
+                    type: 'NetworkError'
+                };
+            }
+        },
+
+        // Display successful response
+        displayResponse(response) {
+            this.log('Displaying response:', {
+                status: response.status,
+                statusText: response.statusText,
+                time: response.time
+            });
+
+            if (typeof APITesterSidebar !== 'undefined') {
+                APITesterSidebar.updateResponseStatus(response.status, response.statusText, response.time);
+                APITesterSidebar.updateResponseContent(response.body, response.headers);
+                APITesterSidebar.showResponseContent();
+            }
+        },
+
+        // Display error response
+        displayError(error) {
+            this.log('Displaying error:', error);
+
+            const errorResponse = {
+                error: {
+                    message: error.message || 'Unknown error',
+                    type: error.type || 'RequestError',
+                    timestamp: new Date().toISOString(),
+                    url: error.url
+                }
+            };
+
+            const status = error.status || 'Error';
+            const statusText = error.message || 'Request failed';
+            const time = error.time || 0;
+
+            if (typeof APITesterSidebar !== 'undefined') {
+                APITesterSidebar.updateResponseStatus(status, statusText, time);
+                APITesterSidebar.updateResponseContent(JSON.stringify(errorResponse, null, 2), {
+                    'content-type': 'application/json',
+                    'x-error': 'true'
+                });
+                APITesterSidebar.showResponseContent();
+            }
+
+            // Use ErrorHandler if available
+            if (typeof ErrorHandler !== 'undefined') {
+                ErrorHandler.logError('API Tester Request Failed', error);
+            }
+        },
+
+        // Reset form to default values
+        resetForm() {
+            this.log('Resetting form to defaults');
+
+            // Clear all parameter fields
+            const paramFields = document.querySelectorAll('.param-field input, .param-field select, .param-field textarea');
+            paramFields.forEach(field => {
+                if (field.type === 'checkbox' || field.type === 'radio') {
+                    field.checked = false;
+                } else {
+                    field.value = '';
+                }
+            });
+
+            // Clear request body fields
+            const bodyFields = document.querySelectorAll('.body-field input, .body-field select, .body-field textarea');
+            bodyFields.forEach(field => {
+                if (field.type === 'checkbox' || field.type === 'radio') {
+                    field.checked = false;
+                } else {
+                    field.value = '';
+                }
+            });
+
+            // Clear raw JSON textarea if exists
+            const rawJsonTextarea = document.getElementById('raw-json-payload');
+            if (rawJsonTextarea) {
+                rawJsonTextarea.value = '{}';
+            }
+
+            // Also clear legacy JSON textarea if exists
+            const jsonTextarea = document.getElementById('request-body-json');
+            if (jsonTextarea) {
+                jsonTextarea.value = '';
+            }
+
+            // Reset response state
+            if (typeof APITesterSidebar !== 'undefined') {
+                APITesterSidebar.resetResponseState();
+            }
+
+            this.log('Form reset completed');
+        },
+
+        // Validate collected form data
+        validateFormData(data, endpoint) {
+            const errors = [];
+
+            // Check required path parameters
+            if (endpoint.data && endpoint.data.parameters) {
+                endpoint.data.parameters
+                    .filter(param => param.in === 'path' && param.required)
+                    .forEach(param => {
+                        if (!data.pathParams[param.name]) {
+                            errors.push(`Path parameter '${param.name}' is required`);
+                        }
+                    });
+
+                // Check required query parameters
+                endpoint.data.parameters
+                    .filter(param => param.in === 'query' && param.required)
+                    .forEach(param => {
+                        if (!data.queryParams[param.name]) {
+                            errors.push(`Query parameter '${param.name}' is required`);
+                        }
+                    });
+            }
+
+            // Check request body for methods that typically require it
+            if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) && !data.body) {
+                const hasRequiredBody = endpoint.data?.requestBody?.required;
+                if (hasRequiredBody) {
+                    errors.push('Request body is required for this endpoint');
+                }
+            }
+
+            if (errors.length > 0) {
+                throw new Error(`Validation failed:\n${errors.join('\n')}`);
+            }
+
+            return true;
+        }
+    };
+{{end}}

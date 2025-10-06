@@ -1,0 +1,338 @@
+{{define "api_example_generator_js"}}
+    // =============================================================================
+    // API EXAMPLE GENERATOR - EXAMPLE GENERATION AND DEFAULT VALUE POPULATION
+    // =============================================================================
+
+    const APIExampleGenerator = {
+        debug: true,
+
+        // Debug logging
+        log(...args) {
+            if (this.debug) {
+                console.log('[APIExampleGenerator]', ...args);
+            }
+        },
+
+        // Generate request body example from schema
+        generateRequestBodyExample(schema, endpoint) {
+            this.log('Generating request body example from:', schema);
+
+            if (!schema || !schema.schema) {
+                return '{\n  "key": "value"\n}';
+            }
+
+            try {
+                if (schema.example) {
+                    return JSON.stringify(schema.example, null, 2);
+                }
+
+                // If schema has no properties but response exists, infer from response
+                if ((!schema.schema.properties || Object.keys(schema.schema.properties).length === 0)
+                    && endpoint.data?.response) {
+                    this.log('No request properties defined, inferring from response schema');
+                    const example = this.generateExampleFromResponse(endpoint.data.response);
+                    if (example && Object.keys(example).length > 0) {
+                        return JSON.stringify(example, null, 2);
+                    }
+                }
+
+                // Generate example from schema properties
+                const example = this.generateExampleFromSchema(schema.schema);
+                return JSON.stringify(example, null, 2);
+
+            } catch (error) {
+                console.error('Error generating request body example:', error);
+                return '{\n  "key": "value"\n}';
+            }
+        },
+
+        // Generate example object from schema
+        generateExampleFromSchema(schema) {
+            this.log('Generating example from schema:', schema);
+
+            if (!schema || typeof schema !== 'object') return {};
+
+            const example = {};
+
+            if (schema.properties) {
+                Object.entries(schema.properties).forEach(([propName, propSchema]) => {
+                    if (propSchema.example !== undefined) {
+                        example[propName] = propSchema.example;
+                    } else {
+                        switch (propSchema.type) {
+                            case 'string':
+                                if (propSchema.enum && propSchema.enum.length > 0) {
+                                    example[propName] = propSchema.enum[0];
+                                } else if (propName.toLowerCase().includes('email')) {
+                                    example[propName] = 'user@example.com';
+                                } else if (propName.toLowerCase().includes('name')) {
+                                    example[propName] = `Example ${propName}`;
+                                } else if (propName.toLowerCase().includes('title')) {
+                                    example[propName] = 'Example Title';
+                                } else if (propName.toLowerCase().includes('content') || propName.toLowerCase().includes('description')) {
+                                    example[propName] = 'Example content or description text...';
+                                } else if (propName.toLowerCase().includes('url') || propName.toLowerCase().includes('link')) {
+                                    example[propName] = 'https://example.com';
+                                } else {
+                                    example[propName] = `example_${propName}`;
+                                }
+                                break;
+                            case 'integer':
+                                example[propName] = propSchema.minimum || 1;
+                                break;
+                            case 'number':
+                                example[propName] = propSchema.minimum || 1.0;
+                                break;
+                            case 'boolean':
+                                example[propName] = propSchema.default !== undefined ? propSchema.default : true;
+                                break;
+                            case 'array':
+                                if (propSchema.items) {
+                                    const itemExample = this.generateExampleFromSchema({ properties: { item: propSchema.items } });
+                                    example[propName] = [itemExample.item];
+                                } else {
+                                    example[propName] = [`example_${propName}_item`];
+                                }
+                                break;
+                            case 'object':
+                                example[propName] = this.generateExampleFromSchema(propSchema);
+                                break;
+                            default:
+                                example[propName] = `example_${propName}`;
+                        }
+                    }
+                });
+            }
+
+            this.log('Generated example:', example);
+            return example;
+        },
+
+        // Generate request example from response schema
+        generateExampleFromResponse(responseSchema) {
+            this.log('Inferring request example from response schema');
+
+            if (!responseSchema || !responseSchema.properties) return {};
+
+            const example = {};
+
+            // If response has a main data object (like 'post'), extract from it
+            const dataKeys = ['post', 'data', 'item', 'resource', 'object', 'entity', 'record'];
+            let mainDataProp = null;
+
+            for (const key of dataKeys) {
+                if (responseSchema.properties[key] && responseSchema.properties[key].properties) {
+                    mainDataProp = responseSchema.properties[key];
+                    this.log(`Found main data property: ${key}`);
+                    break;
+                }
+            }
+
+            // If no nested data found, use response properties directly
+            if (!mainDataProp && responseSchema.properties) {
+                mainDataProp = responseSchema;
+                this.log('Using response properties directly');
+            }
+
+            if (mainDataProp && mainDataProp.properties) {
+                // Fields to exclude from request (usually server-generated)
+                const excludeFields = [
+                    'id', '_id', 'uid', 'uuid',
+                    'created', 'created_at', 'created_by', 'created_date', 'creation_time',
+                    'updated', 'updated_at', 'updated_by', 'updated_date', 'modification_time',
+                    'modified', 'modified_at', 'modified_by', 'last_modified',
+                    'deleted', 'deleted_at', 'deleted_by',
+                    'author', 'author_id', 'user', 'user_id', 'owner', 'owner_id',
+                    'creator', 'creator_id', 'modifier', 'modifier_id',
+                    'version', 'revision', 'etag', 'timestamp'
+                ];
+
+                Object.entries(mainDataProp.properties).forEach(([propName, propSchema]) => {
+                    // Skip server-generated fields
+                    const lowerPropName = propName.toLowerCase();
+                    const shouldExclude = excludeFields.some(field =>
+                        lowerPropName === field ||
+                        lowerPropName === `${field}_id` ||
+                        lowerPropName.endsWith(`_${field}`)
+                    );
+
+                    if (shouldExclude) {
+                        this.log(`Skipping server-generated field: ${propName}`);
+                        return;
+                    }
+
+                    // Generate example value based on property schema
+                    if (propSchema.example !== undefined) {
+                        example[propName] = propSchema.example;
+                    } else if (propSchema.type === 'string') {
+                        if (propName === 'title') {
+                            example[propName] = 'My New Post';
+                        } else if (propName === 'content' || propName === 'body') {
+                            example[propName] = 'This is the content of my post...';
+                        } else if (propName === 'status') {
+                            example[propName] = propSchema.enum?.[0] || 'draft';
+                        } else if (propName === 'tags') {
+                            example[propName] = 'tag1, tag2';
+                        } else if (propName.includes('email')) {
+                            example[propName] = 'user@example.com';
+                        } else if (propName.includes('name')) {
+                            example[propName] = `Example ${propName}`;
+                        } else if (propName.includes('url') || propName.includes('link')) {
+                            example[propName] = 'https://example.com';
+                        } else {
+                            example[propName] = `Example ${propName}`;
+                        }
+                    } else if (propSchema.type === 'boolean') {
+                        example[propName] = false;
+                    } else if (propSchema.type === 'integer') {
+                        example[propName] = 1;
+                    } else if (propSchema.type === 'number') {
+                        example[propName] = 1.0;
+                    } else if (propSchema.type === 'array') {
+                        example[propName] = [];
+                    } else if (propSchema.type === 'object') {
+                        example[propName] = this.generateExampleFromSchema(propSchema);
+                    }
+                });
+            }
+
+            this.log('Inferred request example from response:', example);
+            return example;
+        },
+
+        // Populate default values in form fields
+        populateDefaultValues(parameterSchema) {
+            this.log('Populating default values');
+
+            if (!parameterSchema) {
+                this.log('No parameter schema provided for default values');
+                return;
+            }
+
+            // Populate parameter fields
+            [...(parameterSchema.pathParameters || []),
+             ...(parameterSchema.queryParameters || []),
+             ...(parameterSchema.headerParameters || [])].forEach(param => {
+                if (param.example) {
+                    const fieldId = `param-${param.in}-${param.name}`;
+                    const field = document.getElementById(fieldId);
+                    if (field && !field.value) {
+                        field.value = param.example;
+                        this.log(`Set default value for ${param.name}:`, param.example);
+                    }
+                }
+            });
+
+            // Populate request body example if available
+            if (parameterSchema.requestBody && parameterSchema.requestBody.schema) {
+                const rawJsonTextarea = document.getElementById('raw-json-payload');
+                const legacyJsonTextarea = document.getElementById('request-body-json');
+
+                if (rawJsonTextarea && rawJsonTextarea.value.trim() === '{}') {
+                    const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
+                    if (example && Object.keys(example).length > 0) {
+                        rawJsonTextarea.value = JSON.stringify(example, null, 2);
+                        this.log('Set default JSON payload in raw textarea');
+                    }
+                } else if (legacyJsonTextarea && !legacyJsonTextarea.value.trim()) {
+                    const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
+                    if (example && Object.keys(example).length > 0) {
+                        legacyJsonTextarea.value = JSON.stringify(example, null, 2);
+                        this.log('Set default JSON payload in legacy textarea');
+                    }
+                }
+            }
+        },
+
+        // Generate parameter examples based on type and name
+        generateParameterExample(param) {
+            if (param.example !== undefined) {
+                return param.example;
+            }
+
+            const name = param.name.toLowerCase();
+            const type = param.type;
+
+            switch (type) {
+                case 'string':
+                    if (param.enum && param.enum.length > 0) {
+                        return param.enum[0];
+                    } else if (name.includes('id')) {
+                        return 'abc123';
+                    } else if (name.includes('email')) {
+                        return 'user@example.com';
+                    } else if (name.includes('name')) {
+                        return 'Example Name';
+                    } else if (name.includes('url') || name.includes('link')) {
+                        return 'https://example.com';
+                    } else if (name.includes('status')) {
+                        return 'active';
+                    } else if (name.includes('type')) {
+                        return 'default';
+                    } else {
+                        return `example_${param.name}`;
+                    }
+
+                case 'integer':
+                    if (name.includes('id')) {
+                        return 123;
+                    } else if (name.includes('page')) {
+                        return 1;
+                    } else if (name.includes('limit') || name.includes('size')) {
+                        return 10;
+                    } else {
+                        return 1;
+                    }
+
+                case 'number':
+                    return 1.0;
+
+                case 'boolean':
+                    return true;
+
+                default:
+                    return param.example || '';
+            }
+        },
+
+        // Generate comprehensive example for complex schemas
+        generateCompleteExample(schema, endpoint) {
+            this.log('Generating complete example for endpoint:', endpoint.method, endpoint.path);
+
+            const example = {
+                path_parameters: {},
+                query_parameters: {},
+                headers: {},
+                body: null
+            };
+
+            // Generate path parameter examples
+            if (schema.pathParameters) {
+                schema.pathParameters.forEach(param => {
+                    example.path_parameters[param.name] = this.generateParameterExample(param);
+                });
+            }
+
+            // Generate query parameter examples
+            if (schema.queryParameters) {
+                schema.queryParameters.forEach(param => {
+                    example.query_parameters[param.name] = this.generateParameterExample(param);
+                });
+            }
+
+            // Generate header examples
+            if (schema.headerParameters) {
+                schema.headerParameters.forEach(param => {
+                    example.headers[param.name] = this.generateParameterExample(param);
+                });
+            }
+
+            // Generate request body example
+            if (schema.requestBody && ['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
+                example.body = this.generateRequestBodyExample(schema.requestBody, endpoint);
+            }
+
+            return example;
+        }
+    };
+{{end}}

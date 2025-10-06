@@ -1,0 +1,470 @@
+{{define "api_form_builder_js"}}
+    // =============================================================================
+    // API FORM BUILDER - FORM GENERATION AND FIELD BUILDING
+    // =============================================================================
+
+    const APIFormBuilder = {
+        debug: true,
+
+        // Debug logging
+        log(...args) {
+            if (this.debug) {
+                console.log('[APIFormBuilder]', ...args);
+            }
+        },
+
+        // Generate parameter form from schema
+        generateParameterForm(container, parameterSchema, endpoint) {
+            this.log('Generating parameter form with schema:', parameterSchema);
+
+            if (!parameterSchema) {
+                console.error('No parameter schema available');
+                container.innerHTML = '<p class="txt-center txt-hint p-4">No parameter schema available</p>';
+                return;
+            }
+
+            const sections = [];
+
+            // Build path parameters section
+            if (parameterSchema.pathParameters.length > 0) {
+                this.log('Building path parameters section');
+                sections.push(this.buildParameterSection(
+                    'Path Parameters',
+                    'ri-route-line',
+                    parameterSchema.pathParameters,
+                    'These parameters are part of the URL path and are typically required.'
+                ));
+            }
+
+            // Build query parameters section
+            if (parameterSchema.queryParameters.length > 0) {
+                this.log('Building query parameters section');
+                sections.push(this.buildParameterSection(
+                    'Query Parameters',
+                    'ri-search-line',
+                    parameterSchema.queryParameters,
+                    'These parameters are added to the URL as query string.'
+                ));
+            }
+
+            // Build request body section for POST/PUT/PATCH
+            if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
+                this.log('Building request body section for', endpoint.method);
+                if (parameterSchema.requestBody) {
+                    sections.push(this.buildRequestBodySection(parameterSchema.requestBody, endpoint.method));
+                }
+            }
+
+            this.log('Generated', sections.length, 'form sections');
+
+            // Combine all sections
+            const formHtml = sections.join('');
+            if (formHtml) {
+                container.innerHTML = formHtml;
+                this.log('Form HTML generated and inserted');
+            } else {
+                container.innerHTML = this.getNoParametersMessage(endpoint.method);
+                this.log('No parameters found, showing empty message');
+            }
+        },
+
+        // Build parameter section
+        buildParameterSection(title, icon, parameters, description) {
+            this.log(`Building section: ${title} with ${parameters.length} parameters`);
+
+            const fields = parameters.map(param => {
+                this.log('Building field for parameter:', param);
+                return this.buildParameterField(param);
+            }).join('');
+
+            return `
+                <div class="form-section">
+                    <div class="section-header">
+                        <h6 class="section-title">
+                            <i class="${icon}"></i>
+                            ${title}
+                        </h6>
+                        <p class="section-description">${description}</p>
+                    </div>
+                    <div class="parameter-fields">
+                        ${fields}
+                    </div>
+                </div>
+            `;
+        },
+
+        // Build individual parameter field
+        buildParameterField(param) {
+            const fieldId = `param-${param.in}-${param.name}`;
+            const isRequired = param.required;
+            const requiredMark = isRequired ? '<span class="txt-danger">*</span>' : '';
+
+            this.log(`Building field for ${param.name} (${param.type})`);
+
+            return `
+                <div class="form-field param-field" data-param="${param.name}" data-in="${param.in}">
+                    <label class="form-label" for="${fieldId}">
+                        ${param.name} ${requiredMark}
+                        <span class="param-type">(${param.type}${param.format ? `:${param.format}` : ''})</span>
+                    </label>
+                    ${this.buildInputElement(param, fieldId)}
+                    ${param.description ? `<div class="field-help">${param.description}</div>` : ''}
+                </div>
+            `;
+        },
+
+        // Build input element based on parameter type
+        buildInputElement(param, fieldId) {
+            const commonAttrs = `
+                id="${fieldId}"
+                name="${param.name}"
+                data-type="${param.type}"
+                data-in="${param.in}"
+                ${param.required ? 'required' : ''}
+                placeholder="${param.example || `Enter ${param.name}`}"
+            `;
+
+            switch (param.type) {
+                case 'boolean':
+                    return `
+                        <select class="form-control" ${commonAttrs}>
+                            <option value="">Select...</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                        </select>
+                    `;
+
+                case 'integer':
+                case 'number':
+                    const step = param.type === 'integer' ? '1' : 'any';
+                    return `
+                        <input type="number" class="form-control" ${commonAttrs} step="${step}" />
+                    `;
+
+                case 'string':
+                    if (param.enum && param.enum.length > 0) {
+                        const options = param.enum.map(value =>
+                            `<option value="${value}">${value}</option>`
+                        ).join('');
+                        return `
+                            <select class="form-control" ${commonAttrs}>
+                                <option value="">Select...</option>
+                                ${options}
+                            </select>
+                        `;
+                    }
+
+                    if (param.format === 'date') {
+                        return `<input type="date" class="form-control" ${commonAttrs} />`;
+                    }
+
+                    if (param.format === 'date-time') {
+                        return `<input type="datetime-local" class="form-control" ${commonAttrs} />`;
+                    }
+
+                    return `<input type="text" class="form-control" ${commonAttrs} />`;
+
+                default:
+                    return `<input type="text" class="form-control" ${commonAttrs} />`;
+            }
+        },
+
+        // Build request body section with form fields
+        buildRequestBodySection(schema, method) {
+            this.log('Building request body section from response inference');
+
+            if (!schema) {
+                this.log('No request body schema available');
+                return this.buildFlexibleRequestSection();
+            }
+
+            const fields = this.generateFormFieldsFromSchema(schema);
+
+            return `
+                <div class="form-section">
+                    <div class="section-header">
+                        <h6 class="section-title">
+                            <i class="ri-code-box-line"></i>
+                            Request Payload
+                            ${schema.required ? '<span class="txt-danger">*</span>' : ''}
+                        </h6>
+                        <p class="section-description">
+                            ${schema.description}
+                            ${(!schema.schema?.properties || Object.keys(schema.schema.properties).length === 0) ?
+                                '<br><small class="txt-hint">📝 Fields inferred from response structure. Adjust as needed.</small>' :
+                                '<br><small class="txt-success">✓ Fields auto-detected from response schema</small>'}
+                        </p>
+                    </div>
+                    <div class="request-body-fields" id="request-body-fields">
+                        ${fields}
+                    </div>
+                    <div class="form-field mt-2">
+                        <small class="field-help">
+                            <i class="ri-information-line"></i>
+                            ${method === 'POST' ? 'Creates a new resource based on the response structure.' :
+                              method === 'PUT' ? 'Updates the entire resource to match response structure.' :
+                              method === 'PATCH' ? 'Partially updates fields from response structure.' :
+                              'Sends data matching the response structure.'}
+                        </small>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Build flexible request section when no schema can be inferred
+        buildFlexibleRequestSection() {
+            return `
+                <div class="form-section">
+                    <div class="section-header">
+                        <h6 class="section-title">
+                            <i class="ri-code-box-line"></i>
+                            Request Payload
+                        </h6>
+                        <p class="section-description">
+                            No response schema available for inference. Using flexible JSON input.
+                        </p>
+                    </div>
+                    <div class="request-body-fields">
+                        <div class="form-field raw-json-field">
+                            <label class="form-label">JSON Payload</label>
+                            <textarea class="form-control"
+                                      id="raw-json-payload"
+                                      rows="10"
+                                      placeholder='{\n  "field": "value"\n}'
+                                      style="font-family: monospace;">{}</textarea>
+                            <div class="field-help">
+                                <i class="ri-information-line"></i>
+                                Enter valid JSON data for the request body
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Generate form fields from schema (ONLY from response inference)
+        generateFormFieldsFromSchema(schema) {
+            if (!schema || !schema.schema || !schema.schema.properties) {
+                this.log('No inferred properties available from response');
+                return this.generateEmptyStateMessage();
+            }
+
+            const properties = schema.schema.properties;
+            if (Object.keys(properties).length === 0) {
+                this.log('No fields found after filtering server-generated fields');
+                return this.generateEmptyStateMessage();
+            }
+
+            this.log('Generating fields from inferred properties:', properties);
+            return this.generateFieldsFromProperties(properties, schema.schema.required);
+        },
+
+        // Generate empty state message when no fields can be inferred
+        generateEmptyStateMessage() {
+            return `
+                <div class="empty-fields-state">
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-file-search-line ri-xl"></i>
+                        <p><strong>No fields detected from response</strong></p>
+                        <p class="txt-sm">Unable to infer request structure from the response schema.</p>
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="APIFormBuilder.switchToRawJSON()">
+                                <i class="ri-code-line"></i>
+                                Use Raw JSON Editor
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Switch to raw JSON input mode
+        switchToRawJSON() {
+            const container = document.getElementById('schema-form-container');
+            if (!container) return;
+
+            container.innerHTML = `
+                <div class="form-field raw-json-field">
+                    <label class="form-label">
+                        JSON Payload
+                        <span class="param-type">(raw JSON)</span>
+                    </label>
+                    <textarea class="form-control"
+                              id="raw-json-payload"
+                              rows="12"
+                              placeholder='{\n  "field": "value"\n}'
+                              style="font-family: monospace;">{}</textarea>
+                    <div class="field-help">
+                        <i class="ri-information-line"></i>
+                        Enter valid JSON data. The structure will be sent as the request body.
+                    </div>
+                </div>
+            `;
+
+            this.log('Switched to raw JSON input mode');
+        },
+
+        // Generate fields from properties object (inferred from response)
+        generateFieldsFromProperties(properties, requiredFields = []) {
+            let html = '';
+            let fieldCount = 0;
+
+            Object.entries(properties).forEach(([propName, propSchema]) => {
+                const isRequired = requiredFields && requiredFields.includes(propName);
+                html += this.generateFormField(propName, propSchema, isRequired);
+                fieldCount++;
+            });
+
+            if (fieldCount === 0) {
+                return this.generateEmptyStateMessage();
+            }
+
+            // Add a note about inferred fields
+            html += `
+                <div class="inference-note">
+                    <small class="txt-hint">
+                        <i class="ri-magic-line"></i>
+                        ${fieldCount} field${fieldCount > 1 ? 's' : ''} auto-detected from response schema
+                    </small>
+                </div>
+            `;
+
+            return html;
+        },
+
+        // Generate individual form field
+        generateFormField(name, schema, isRequired = false) {
+            const fieldId = `body-field-${name}`;
+            const type = schema.type || 'string';
+            const required = isRequired || schema.required || false;
+            const example = schema.example || '';
+            const description = schema.description || '';
+
+            let inputHtml = '';
+
+            switch (type) {
+                case 'boolean':
+                    inputHtml = `
+                        <select class="form-control" id="${fieldId}" name="${name}">
+                            <option value="">Select...</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                        </select>
+                    `;
+                    break;
+
+                case 'integer':
+                case 'number':
+                    inputHtml = `
+                        <input type="number"
+                               class="form-control"
+                               id="${fieldId}"
+                               name="${name}"
+                               step="${type === 'integer' ? '1' : 'any'}"
+                               placeholder="${example || `Enter ${name}`}" />
+                    `;
+                    break;
+
+                case 'string':
+                    if (name.toLowerCase().includes('content') || name.toLowerCase().includes('description')) {
+                        inputHtml = `
+                            <textarea class="form-control"
+                                      id="${fieldId}"
+                                      name="${name}"
+                                      rows="4"
+                                      placeholder="${example || `Enter ${name}`}"></textarea>
+                        `;
+                    } else if (schema.format === 'date') {
+                        inputHtml = `
+                            <input type="date"
+                                   class="form-control"
+                                   id="${fieldId}"
+                                   name="${name}" />
+                        `;
+                    } else if (schema.format === 'date-time') {
+                        inputHtml = `
+                            <input type="datetime-local"
+                                   class="form-control"
+                                   id="${fieldId}"
+                                   name="${name}" />
+                        `;
+                    } else {
+                        inputHtml = `
+                            <input type="text"
+                                   class="form-control"
+                                   id="${fieldId}"
+                                   name="${name}"
+                                   placeholder="${example || `Enter ${name}`}" />
+                        `;
+                    }
+                    break;
+
+                default:
+                    inputHtml = `
+                        <input type="text"
+                               class="form-control"
+                               id="${fieldId}"
+                               name="${name}"
+                               placeholder="${example || `Enter ${name}`}" />
+                    `;
+            }
+
+            return `
+                <div class="form-field body-field" data-body-field="${name}">
+                    <label class="form-label" for="${fieldId}">
+                        ${name}
+                        ${required ? '<span class="txt-danger">*</span>' : ''}
+                        ${type !== 'string' ? `<span class="param-type">(${type})</span>` : ''}
+                    </label>
+                    ${inputHtml}
+                    ${description ? `<div class="field-help">${description}</div>` : ''}
+                </div>
+            `;
+        },
+
+        // Generate default form fields when no schema available
+        generateDefaultFormFields() {
+            return `
+                <div class="form-field">
+                    <label class="form-label">JSON Data</label>
+                    <textarea class="form-control"
+                              id="request-body-json"
+                              name="request-body-json"
+                              rows="10"
+                              placeholder='{\n  "field1": "value1",\n  "field2": "value2"\n}'></textarea>
+                    <small class="field-help">Enter your data in JSON format</small>
+                </div>
+            `;
+        },
+
+        // Get no parameters message
+        getNoParametersMessage(method) {
+            const needsBody = ['POST', 'PUT', 'PATCH'].includes(method);
+
+            if (needsBody) {
+                return `
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-file-search-line ri-xl"></i>
+                        <p><strong>No parameters detected</strong></p>
+                        <p>This ${method} endpoint doesn't have defined parameters or request body schema.</p>
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="APIFormBuilder.switchToRawJSON()">
+                                <i class="ri-code-line"></i>
+                                Add JSON Payload
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                return `
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-checkbox-circle-line ri-xl"></i>
+                        <p><strong>No parameters required</strong></p>
+                        <p>This ${method} endpoint doesn't require any parameters.</p>
+                        <p class="txt-sm">You can send the request directly.</p>
+                    </div>
+                `;
+            }
+        }
+    };
+{{end}}
