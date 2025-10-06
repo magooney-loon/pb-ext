@@ -11,12 +11,11 @@ import (
 )
 
 func registerRoutes(pbApp core.App) {
-	// Initialize versioned API system
 	// Create configs for API versions
 	v1Config := &api.APIDocsConfig{
 		Title:       "pb-ext demo api",
 		Version:     "1.0.0",
-		Description: "Hello world ",
+		Description: "Hello world",
 		Status:      "stable",
 		Enabled:     true,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
@@ -27,11 +26,11 @@ func registerRoutes(pbApp core.App) {
 	v2Config := &api.APIDocsConfig{
 		Title:       "pb-ext demo api",
 		Version:     "2.0.0",
-		Description: "Hello world twice",
+		Description: "Hello world?",
 		Status:      "development",
-		Enabled:     false,
+		Enabled:     true,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
-			Enabled: false,
+			Enabled: true,
 		},
 	}
 
@@ -40,6 +39,7 @@ func registerRoutes(pbApp core.App) {
 		"v1": v1Config,
 		"v2": v2Config,
 	}
+
 	versionManager := api.InitializeVersionedSystem(versions, "v1") // v1 is default/stable
 
 	pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
@@ -54,18 +54,12 @@ func registerRoutes(pbApp core.App) {
 			return err
 		}
 
-		// Both versions use the exact same handlers - demonstrating different HTTP methods and auth types
-
 		// Version 1 routes
 		v1Router.GET("/api/v1/time", timeHandler)
 		v1Router.GET("/api/v1/guest-info", guestInfoHandler).Bind(apis.RequireGuestOnly())
-		v1Router.POST("/api/v1/posts", createPostHandler).Bind(apis.RequireAuth())
-		v1Router.PATCH("/api/v1/posts/:id", patchPostHandler).Bind(apis.RequireAuth())
-		v1Router.PUT("/api/v1/posts/:id", updatePostHandler).Bind(apis.RequireSuperuserOrOwnerAuth("id"))
-		v1Router.DELETE("/api/v1/posts/:id", deletePostHandler).Bind(apis.RequireSuperuserAuth())
 		v1Router.GET("/api/v1/admin/stats", adminStatsHandler).Bind(apis.RequireSuperuserAuth())
 
-		// Version 2 routes - same handlers, same functionality
+		// Version 2 routes
 		v2Router.GET("/api/v2/time", timeHandler)
 		v2Router.GET("/api/v2/guest-info", guestInfoHandler).Bind(apis.RequireGuestOnly())
 		v2Router.POST("/api/v2/posts", createPostHandler).Bind(apis.RequireAuth())
