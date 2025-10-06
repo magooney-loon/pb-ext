@@ -129,9 +129,10 @@
         // Infer request body schema ONLY from response
         inferRequestBodyFromResponse(responseSchema) {
 
+            console.log('[Schema Debug] inferRequestBodyFromResponse called with:', responseSchema);
 
             if (!responseSchema) {
-
+                console.log('[Schema Debug] No response schema provided, using default');
                 return this.getDefaultRequestBody();
             }
 
@@ -141,30 +142,33 @@
 
             // First, try to find a nested data object in the response
             if (responseSchema.properties) {
+                console.log('[Schema Debug] Response has properties:', Object.keys(responseSchema.properties));
                 for (const key of dataKeys) {
                     if (responseSchema.properties[key] && responseSchema.properties[key].properties) {
                         resourceSchema = responseSchema.properties[key];
-
+                        console.log('[Schema Debug] Found nested data object under key:', key);
                         break;
                     }
                 }
 
                 // If no nested object found but response has properties, use response directly
                 if (!resourceSchema && Object.keys(responseSchema.properties).length > 0) {
-
+                    console.log('[Schema Debug] No nested data object found, using response schema directly');
                     resourceSchema = responseSchema;
                 }
             }
 
             // If response is an array, look at the items schema
             if (!resourceSchema && responseSchema.type === 'array' && responseSchema.items) {
-
+                console.log('[Schema Debug] Response is array, using items schema:', responseSchema.items);
                 resourceSchema = responseSchema.items;
             }
 
             if (resourceSchema) {
+                console.log('[Schema Debug] Found resource schema:', resourceSchema);
                 // Clean the schema by removing server-generated fields
                 const cleanedSchema = this.cleanSchemaForRequest(resourceSchema);
+                console.log('[Schema Debug] Cleaned schema:', cleanedSchema);
 
                 return {
                     type: 'object',
@@ -174,7 +178,7 @@
                 };
             }
 
-
+            console.log('[Schema Debug] No resource schema found, using default request body');
             return this.getDefaultRequestBody();
         },
 
@@ -196,6 +200,8 @@
         cleanSchemaForRequest(schema) {
             if (!schema) return schema;
 
+            console.log('[Schema Debug] cleanSchemaForRequest called with schema:', schema);
+
             // Expanded list of server-generated fields to exclude
             const excludeFields = [
                 'id', '_id', 'uid', 'uuid',
@@ -210,6 +216,7 @@
 
             // If schema has properties, filter them
             if (schema.properties) {
+                console.log('[Schema Debug] Processing schema properties:', Object.keys(schema.properties));
                 const cleanedProperties = {};
 
                 Object.entries(schema.properties).forEach(([key, value]) => {
@@ -220,11 +227,13 @@
                         lowerKey.endsWith(`_${field}`)
                     );
 
+                    console.log(`[Schema Debug] Processing field: ${key}, type: ${value.type}, shouldExclude: ${shouldExclude}`, value);
+
                     if (!shouldExclude) {
                         cleanedProperties[key] = value;
-
+                        console.log(`[Schema Debug] Kept field: ${key} with type: ${value.type}`);
                     } else {
-
+                        console.log(`[Schema Debug] Excluded field: ${key}`);
                     }
                 });
 

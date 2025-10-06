@@ -215,9 +215,14 @@
 
         // Generate form fields from schema (ONLY from response inference)
         generateFormFieldsFromSchema(schema) {
+            console.log('[Form Builder Debug] generateFormFieldsFromSchema called with schema:', schema);
+
             if (!schema || !schema.schema || !schema.schema.properties) {
+                console.log('[Form Builder Debug] No valid schema found, generating empty state');
                 return this.generateEmptyStateMessage();
             }
+
+            console.log('[Form Builder Debug] Schema properties found:', Object.keys(schema.schema.properties));
 
             const properties = schema.schema.properties;
             if (Object.keys(properties).length === 0) {
@@ -272,10 +277,14 @@
 
         // Generate fields from properties object (inferred from response)
         generateFieldsFromProperties(properties, requiredFields = []) {
+            console.log('[Form Builder Debug] generateFieldsFromProperties called with properties:', properties);
+            console.log('[Form Builder Debug] Required fields:', requiredFields);
+
             let html = '';
             let fieldCount = 0;
 
             Object.entries(properties).forEach(([propName, propSchema]) => {
+                console.log(`[Form Builder Debug] Processing property: ${propName}, schema:`, propSchema);
                 const isRequired = requiredFields && requiredFields.includes(propName);
                 html += this.generateFormField(propName, propSchema, isRequired);
                 fieldCount++;
@@ -301,10 +310,32 @@
         // Generate individual form field
         generateFormField(name, schema, isRequired = false) {
             const fieldId = `body-field-${name}`;
-            const type = schema.type || 'string';
+            let type = schema.type || 'string';
             const required = isRequired || schema.required || false;
             const example = schema.example || '';
             const description = schema.description || '';
+
+            // Smart array detection - override type if field name suggests array
+            const arrayFieldPatterns = [
+                'tags', 'categories', 'items', 'values', 'ids', 'list', 'array',
+                'permissions', 'roles', 'groups', 'emails', 'phones', 'addresses',
+                'keywords', 'labels', 'options', 'choices', 'selections'
+            ];
+
+            const lowerName = name.toLowerCase();
+            const suggestsArray = arrayFieldPatterns.some(pattern =>
+                lowerName === pattern ||
+                lowerName.endsWith(`_${pattern}`) ||
+                lowerName.endsWith(`${pattern}`) ||
+                lowerName.includes(pattern)
+            );
+
+            if (suggestsArray && type === 'string') {
+                console.log(`[Form Builder Debug] Field '${name}' suggests array type, overriding schema type '${type}' to 'array'`);
+                type = 'array';
+            }
+
+            console.log(`[Form Builder Debug] Generating field: ${name}, schema:`, schema, `final type: ${type}`);
 
             let inputHtml = '';
 
@@ -363,6 +394,20 @@
                                    placeholder="${example || `Enter ${name}`}" />
                         `;
                     }
+                    break;
+
+                case 'array':
+                    const itemType = schema.items?.type || 'string';
+                    const arrayPlaceholder = example || `Enter comma-separated ${name} (e.g. value1, value2, value3)`;
+                    inputHtml = `
+                        <input type="text"
+                               class="form-control"
+                               id="${fieldId}"
+                               name="${name}"
+                               data-type="array"
+                               data-item-type="${itemType}"
+                               placeholder="${arrayPlaceholder}" />
+                    `;
                     break;
 
                 default:
