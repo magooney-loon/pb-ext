@@ -2,7 +2,7 @@
 
 Enhanced PocketBase server with monitoring, logging & API docs.
 
-<img width="3840" height="2160" alt="pb-ext" src="https://github.com/user-attachments/assets/fef2f3b3-852c-41d6-b428-cf53bf69dcec" />
+<img width="3840" height="2160" alt="pb-ext" src="https://github.com/user-attachments/assets/c8ed23b0-5612-4faf-b271-7c26ca56017b" />
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/magooney-loon/pb-ext)
 
