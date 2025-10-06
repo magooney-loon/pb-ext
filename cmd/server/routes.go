@@ -54,9 +54,6 @@ func registerRoutes(pbApp core.App) {
 			return err
 		}
 
-		// Version 1 routes
-		v1Router.GET("/api/v1/time", timeHandler)
-
 		// v1 Example Todo CRUD routes
 		v1Router.GET("/api/v1/todos", getTodosHandler)
 		v1Router.POST("/api/v1/todos", createTodoHandler).Bind(apis.RequireAuth())
