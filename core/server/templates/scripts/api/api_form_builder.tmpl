@@ -178,27 +178,52 @@
 
         // Build request body section with form fields
         buildRequestBodySection(schema, method) {
-
+            console.log('[Form Builder Debug] buildRequestBodySection called with:', { schema, method });
 
             if (!schema) {
+                console.log('[Form Builder Debug] No schema provided, using flexible section');
                 return this.buildFlexibleRequestSection();
             }
+
+            // Check if this is an actual request schema vs inferred from response
+            const isActualRequestSchema = schema.contentType === 'application/json' && schema.required !== undefined;
+            const schemaSource = isActualRequestSchema ? 'request schema' : 'response structure';
+
+            console.log('[Form Builder Debug] Schema source:', schemaSource, 'isActual:', isActualRequestSchema);
 
             const fields = this.generateFormFieldsFromSchema(schema);
 
             return `
                 <div class="form-section">
-
+                    <div class="section-header">
+                        <h6 class="section-title">
+                            <i class="ri-code-box-line"></i>
+                            Request Body
+                            ${isActualRequestSchema ? '<span class="badge badge-success">AST Detected</span>' : '<span class="badge badge-warning">Inferred</span>'}
+                        </h6>
+                        <p class="section-description">
+                            ${isActualRequestSchema ?
+                                `Based on actual ${method} request schema detected from your handler code.` :
+                                `Inferred from response structure - may need manual adjustment.`
+                            }
+                        </p>
+                    </div>
                     <div class="request-body-fields" id="request-body-fields">
                         ${fields}
                     </div>
                     <div class="form-field mt-2">
                         <small class="field-help">
                             <i class="ri-information-line"></i>
-                            ${method === 'POST' ? 'Creates a new resource based on the response structure.' :
-                              method === 'PUT' ? 'Updates the entire resource to match response structure.' :
-                              method === 'PATCH' ? 'Partially updates fields from response structure.' :
-                              'Sends data matching the response structure.'}
+                            ${isActualRequestSchema ?
+                                (method === 'POST' ? 'Creates a new resource with the specified fields.' :
+                                 method === 'PUT' ? 'Updates the entire resource with these fields.' :
+                                 method === 'PATCH' ? 'Partially updates the specified fields.' :
+                                 'Sends data with the detected structure.') :
+                                (method === 'POST' ? 'Creates a new resource - fields inferred from response.' :
+                                 method === 'PUT' ? 'Updates resource - structure inferred from response.' :
+                                 method === 'PATCH' ? 'Partially updates - fields inferred from response.' :
+                                 'Sends data - structure inferred from response.')
+                            }
                         </small>
                     </div>
                 </div>
@@ -213,9 +238,10 @@
                         <h6 class="section-title">
                             <i class="ri-code-box-line"></i>
                             Request Payload
+                            <span class="badge badge-secondary">Manual</span>
                         </h6>
                         <p class="section-description">
-                            No response schema available for inference. Using flexible JSON input.
+                            No request schema detected. Use the JSON editor below to craft your request body manually.
                         </p>
                     </div>
                     <div class="request-body-fields">
@@ -224,11 +250,11 @@
                             <textarea class="form-control"
                                       id="raw-json-payload"
                                       rows="10"
-                                      placeholder='{\n  "field": "value"\n}'
+                                      placeholder='{\n  "field": "value",\n  "nested": {\n    "property": "example"\n  }\n}'
                                       style="font-family: monospace;">{}</textarea>
                             <div class="field-help">
                                 <i class="ri-information-line"></i>
-                                Enter valid JSON data for the request body
+                                Enter valid JSON data for the request body. Check your handler code for the expected structure.
                             </div>
                         </div>
                     </div>
@@ -236,16 +262,18 @@
             `;
         },
 
-        // Generate form fields from schema (ONLY from response inference)
+        // Generate form fields from schema (from AST request schema or response inference)
         generateFormFieldsFromSchema(schema) {
             console.log('[Form Builder Debug] generateFormFieldsFromSchema called with schema:', schema);
 
             if (!schema || !schema.schema || !schema.schema.properties) {
-                console.log('[Form Builder Debug] No valid schema found, generating empty state');
-                return this.generateEmptyStateMessage();
+                console.log('[Form Builder Debug] No valid schema found, generating raw JSON fallback');
+                return this.generateRawJSONFallback();
             }
 
             console.log('[Form Builder Debug] Schema properties found:', Object.keys(schema.schema.properties));
+            const isActualRequestSchema = schema.contentType === 'application/json' && schema.required !== undefined;
+            console.log('[Form Builder Debug] Is actual request schema:', isActualRequestSchema);
 
             const properties = schema.schema.properties;
             if (Object.keys(properties).length === 0) {
@@ -255,14 +283,35 @@
             return this.generateFieldsFromProperties(properties, schema.schema.required);
         },
 
+        // Generate raw JSON fallback when schema is invalid
+        generateRawJSONFallback() {
+            return `
+                <div class="form-field raw-json-field">
+                    <label class="form-label">
+                        JSON Payload
+                        <span class="param-type">(schema unavailable)</span>
+                    </label>
+                    <textarea class="form-control"
+                              id="raw-json-payload"
+                              rows="10"
+                              placeholder='{\n  "field": "value",\n  "nested": {\n    "property": "example"\n  }\n}'
+                              style="font-family: monospace;">{}</textarea>
+                    <div class="field-help">
+                        <i class="ri-information-line"></i>
+                        No valid schema available. Enter your request body JSON manually.
+                    </div>
+                </div>
+            `;
+        },
+
         // Generate empty state message when no fields can be inferred
         generateEmptyStateMessage() {
             return `
                 <div class="empty-fields-state">
                     <div class="txt-center txt-hint p-4">
                         <i class="ri-file-search-line ri-xl"></i>
-                        <p><strong>No fields detected from response</strong></p>
-                        <p class="txt-sm">Unable to infer request structure from the response schema.</p>
+                        <p><strong>No fields detected</strong></p>
+                        <p class="txt-sm">Schema exists but contains no detectable fields.</p>
                         <div class="mt-3">
                             <button type="button" class="btn btn-sm btn-secondary" onclick="APIFormBuilder.switchToRawJSON()">
                                 <i class="ri-code-line"></i>
@@ -298,7 +347,7 @@
             `;
         },
 
-        // Generate fields from properties object (inferred from response)
+        // Generate fields from properties object (from request schema or response inference)
         generateFieldsFromProperties(properties, requiredFields = []) {
             console.log('[Form Builder Debug] generateFieldsFromProperties called with properties:', properties);
             console.log('[Form Builder Debug] Required fields:', requiredFields);

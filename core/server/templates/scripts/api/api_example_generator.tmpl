@@ -200,20 +200,120 @@
 
             // Populate request body example if available
             if (parameterSchema.requestBody && parameterSchema.requestBody.schema) {
+                const isActualRequestSchema = parameterSchema.requestBody.contentType === 'application/json' &&
+                                              parameterSchema.requestBody.required !== undefined;
+
+                console.log('[Example Generator Debug] Generating request body example, isActual:', isActualRequestSchema);
+
                 const rawJsonTextarea = document.getElementById('raw-json-payload');
                 const legacyJsonTextarea = document.getElementById('request-body-json');
 
-                if (rawJsonTextarea && rawJsonTextarea.value.trim() === '{}') {
+                if (rawJsonTextarea && (rawJsonTextarea.value.trim() === '{}' || rawJsonTextarea.value.trim() === '')) {
                     const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
                     if (example && Object.keys(example).length > 0) {
                         rawJsonTextarea.value = JSON.stringify(example, null, 2);
+                        console.log('[Example Generator Debug] Populated raw JSON textarea with example');
                     }
                 } else if (legacyJsonTextarea && !legacyJsonTextarea.value.trim()) {
                     const example = this.generateExampleFromSchema(parameterSchema.requestBody.schema);
                     if (example && Object.keys(example).length > 0) {
                         legacyJsonTextarea.value = JSON.stringify(example, null, 2);
+                        console.log('[Example Generator Debug] Populated legacy JSON textarea with example');
                     }
                 }
+
+                // Also populate individual form fields if they exist
+                this.populateFormFieldsFromSchema(parameterSchema.requestBody.schema);
+            }
+        },
+
+        // Populate individual form fields with examples from schema
+        populateFormFieldsFromSchema(schema) {
+            if (!schema || !schema.properties) return;
+
+            Object.entries(schema.properties).forEach(([fieldName, fieldSchema]) => {
+                const fieldElement = document.querySelector(`[data-body-field="${fieldName}"]`);
+                if (fieldElement && !fieldElement.value) {
+                    const example = this.generateFieldExample(fieldSchema, fieldName);
+                    if (example !== null && example !== undefined) {
+                        fieldElement.value = example;
+                        console.log(`[Example Generator Debug] Set field ${fieldName} to:`, example);
+                    }
+                }
+            });
+        },
+
+        // Generate field example based on schema and field name
+        generateFieldExample(fieldSchema, fieldName) {
+            // If the schema has an explicit example, use it
+            if (fieldSchema.example !== undefined) {
+                return fieldSchema.example;
+            }
+
+            const name = fieldName.toLowerCase();
+            const type = fieldSchema.type || 'string';
+
+            switch (type) {
+                case 'string':
+                    if (fieldSchema.enum && fieldSchema.enum.length > 0) {
+                        return fieldSchema.enum[0];
+                    } else if (fieldSchema.format === 'email') {
+                        return 'user@example.com';
+                    } else if (fieldSchema.format === 'date-time') {
+                        return new Date().toISOString();
+                    } else if (fieldSchema.format === 'date') {
+                        return new Date().toISOString().split('T')[0];
+                    } else if (name.includes('id')) {
+                        return 'abc123';
+                    } else if (name.includes('email')) {
+                        return 'user@example.com';
+                    } else if (name.includes('name') || name.includes('title')) {
+                        return 'Example ' + fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+                    } else if (name.includes('description')) {
+                        return 'Example description';
+                    } else if (name.includes('url') || name.includes('link')) {
+                        return 'https://example.com';
+                    } else if (name.includes('status')) {
+                        return 'active';
+                    } else if (name.includes('type')) {
+                        return 'default';
+                    } else if (name.includes('priority')) {
+                        return 'medium';
+                    } else {
+                        return `example_${fieldName}`;
+                    }
+
+                case 'integer':
+                case 'number':
+                    if (name.includes('id')) {
+                        return 123;
+                    } else if (name.includes('count') || name.includes('total')) {
+                        return 10;
+                    } else if (name.includes('price') || name.includes('amount')) {
+                        return 99.99;
+                    } else if (name.includes('age')) {
+                        return 25;
+                    } else {
+                        return fieldSchema.minimum !== undefined ? fieldSchema.minimum : 1;
+                    }
+
+                case 'boolean':
+                    if (name.includes('completed') || name.includes('done')) {
+                        return false;
+                    } else if (name.includes('active') || name.includes('enabled')) {
+                        return true;
+                    } else {
+                        return false;
+                    }
+
+                case 'array':
+                    return [];
+
+                case 'object':
+                    return {};
+
+                default:
+                    return null;
             }
         },
 
@@ -301,6 +401,9 @@
 
             // Generate request body example
             if (schema.requestBody && ['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
+                const isActualRequestSchema = schema.requestBody.contentType === 'application/json' &&
+                                              schema.requestBody.required !== undefined;
+                console.log('[Example Generator Debug] Generating request body for example, isActual:', isActualRequestSchema);
                 example.body = this.generateRequestBodyExample(schema.requestBody, endpoint);
             }
 

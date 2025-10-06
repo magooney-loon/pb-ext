@@ -61,17 +61,31 @@
                     console.log('[Schema Debug] No explicit parameters found and no path parameters extracted');
                 }
 
-                // For POST/PUT/PATCH methods, ALWAYS infer request body from response schema
+                // For POST/PUT/PATCH methods, use actual request schema or fallback to response inference
                 if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
+                    console.log('[Schema Debug] Processing request body for method:', endpoint.method);
 
-                    schema.requestBody = this.inferRequestBodyFromResponse(endpointData.response);
-                    if (schema.requestBody) {
-
-                    } else {
-
+                    // First priority: Use actual request schema from AST analysis
+                    if (endpointData.request) {
+                        console.log('[Schema Debug] Using actual request schema from AST:', endpointData.request);
+                        schema.requestBody = {
+                            schema: endpointData.request,
+                            required: true,
+                            contentType: 'application/json'
+                        };
+                    }
+                    // Fallback: Infer from response schema (legacy behavior)
+                    else {
+                        console.log('[Schema Debug] No request schema found, inferring from response');
+                        schema.requestBody = this.inferRequestBodyFromResponse(endpointData.response);
+                        if (schema.requestBody) {
+                            console.log('[Schema Debug] Successfully inferred request body from response');
+                        } else {
+                            console.log('[Schema Debug] Could not infer request body from response');
+                        }
                     }
                 } else {
-
+                    console.log('[Schema Debug] Method does not typically require request body:', endpoint.method);
                 }
 
                 // Extract examples
