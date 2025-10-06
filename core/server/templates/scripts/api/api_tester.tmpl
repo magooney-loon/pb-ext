@@ -12,6 +12,15 @@
         // Initialize the API tester
         init() {
             this.log('APITester initializing...');
+
+            // Check for required utilities
+            if (typeof SchemaProcessor === 'undefined') {
+                console.warn('SchemaProcessor not available - some features may be limited');
+            }
+            if (typeof APIState === 'undefined') {
+                console.warn('APIState not available - using fallback validation');
+            }
+
             this.bindEvents();
             this.log('APITester initialized successfully');
         },
@@ -20,6 +29,72 @@
         log(...args) {
             if (this.debug) {
                 console.log('[APITester]', ...args);
+            }
+        },
+
+        // Utility methods leveraging existing schema processing infrastructure
+        extractSchemaParameters(schema) {
+            if (!schema || !SchemaProcessor) return [];
+
+            const params = [];
+            try {
+                // Use existing validation from APIState
+                if (schema.properties && typeof schema.properties === 'object') {
+                    Object.entries(schema.properties).forEach(([key, prop]) => {
+                        params.push({
+                            name: key,
+                            type: prop.type || 'string',
+                            required: schema.required?.includes(key) || false,
+                            description: prop.description || `Field: ${key}`,
+                            example: prop.example,
+                            enum: prop.enum,
+                            default: prop.default
+                        });
+                    });
+                }
+            } catch (e) {
+                this.log('Schema parameter extraction failed:', e.message);
+            }
+            return params;
+        },
+
+        generateExampleFromSchema(schema) {
+            if (!schema || !SchemaProcessor) return {};
+
+            try {
+                if (schema.properties) {
+                    const example = {};
+                    Object.entries(schema.properties).forEach(([key, prop]) => {
+                        if (prop.example !== undefined) {
+                            example[key] = prop.example;
+                        } else if (prop.default !== undefined) {
+                            example[key] = prop.default;
+                        }
+                    });
+                    return example;
+                }
+            } catch (e) {
+                this.log('Example generation failed:', e.message);
+            }
+            return {};
+        },
+
+        validateRequestData(data, schema) {
+            if (!schema || !SchemaProcessor) return { valid: true };
+
+            try {
+                const errors = [];
+                if (schema.required && Array.isArray(schema.required)) {
+                    schema.required.forEach(field => {
+                        if (!data[field]) {
+                            errors.push(`Required field '${field}' is missing`);
+                        }
+                    });
+                }
+                return { valid: errors.length === 0, errors };
+            } catch (e) {
+                this.log('Validation failed:', e.message);
+                return { valid: true };
             }
         },
 
@@ -36,6 +111,13 @@
             // Response actions
             document.getElementById('copy-response-btn')?.addEventListener('click', () => this.copyResponse());
 
+            // Main tester tabs (Parameters/Response)
+            document.addEventListener('click', (e) => {
+                if (e.target.classList.contains('tester-tab')) {
+                    this.switchTesterTab(e.target.dataset.tab);
+                }
+            });
+
             // Response tabs
             document.addEventListener('click', (e) => {
                 if (e.target.classList.contains('response-tab')) {
@@ -51,35 +133,99 @@
             });
         },
 
+        // Reset response state to show empty state
+        resetResponseState() {
+            // Show empty state
+            const emptyState = document.getElementById('response-empty-state');
+            if (emptyState) {
+                emptyState.style.display = 'flex';
+            }
+
+            // Hide response content and reset tab states
+            const responseBody = document.getElementById('response-body');
+            const responseHeaders = document.getElementById('response-headers');
+            if (responseBody) {
+                responseBody.style.display = 'none';
+                responseBody.classList.remove('active');
+            }
+            if (responseHeaders) {
+                responseHeaders.style.display = 'none';
+                responseHeaders.classList.remove('active');
+            }
+
+            // Reset response tabs to body as default
+            document.querySelectorAll('.response-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === 'body');
+            });
+
+            // Clear response content
+            const responseBodyCode = document.querySelector('#response-body code');
+            const responseHeadersCode = document.querySelector('#response-headers code');
+            if (responseBodyCode) {
+                responseBodyCode.textContent = '';
+            }
+            if (responseHeadersCode) {
+                responseHeadersCode.textContent = '';
+            }
+            this.debugResponseState('after resetResponseState');
+        },
+
+        // Debug function to track response state
+        debugResponseState(context = '') {
+            if (this.debug) {
+                console.log(`[API Tester Debug - ${context}]`, {
+                    hasResponse: this.hasResponse,
+                    emptyStateVisible: document.getElementById('response-empty-state')?.style.display !== 'none',
+                    responseBodyVisible: document.getElementById('response-body')?.style.display !== 'none',
+                    responseHeadersVisible: document.getElementById('response-headers')?.style.display !== 'none',
+                    responseTabsVisible: document.querySelector('.response-tabs')?.style.display !== 'none',
+                    currentTesterTab: document.querySelector('.tester-tab.active')?.dataset.tab,
+                    currentResponseTab: document.querySelector('.response-tab.active')?.dataset.tab
+                });
+            }
+        },
+
         // Open the sidebar with endpoint details
         openSidebar(method, path, endpointData) {
             this.log('Opening sidebar for:', { method, path });
 
+            // Reset response state for new endpoint
+            this.resetResponseState();
+
+            // Ensure Parameters tab is active by default
+            this.switchTesterTab('parameters');
+            this.debugResponseState('after openSidebar');
+
             try {
                 // Handle both string and object inputs
+                let rawEndpoint;
                 if (typeof endpointData === 'string') {
                     try {
-                        this.currentEndpoint = JSON.parse(endpointData);
+                        rawEndpoint = JSON.parse(endpointData);
                     } catch (parseError) {
                         this.log('JSON parse error, using fallback:', parseError.message);
                         throw parseError;
                     }
                 } else if (typeof endpointData === 'object' && endpointData !== null) {
-                    this.currentEndpoint = endpointData;
+                    rawEndpoint = endpointData;
                 } else {
                     throw new Error('Invalid endpoint data type');
                 }
+
+                // Use APIState validation for consistent endpoint structure
+                this.currentEndpoint = APIState.validateEndpoints([rawEndpoint])[0];
                 this.log('Parsed endpoint data successfully');
             } catch (e) {
                 console.warn('Failed to parse endpoint data, using fallback:', e);
-                this.currentEndpoint = {
+                // Use APIState validation for fallback too
+                this.currentEndpoint = APIState.validateEndpoints([{
                     method: method?.toUpperCase() || 'GET',
                     path: path || '/api/endpoint',
                     description: 'Test endpoint',
                     auth: { required: false, type: 'none' },
                     request: null,
                     response: null
-                };
+                }])[0];
             }
 
             this.populateEndpointInfo(method, path);
@@ -407,7 +553,7 @@
                 let schema = this.currentEndpoint.request;
                 this.log('Processing request schema...');
 
-                // Handle different schema formats
+                // Use SchemaProcessor for consistent schema handling
                 if (typeof schema === 'string' && schema.trim()) {
                     try {
                         schema = JSON.parse(schema);
@@ -422,20 +568,10 @@
                 this.log('Schema processed successfully');
 
                 if (schema && schema.properties && typeof schema.properties === 'object') {
-                    // Explicit schema with defined properties
-                    Object.entries(schema.properties).forEach(([key, prop]) => {
-                        if (prop && typeof prop === 'object') {
-                            params.push({
-                                name: key,
-                                type: prop.type || 'string',
-                                required: Array.isArray(schema.required) ? schema.required.includes(key) : false,
-                                description: prop.description || `Field: ${key}`,
-                                default: prop.default,
-                                example: prop.example,
-                                enum: Array.isArray(prop.enum) ? prop.enum : null,
-                                in: 'body'
-                            });
-                        }
+                    // Use utility method with SchemaProcessor integration
+                    const schemaParams = this.extractSchemaParameters(schema);
+                    schemaParams.forEach(param => {
+                        params.push({ ...param, in: 'body' });
                     });
                 } else if (schema && schema.type === 'object') {
                     // Generic object schema - provide common fields based on endpoint
@@ -626,20 +762,20 @@
             `;
         },
 
-        // Reset form to default values
+        // Reset form to default values using schema defaults
         resetForm() {
             Object.keys(this.schemaFields).forEach(fieldId => {
                 const field = document.getElementById(fieldId);
-                if (field) {
-                    field.value = '';
+                const param = this.schemaFields[fieldId];
+                if (field && param) {
+                    // Use schema default if available, otherwise empty
+                    field.value = param.default || '';
                 }
             });
 
-            // Hide response section
-            const responseSection = document.getElementById('response-section');
-            if (responseSection) {
-                responseSection.style.display = 'none';
-            }
+            // Reset response state when resetting form
+            this.resetResponseState();
+            this.debugResponseState('after resetForm');
         },
 
         // Collect form data
@@ -753,8 +889,15 @@
                     fetchOptions.headers['Authorization'] = `Bearer ${auth.token}`;
                 }
 
-                // Add body for appropriate methods
+                // Add body for appropriate methods with validation
                 if (['POST', 'PUT', 'PATCH'].includes(fetchOptions.method) && Object.keys(formData.bodyData).length > 0) {
+                    // Use existing validation if schema is available
+                    if (this.currentEndpoint.request) {
+                        const validation = this.validateRequestData(formData.bodyData, this.currentEndpoint.request);
+                        if (!validation.valid) {
+                            this.log('Request validation warnings:', validation.errors);
+                        }
+                    }
                     fetchOptions.body = JSON.stringify(formData.bodyData);
                 }
 
@@ -811,7 +954,23 @@
                 return;
             }
 
+            // Mark that we now have a response
+            this.hasResponse = true;
+
+            // Show response section
             responseSection.style.display = 'block';
+
+            // Hide empty state and show response content
+            const emptyState = document.getElementById('response-empty-state');
+            if (emptyState) {
+                emptyState.style.display = 'none';
+            }
+
+            // Show response tabs
+            const responseTabs = document.querySelector('.response-tabs');
+            if (responseTabs) {
+                responseTabs.style.display = 'flex';
+            }
 
             // Update status in the new structure
             const statusBadge = document.querySelector('#response-status-info .status-badge');
@@ -826,42 +985,54 @@
                 timeEl.textContent = `${responseTime}ms`;
             }
 
-            // Update response body with proper formatting
-            const bodyEl = responseSection.querySelector('#response-body code');
-            if (bodyEl) {
-                try {
-                    if (typeof data === 'object' && data !== null) {
-                        bodyEl.textContent = JSON.stringify(data, null, 2);
-                    } else if (typeof data === 'string') {
-                        // Try to format as JSON if it looks like JSON
-                        try {
-                            const parsed = JSON.parse(data);
-                            bodyEl.textContent = JSON.stringify(parsed, null, 2);
-                        } catch (e) {
-                            bodyEl.textContent = data;
-                        }
-                    } else {
-                        bodyEl.textContent = String(data || '');
+            // Show response tab content and set body as active by default
+            const responseBody = document.getElementById('response-body');
+            const responseHeaders = document.getElementById('response-headers');
+
+            // Reset response tabs to body as default
+            document.querySelectorAll('.response-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === 'body');
+            });
+
+            // Update response body using SchemaProcessor for consistent formatting
+            if (responseBody) {
+                const bodyEl = responseBody.querySelector('code');
+                if (bodyEl) {
+                    try {
+                        // Use SchemaProcessor for syntax highlighting and formatting
+                        bodyEl.innerHTML = SchemaProcessor.syntaxHighlight(data);
+                    } catch (e) {
+                        console.error('Error formatting response body:', e.message);
+                        bodyEl.textContent = String(data || 'Error formatting response');
                     }
-                } catch (e) {
-                    console.error('Error formatting response body:', e.message);
-                    bodyEl.textContent = String(data || 'Error formatting response');
                 }
+                responseBody.classList.add('active');
+                responseBody.style.display = 'block';
             }
 
             // Update response headers
-            const headersEl = responseSection.querySelector('#response-headers code');
-            if (headersEl) {
-                try {
-                    const headerText = Array.from(response.headers.entries())
-                        .map(([key, value]) => `${key}: ${value}`)
-                        .join('\n');
-                    headersEl.textContent = headerText || 'No headers';
-                } catch (e) {
-                    console.error('Error formatting response headers:', e.message);
-                    headersEl.textContent = 'Error reading headers';
+            if (responseHeaders) {
+                const headersEl = responseHeaders.querySelector('code');
+                if (headersEl) {
+                    try {
+                        const headersObj = {};
+                        response.headers.forEach((value, key) => {
+                            headersObj[key] = value;
+                        });
+                        // Use SchemaProcessor for consistent formatting
+                        headersEl.innerHTML = SchemaProcessor.syntaxHighlight(headersObj);
+                    } catch (e) {
+                        console.error('Error formatting response headers:', e.message);
+                        headersEl.textContent = 'Error reading headers';
+                    }
                 }
+                responseHeaders.classList.remove('active');
+                responseHeaders.style.display = 'none';
             }
+
+            // Automatically switch to response tab when we get a response
+            this.switchTesterTab('response');
+            this.debugResponseState('after displayResponse');
 
             // Scroll the response into view
             try {
@@ -876,7 +1047,23 @@
             const responseSection = document.getElementById('response-section');
             if (!responseSection) return;
 
+            // Mark that we now have a response (even if it's an error)
+            this.hasResponse = true;
+
+            // Show response section
             responseSection.style.display = 'block';
+
+            // Hide empty state and show response content
+            const emptyState = document.getElementById('response-empty-state');
+            if (emptyState) {
+                emptyState.style.display = 'none';
+            }
+
+            // Show response tabs
+            const responseTabs = document.querySelector('.response-tabs');
+            if (responseTabs) {
+                responseTabs.style.display = 'flex';
+            }
 
             const statusBadge = document.querySelector('#response-status-info .status-badge');
             const timeEl = document.querySelector('#response-status-info .response-time');
@@ -890,10 +1077,55 @@
                 timeEl.textContent = '';
             }
 
-            const bodyEl = responseSection.querySelector('#response-body code');
-            if (bodyEl) {
-                bodyEl.textContent = message;
+            // Show response tab content and set body as active by default
+            const responseBody = document.getElementById('response-body');
+            const responseHeaders = document.getElementById('response-headers');
+
+            // Reset response tabs to body as default
+            document.querySelectorAll('.response-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === 'body');
+            });
+
+            // Update response body with error message
+            if (responseBody) {
+                const bodyEl = responseBody.querySelector('code');
+                if (bodyEl) {
+                    bodyEl.textContent = message;
+                }
+                responseBody.classList.add('active');
+                responseBody.style.display = 'block';
             }
+
+            // Hide headers tab for errors
+            if (responseHeaders) {
+                responseHeaders.classList.remove('active');
+                responseHeaders.style.display = 'none';
+            }
+
+            // Automatically switch to response tab when we get an error
+            this.switchTesterTab('response');
+            this.debugResponseState('after displayError');
+        },
+
+        // Switch main tester tab (Parameters/Response)
+        switchTesterTab(tab) {
+            this.debugResponseState('before switchTesterTab to ' + tab);
+
+            // Update tab buttons
+            document.querySelectorAll('.tester-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+
+            // Update tab content
+            document.querySelectorAll('.tester-tab-content').forEach(content => {
+                if (content.id === `${tab}-tab`) {
+                    content.classList.add('active');
+                    content.style.display = 'flex';
+                } else {
+                    content.classList.remove('active');
+                    content.style.display = 'none';
+                }
+            });
         },
 
         // Switch response tab
@@ -903,8 +1135,11 @@
             });
 
             document.querySelectorAll('.response-tab-content').forEach(content => {
-                content.classList.toggle('active', content.id === `response-${tab}`);
+                const isActive = content.id === `response-${tab}`;
+                content.classList.toggle('active', isActive);
+                content.style.display = isActive ? 'block' : 'none';
             });
+            this.debugResponseState('after switchResponseTab to ' + tab);
         },
 
         // Copy response
