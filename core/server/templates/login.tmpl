@@ -22,54 +22,10 @@
             overflow: hidden;
         }
 
-        .terminal {
-            width: 100%;
-            margin: 0 auto;
-            background: #111111;
-            border: 1px solid #333;
-            border-radius: 4px;
-            box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
-            height: calc(100vh - 40px);
-            display: flex;
-            flex-direction: column;
-        }
-
-        .terminal-header {
-            background: #1a1a1a;
-            border-bottom: 1px solid #333;
-            padding: 8px 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-        }
-
-        .terminal-dots {
-            display: flex;
-            gap: 6px;
-        }
-
-        .dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-
-        .dot.red { background: #ff5f56; }
-        .dot.yellow { background: #ffbd2e; }
-        .dot.green { background: #27ca3f; }
-
-        .terminal-title {
-            flex: 1;
-            text-align: center;
-            color: #666;
-        }
-
         .terminal-body {
             flex: 1;
             padding: 20px;
             overflow-y: auto;
-            background: #000;
         }
 
         .prompt {
@@ -239,15 +195,7 @@
 <body>
     <canvas class="matrix-bg" id="matrixCanvas"></canvas>
 
-    <div class="terminal">
-        <div class="terminal-header">
-            <div class="terminal-dots">
-                <div class="dot red"></div>
-                <div class="dot yellow"></div>
-                <div class="dot green"></div>
-            </div>
-            <div class="terminal-title">pb-ext://dashboard/auth — zsh</div>
-        </div>
+
 
         <div class="terminal-body">
             <div class="ascii-art">
@@ -347,7 +295,7 @@
                 </div>
             </div>
         </div>
-    </div>
+
 
     <script>
         // Matrix rain effect
