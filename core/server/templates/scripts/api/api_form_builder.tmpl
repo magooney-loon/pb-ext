@@ -71,9 +71,12 @@
             const formHtml = sections.join('');
             if (formHtml) {
                 container.innerHTML = formHtml;
-
+                // Initialize query parameter handlers after form is rendered
+                this.initializeQueryParamHandlers();
             } else {
                 container.innerHTML = this.getNoParametersMessage(endpoint.method);
+                // Initialize query parameter handlers even for no parameters message
+                this.initializeQueryParamHandlers();
             }
         },
 
@@ -486,34 +489,42 @@
             `;
         },
 
-        // Get no parameters message
+        // Get no parameters message with manual query parameter section
         getNoParametersMessage(method) {
             const needsBody = ['POST', 'PUT', 'PATCH'].includes(method);
 
+            let noParamsMessage = '';
             if (needsBody) {
-                return `
-                    <div class="txt-center txt-hint p-4">
-                        <i class="ri-file-search-line ri-xl"></i>
-                        <p><strong>No parameters detected</strong></p>
-                        <p>This ${method} endpoint doesn't have defined parameters or request body schema.</p>
-                        <div class="mt-3">
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="APIFormBuilder.switchToRawJSON()">
-                                <i class="ri-code-line"></i>
-                                Add JSON Payload
-                            </button>
+                noParamsMessage = `
+                    <div class="form-section">
+                        <div class="txt-center txt-hint p-4">
+                            <i class="ri-file-search-line ri-xl"></i>
+                            <p><strong>No parameters detected</strong></p>
+                            <p>This ${method} endpoint doesn't have defined parameters or request body schema.</p>
+                            <div class="mt-3">
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="APIFormBuilder.switchToRawJSON()">
+                                    <i class="ri-code-line"></i>
+                                    Add JSON Payload
+                                </button>
+                            </div>
                         </div>
                     </div>
                 `;
             } else {
-                return `
-                    <div class="txt-center txt-hint p-4">
-                        <i class="ri-checkbox-circle-line ri-xl"></i>
-                        <p><strong>No parameters required</strong></p>
-                        <p>This ${method} endpoint doesn't require any parameters.</p>
-                        <p class="txt-sm">You can send the request directly.</p>
+                noParamsMessage = `
+                    <div class="form-section">
+                        <div class="txt-center txt-hint p-4">
+                            <i class="ri-checkbox-circle-line ri-xl"></i>
+                            <p><strong>No schema parameters</strong></p>
+                            <p>This ${method} endpoint doesn't have defined parameters in its schema.</p>
+                            <p class="txt-sm">You can still add query parameters manually below.</p>
+                        </div>
                     </div>
                 `;
             }
+
+            // Always include manual query parameter section
+            return noParamsMessage + this.buildManualQueryParamSection(method);
         },
 
         // Build manual query parameter section
@@ -568,28 +579,48 @@
 
         // Initialize manual query parameter handlers
         initializeQueryParamHandlers() {
+            // Remove any existing listeners to avoid duplicates
+            this.removeQueryParamHandlers();
+
             // Add parameter button
-            document.addEventListener('click', (e) => {
-                if (e.target.closest('#add-query-param')) {
-                    this.addQueryParamField();
-                    this.updateQueryPreview();
-                }
+            document.addEventListener('click', this.handleQueryParamClicks);
 
-                // Remove parameter button
-                if (e.target.closest('.remove-query-param')) {
-                    const entry = e.target.closest('.query-param-entry');
-                    if (document.querySelectorAll('.query-param-entry').length > 1) {
-                        entry.remove();
-                    } else {
-                        // Clear the last entry instead of removing it
-                        entry.querySelectorAll('input').forEach(input => input.value = '');
-                    }
-                    this.updateQueryPreview();
-                }
+            // Update preview on input
+            document.addEventListener('input', this.handleQueryParamInput);
 
-                // Clear all parameters
-                if (e.target.closest('#clear-query-params')) {
-                    const container = document.getElementById('query-param-fields');
+            // Initialize preview with current state
+            this.updateQueryPreview();
+        },
+
+        // Remove existing event handlers to prevent duplicates
+        removeQueryParamHandlers() {
+            document.removeEventListener('click', this.handleQueryParamClicks);
+            document.removeEventListener('input', this.handleQueryParamInput);
+        },
+
+        // Bound click handler for query parameters
+        handleQueryParamClicks: function(e) {
+            if (e.target.closest('#add-query-param')) {
+                APIFormBuilder.addQueryParamField();
+                APIFormBuilder.updateQueryPreview();
+            }
+
+            // Remove parameter button
+            if (e.target.closest('.remove-query-param')) {
+                const entry = e.target.closest('.query-param-entry');
+                if (document.querySelectorAll('.query-param-entry').length > 1) {
+                    entry.remove();
+                } else {
+                    // Clear the last entry instead of removing it
+                    entry.querySelectorAll('input').forEach(input => input.value = '');
+                }
+                APIFormBuilder.updateQueryPreview();
+            }
+
+            // Clear all parameters
+            if (e.target.closest('#clear-query-params')) {
+                const container = document.getElementById('query-param-fields');
+                if (container) {
                     container.innerHTML = `
                         <div class="query-param-entry">
                             <div class="query-param-pair">
@@ -607,16 +638,16 @@
                             </div>
                         </div>
                     `;
-                    this.updateQueryPreview();
+                    APIFormBuilder.updateQueryPreview();
                 }
-            });
+            }
+        },
 
-            // Update preview on input
-            document.addEventListener('input', (e) => {
-                if (e.target.matches('.query-param-key, .query-param-value')) {
-                    this.updateQueryPreview();
-                }
-            });
+        // Bound input handler for query parameters
+        handleQueryParamInput: function(e) {
+            if (e.target.matches('.query-param-key, .query-param-value')) {
+                APIFormBuilder.updateQueryPreview();
+            }
         },
 
         // Add new query parameter field
@@ -648,10 +679,15 @@
             const params = [];
 
             entries.forEach(entry => {
-                const key = entry.querySelector('.query-param-key').value.trim();
-                const value = entry.querySelector('.query-param-value').value.trim();
-                if (key) {
-                    params.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+                const keyInput = entry.querySelector('.query-param-key');
+                const valueInput = entry.querySelector('.query-param-value');
+
+                if (keyInput && valueInput) {
+                    const key = keyInput.value.trim();
+                    const value = valueInput.value.trim();
+                    if (key) {
+                        params.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+                    }
                 }
             });
 
@@ -666,10 +702,6 @@
         }
     };
 
-    // Initialize query parameter handlers when the form builder is loaded
-    document.addEventListener('DOMContentLoaded', () => {
-        if (typeof APIFormBuilder !== 'undefined') {
-            APIFormBuilder.initializeQueryParamHandlers();
-        }
-    });
+    // Query parameter handlers are now initialized after form generation
+    // to ensure proper timing and avoid DOM ready race conditions
 {{end}}
