@@ -196,6 +196,7 @@ type ASTHandlerInfo struct {
 	Documentation  *Documentation         `json:"documentation,omitempty"`
 	Complexity     int                    `json:"complexity"`
 	SourceLocation *SourceLocation        `json:"source_location,omitempty"`
+	Variables      map[string]string      `json:"variables,omitempty"` // Track variable names to types
 }
 
 // ParamInfo contains parameter information

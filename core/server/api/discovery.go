@@ -287,17 +287,7 @@ func (rc *RouteChain) extractAuthFromFunctionName(funcName string) string {
 		return "auth"
 	}
 
-	// Check for common auth patterns
-	authPatterns := []string{
-		"auth", "authenticate", "authorize", "login", "token",
-		"jwt", "bearer", "session", "permission", "access",
-	}
-
-	for _, pattern := range authPatterns {
-		if strings.Contains(funcName, pattern) {
-			return "auth"
-		}
-	}
+	// No pattern-based auth detection - only explicit auth mechanisms
 
 	return ""
 }

@@ -19,6 +19,7 @@ import (
 
 // NewASTParser creates a new AST parser instance
 func NewASTParser() *ASTParser {
+	fmt.Printf("[DEBUG] NewASTParser - Creating new AST parser instance\n")
 	parser := &ASTParser{
 		fileSet:    token.NewFileSet(),
 		packages:   make(map[string]*ast.Package),
@@ -32,11 +33,11 @@ func NewASTParser() *ASTParser {
 	}
 
 	// Automatically discover and parse files with API_SOURCE directive
-	fmt.Printf("🔍 AST Parser: Initializing...\n")
+	fmt.Printf("[DEBUG] NewASTParser - Starting file discovery\n")
 	if err := parser.DiscoverSourceFiles(); err != nil {
-		fmt.Printf("❌ AST Parser: Discovery failed - %v\n", err)
+		fmt.Printf("[DEBUG] NewASTParser - Discovery failed: %v\n", err)
 	} else {
-		fmt.Printf("✅ AST Parser: Ready - %d handlers, %d structs\n", len(parser.handlers), len(parser.structs))
+		fmt.Printf("[DEBUG] NewASTParser - Discovery completed - found %d handlers, %d structs\n", len(parser.handlers), len(parser.structs))
 	}
 
 	return parser
@@ -83,7 +84,7 @@ func (p *ASTParser) ParseFile(filename string) error {
 
 	// Extract information from the AST
 	p.extractImports(file, result)
-	p.extractStructs(file, result)
+	p.extractStructs(file)
 	p.extractHandlers(file, result)
 
 	// Cache the result
@@ -157,19 +158,23 @@ func (p *ASTParser) extractImports(file *ast.File, result *FileParseResult) {
 	}
 }
 
-// extractStructs extracts struct information from the AST
-func (p *ASTParser) extractStructs(file *ast.File, result *FileParseResult) {
-	ast.Inspect(file, func(n ast.Node) bool {
-		switch node := n.(type) {
+// extractStructs extracts struct definitions from the AST
+func (p *ASTParser) extractStructs(node *ast.File) {
+	fmt.Printf("[DEBUG] extractStructs - Starting struct extraction from package: %s\n", node.Name.Name)
+	structCount := 0
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
 		case *ast.GenDecl:
-			if node.Tok == token.TYPE {
-				for _, spec := range node.Specs {
+			if x.Tok == token.TYPE {
+				for _, spec := range x.Specs {
 					if typeSpec, ok := spec.(*ast.TypeSpec); ok {
 						if structType, ok := typeSpec.Type.(*ast.StructType); ok {
-							structInfo := p.parseStruct(typeSpec, structType, node.Doc)
-							if structInfo != nil {
-								result.Structs[structInfo.Name] = structInfo
-							}
+							fmt.Printf("[DEBUG] extractStructs - Found struct: %s\n", typeSpec.Name.Name)
+							structInfo := p.parseStruct(typeSpec, structType, x.Doc)
+							structInfo.Package = node.Name.Name
+							p.structs[structInfo.Name] = structInfo
+							structCount++
 						}
 					}
 				}
@@ -177,6 +182,8 @@ func (p *ASTParser) extractStructs(file *ast.File, result *FileParseResult) {
 		}
 		return true
 	})
+
+	fmt.Printf("[DEBUG] extractStructs - Extracted %d structs from package %s\n", structCount, node.Name.Name)
 }
 
 // parseStruct parses a struct declaration and returns StructInfo
@@ -189,6 +196,8 @@ func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructTy
 		Embedded: []string{},
 		Methods:  []string{},
 	}
+
+	fmt.Printf("[DEBUG] parseStruct - Processing struct '%s'\n", structInfo.Name)
 
 	// Parse documentation
 	if doc != nil {
@@ -216,6 +225,7 @@ func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructTy
 	// Generate JSON schema
 	structInfo.JSONSchema = p.generateStructSchema(structInfo)
 
+	fmt.Printf("[DEBUG] parseStruct - Completed struct '%s' with %d fields\n", structInfo.Name, len(structInfo.Fields))
 	return structInfo
 }
 
@@ -227,6 +237,8 @@ func (p *ASTParser) parseField(field *ast.Field) *FieldInfo {
 
 	fieldName := field.Names[0].Name
 	typeName := p.extractTypeName(field.Type)
+
+	fmt.Printf("[DEBUG] parseField - Processing field '%s' of type '%s'\n", fieldName, typeName)
 
 	fieldInfo := &FieldInfo{
 		Name:       fieldName,
@@ -354,10 +366,6 @@ func (p *ASTParser) isHandlerFunction(funcDecl *ast.FuncDecl) bool {
 	isHandler := strings.Contains(paramType, "RequestEvent") ||
 		strings.Contains(paramType, "core.RequestEvent")
 
-	if isHandler {
-		fmt.Printf("🎯 Handler: %s [%s]\n", funcDecl.Name.Name, paramType)
-	}
-
 	return isHandler
 }
 
@@ -381,12 +389,12 @@ func (p *ASTParser) parseHandler(funcDecl *ast.FuncDecl) *ASTHandlerInfo {
 		p.analyzeHandlerBody(funcDecl.Body, handlerInfo)
 	}
 
+	fmt.Printf("[DEBUG] parseHandler - Completed handler '%s' with response type '%s'\n", handlerInfo.Name, handlerInfo.ResponseType)
 	return handlerInfo
 }
 
 // parseAPIDirectives parses API directive comments (API_DESC, API_TAGS, etc.)
 func (p *ASTParser) parseAPIDirectives(commentGroup *ast.CommentGroup, handlerInfo *ASTHandlerInfo) {
-	fmt.Printf("🔍 Directives: %s\n", handlerInfo.Name)
 	for _, comment := range commentGroup.List {
 		text := strings.TrimSpace(comment.Text)
 
@@ -398,7 +406,6 @@ func (p *ASTParser) parseAPIDirectives(commentGroup *ast.CommentGroup, handlerIn
 
 		if strings.HasPrefix(text, "API_DESC ") {
 			handlerInfo.APIDescription = strings.TrimSpace(strings.TrimPrefix(text, "API_DESC"))
-			fmt.Printf("  📝 DESC: %s\n", handlerInfo.APIDescription)
 		} else if strings.HasPrefix(text, "API_TAGS ") {
 			tagsStr := strings.TrimSpace(strings.TrimPrefix(text, "API_TAGS"))
 			tags := strings.Split(tagsStr, ",")
@@ -408,7 +415,6 @@ func (p *ASTParser) parseAPIDirectives(commentGroup *ast.CommentGroup, handlerIn
 					handlerInfo.APITags = append(handlerInfo.APITags, tag)
 				}
 			}
-			fmt.Printf("  🏷️ TAGS: %v\n", handlerInfo.APITags)
 		}
 	}
 }
@@ -421,6 +427,8 @@ func (p *ASTParser) analyzeHandlerBody(body *ast.BlockStmt, handlerInfo *ASTHand
 			p.processCallExpr(node, handlerInfo)
 		case *ast.AssignStmt:
 			p.processAssignment(node, handlerInfo)
+		case *ast.GenDecl:
+			p.processVarDeclaration(node, handlerInfo)
 		}
 		return true
 	})
@@ -431,20 +439,24 @@ func (p *ASTParser) processCallExpr(call *ast.CallExpr, handlerInfo *ASTHandlerI
 	// Check for JSON decode calls
 	if p.isJSONDecodeCall(call) {
 		handlerInfo.UsesJSONDecode = true
-		handlerInfo.RequestType = p.extractRequestType(call)
+		// Only set RequestType if not already detected from variable declaration
+		if handlerInfo.RequestType == "" {
+			handlerInfo.RequestType = p.extractRequestTypeWithContext(call, handlerInfo)
+		}
+		fmt.Printf("[DEBUG] processCallExpr - JSON decode call processed, RequestType: '%s'\n", handlerInfo.RequestType)
 	}
 
 	// Check for JSON response calls
 	if p.isJSONResponseCall(call) {
 		handlerInfo.UsesJSONReturn = true
-		handlerInfo.ResponseType = p.extractResponseType(call)
-		fmt.Printf("  📤 Response: %s\n", handlerInfo.ResponseType)
+		handlerInfo.ResponseType = p.extractResponseTypeWithContext(call, handlerInfo)
+		fmt.Printf("[DEBUG] processCallExpr - Found JSON response call in '%s', type: %s\n", handlerInfo.Name, handlerInfo.ResponseType)
 
 		// If it's a map literal, also store the schema directly
 		if handlerInfo.ResponseType == "map[string]any" && len(call.Args) >= 2 {
 			if compLit, ok := call.Args[1].(*ast.CompositeLit); ok {
 				handlerInfo.ResponseSchema = p.analyzeMapLiteralSchema(compLit)
-				fmt.Printf("  📊 Schema: %d properties\n", len(handlerInfo.ResponseSchema))
+				fmt.Printf("[DEBUG] processCallExpr - Parsed map literal schema for '%s': %d properties\n", handlerInfo.Name, len(handlerInfo.ResponseSchema))
 			}
 		}
 	}
@@ -452,25 +464,85 @@ func (p *ASTParser) processCallExpr(call *ast.CallExpr, handlerInfo *ASTHandlerI
 
 // processAssignment processes assignments to detect variable declarations
 func (p *ASTParser) processAssignment(assign *ast.AssignStmt, handlerInfo *ASTHandlerInfo) {
-	// Look for variable declarations that might indicate request/response types
+	fmt.Printf("[DEBUG] processAssignment - Processing assignment in handler '%s'\n", handlerInfo.Name)
+
+	// Initialize Variables map if not already done
+	if handlerInfo.Variables == nil {
+		handlerInfo.Variables = make(map[string]string)
+	}
+
+	// Check if this is a short variable declaration (:=) or regular assignment (=)
+	isDeclaration := assign.Tok == token.DEFINE
+	fmt.Printf("[DEBUG] processAssignment - Assignment type: %s\n", assign.Tok.String())
+
+	// Process both assignments and short variable declarations
 	for i, lhs := range assign.Lhs {
 		if ident, ok := lhs.(*ast.Ident); ok && i < len(assign.Rhs) {
 			varName := ident.Name
+			fmt.Printf("[DEBUG] processAssignment - Found variable %s (declaration: %t)\n", varName, isDeclaration)
 
-			// Check if this looks like a request variable
-			if strings.Contains(strings.ToLower(varName), "req") ||
-				strings.Contains(strings.ToLower(varName), "request") {
-				if handlerInfo.RequestType == "" {
-					handlerInfo.RequestType = p.extractTypeFromExpression(assign.Rhs[i])
-				}
+			// Extract type from the right-hand side expression
+			fmt.Printf("[DEBUG] processAssignment - Processing RHS expression type: %T for variable %s\n", assign.Rhs[i], varName)
+			varType := p.extractTypeFromExpressionWithContext(assign.Rhs[i], handlerInfo)
+			fmt.Printf("[DEBUG] processAssignment - Extracted type: '%s' for variable %s\n", varType, varName)
+			if varType != "" {
+				// Track the variable in our map
+				handlerInfo.Variables[varName] = varType
+				fmt.Printf("[DEBUG] processAssignment - Tracked variable %s with type: %s\n", varName, varType)
+			} else {
+				fmt.Printf("[DEBUG] processAssignment - No type extracted for variable %s\n", varName)
 			}
 
-			// Check if this looks like a response variable
-			if strings.Contains(strings.ToLower(varName), "resp") ||
-				strings.Contains(strings.ToLower(varName), "response") ||
-				strings.Contains(strings.ToLower(varName), "result") {
+			// Only exact variable name matches
+			if varName == "request" || varName == "req" {
+				if handlerInfo.RequestType == "" {
+					handlerInfo.RequestType = varType
+					fmt.Printf("[DEBUG] processAssignment - Set request type to: %s\n", varType)
+				}
+			}
+			if varName == "response" || varName == "resp" || varName == "result" {
 				if handlerInfo.ResponseType == "" {
-					handlerInfo.ResponseType = p.extractTypeFromExpression(assign.Rhs[i])
+					handlerInfo.ResponseType = varType
+					fmt.Printf("[DEBUG] processAssignment - Set response type to: %s\n", varType)
+				}
+			}
+		}
+	}
+}
+
+// processVarDeclaration processes variable declarations to detect request/response types
+func (p *ASTParser) processVarDeclaration(decl *ast.GenDecl, handlerInfo *ASTHandlerInfo) {
+	if decl.Tok != token.VAR {
+		return
+	}
+
+	// Initialize Variables map if not already done
+	if handlerInfo.Variables == nil {
+		handlerInfo.Variables = make(map[string]string)
+	}
+
+	fmt.Printf("[DEBUG] processVarDeclaration - Processing var declaration in handler '%s'\n", handlerInfo.Name)
+
+	for _, spec := range decl.Specs {
+		if valueSpec, ok := spec.(*ast.ValueSpec); ok {
+			for _, name := range valueSpec.Names {
+				varName := name.Name
+				fmt.Printf("[DEBUG] processVarDeclaration - Found var declaration: %s\n", varName)
+
+				if valueSpec.Type != nil {
+					typeName := p.extractTypeName(valueSpec.Type)
+					fmt.Printf("[DEBUG] processVarDeclaration - Variable %s has type: %s\n", varName, typeName)
+
+					// Track the variable in our map
+					handlerInfo.Variables[varName] = typeName
+
+					// Check if this looks like a request variable
+					if varName == "req" || varName == "request" {
+						if handlerInfo.RequestType == "" {
+							handlerInfo.RequestType = typeName
+							fmt.Printf("[DEBUG] processVarDeclaration - Set request type to: %s\n", typeName)
+						}
+					}
 				}
 			}
 		}
@@ -495,10 +567,14 @@ func (p *ASTParser) isJSONResponseCall(call *ast.CallExpr) bool {
 
 // extractRequestType extracts the request type from a JSON decode call
 func (p *ASTParser) extractRequestType(call *ast.CallExpr) string {
+	return p.extractRequestTypeWithContext(call, nil)
+}
+
+func (p *ASTParser) extractRequestTypeWithContext(call *ast.CallExpr, handlerInfo *ASTHandlerInfo) string {
 	// This is a simplified implementation
 	// In practice, you'd need more sophisticated type analysis
 	for _, arg := range call.Args {
-		if typeName := p.extractTypeFromExpression(arg); typeName != "" {
+		if typeName := p.extractTypeFromExpressionWithContext(arg, handlerInfo); typeName != "" {
 			return typeName
 		}
 	}
@@ -507,9 +583,13 @@ func (p *ASTParser) extractRequestType(call *ast.CallExpr) string {
 
 // extractResponseType extracts the response type from a JSON response call
 func (p *ASTParser) extractResponseType(call *ast.CallExpr) string {
+	return p.extractResponseTypeWithContext(call, nil)
+}
+
+func (p *ASTParser) extractResponseTypeWithContext(call *ast.CallExpr, handlerInfo *ASTHandlerInfo) string {
 	// Look at the arguments to find the response data
 	if len(call.Args) >= 2 {
-		responseType := p.extractTypeFromExpression(call.Args[1])
+		responseType := p.extractTypeFromExpressionWithContext(call.Args[1], handlerInfo)
 		return responseType
 	}
 	return ""
@@ -526,6 +606,8 @@ func (p *ASTParser) analyzeMapLiteralSchema(compLit *ast.CompositeLit) map[strin
 		"properties": make(map[string]interface{}),
 	}
 
+	fmt.Printf("[DEBUG] analyzeMapLiteralSchema - Starting analysis\n")
+
 	properties := schema["properties"].(map[string]interface{})
 
 	for _, elt := range compLit.Elts {
@@ -539,20 +621,30 @@ func (p *ASTParser) analyzeMapLiteralSchema(compLit *ast.CompositeLit) map[strin
 			}
 
 			if keyName != "" {
-				// Analyze value type
-				valueSchema := p.analyzeValueForSchema(kv.Value)
+				// Analyze value type with field name context
+				fmt.Printf("[DEBUG] analyzeMapLiteralSchema - Analyzing property '%s' with expression type: %T\n", keyName, kv.Value)
+				valueSchema := p.analyzeValueForSchemaWithContext(kv.Value, keyName)
 				if valueSchema != nil {
 					properties[keyName] = valueSchema
+					fmt.Printf("[DEBUG] analyzeMapLiteralSchema - Added property '%s': %+v\n", keyName, valueSchema)
+				} else {
+					fmt.Printf("[DEBUG] analyzeMapLiteralSchema - Skipped property '%s': no schema determined (expr type: %T)\n", keyName, kv.Value)
 				}
 			}
 		}
 	}
 
+	fmt.Printf("[DEBUG] analyzeMapLiteralSchema - Final schema has %d properties\n", len(properties))
 	return schema
 }
 
 // analyzeValueForSchema analyzes a value expression and returns appropriate JSON schema
 func (p *ASTParser) analyzeValueForSchema(expr ast.Expr) map[string]interface{} {
+	return p.analyzeValueForSchemaWithContext(expr, "")
+}
+
+func (p *ASTParser) analyzeValueForSchemaWithContext(expr ast.Expr, fieldName string) map[string]interface{} {
+	fmt.Printf("[DEBUG] analyzeValueForSchemaWithContext - Analyzing expression type %T for field '%s'\n", expr, fieldName)
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		switch e.Kind {
@@ -597,79 +689,91 @@ func (p *ASTParser) analyzeValueForSchema(expr ast.Expr) map[string]interface{} 
 		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
 			methodName := sel.Sel.Name
 
-			// Handle PocketBase record getter methods
-			switch methodName {
-			case "GetBool":
-				return map[string]interface{}{
-					"type": "boolean",
-				}
-			case "GetInt", "GetInt64":
-				return map[string]interface{}{
-					"type": "integer",
-				}
-			case "GetFloat", "GetFloat64":
-				return map[string]interface{}{
-					"type": "number",
-				}
-			case "GetDateTime":
-				return map[string]interface{}{
-					"type":   "string",
-					"format": "date-time",
-				}
-			case "GetString":
-				return map[string]interface{}{
-					"type": "string",
-				}
-			case "GetStringSlice":
-				return map[string]interface{}{
-					"type": "array",
-					"items": map[string]interface{}{
-						"type": "string",
-					},
-				}
-			case "GetBytes":
-				return map[string]interface{}{
-					"type":   "string",
-					"format": "byte",
-				}
-			case "GetUint", "GetUint64":
-				return map[string]interface{}{
-					"type": "integer",
-				}
-			case "Get":
-				return map[string]interface{}{
-					"type": "string",
-				}
-			case "Format":
-				return map[string]interface{}{
-					"type":   "string",
-					"format": "date-time",
-				}
+			// Use comprehensive PocketBase record getter method mapping
+			getterMappings := GetRecordGetterMethodMapping()
+			if schema, exists := getterMappings[methodName]; exists {
+				fmt.Printf("[DEBUG] analyzeValueForSchemaWithContext - Found getter mapping '%s' -> %+v (field: %s)\n", methodName, schema, fieldName)
+				return schema
 			}
 
-			// Handle time-related functions
-			if strings.Contains(methodName, "Time") {
+			// Handle time-related functions only if explicitly identifiable
+			if methodName == "Format" {
 				return map[string]interface{}{
 					"type":   "string",
 					"format": "date-time",
 				}
 			}
 		}
-		// Default for function calls
-		return map[string]interface{}{
-			"type": "string",
+
+		// Handle len() function calls
+		if sel, ok := e.Fun.(*ast.Ident); ok && sel.Name == "len" {
+			fmt.Printf("[DEBUG] analyzeValueForSchemaWithContext - Found len() call for field '%s'\n", fieldName)
+			return map[string]interface{}{
+				"type": "integer",
+			}
 		}
+
+		// No fallback for unknown function calls
+		fmt.Printf("[DEBUG] analyzeValueForSchemaWithContext - Unknown function call for field '%s'\n", fieldName)
+		return nil
 	case *ast.Ident:
-		// Handle identifiers (variables)
+		// Handle variable references - try to infer from common patterns
+		fmt.Printf("[DEBUG] analyzeValueForSchemaWithContext - Found identifier '%s' for field '%s'\n", e.Name, fieldName)
+
+		// Common variable patterns
+		if strings.Contains(e.Name, "todos") || strings.Contains(e.Name, "items") || strings.Contains(e.Name, "records") {
+			return map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "object",
+				},
+			}
+		}
+
+		// ID patterns
+		if strings.Contains(e.Name, "ID") || strings.Contains(e.Name, "Id") || e.Name == "id" {
+			return map[string]interface{}{
+				"type": "string",
+			}
+		}
+
+		// Updates/data patterns
+		if strings.Contains(e.Name, "updates") || strings.Contains(e.Name, "data") || strings.Contains(e.Name, "changes") {
+			return map[string]interface{}{
+				"type":                 "object",
+				"additionalProperties": true,
+			}
+		}
+
+		return nil
+	case *ast.SelectorExpr:
+		// Handle property access like record.Id, record.Name, etc.
+		fmt.Printf("[DEBUG] analyzeValueForSchemaWithContext - Found selector expression for field '%s'\n", fieldName)
+
+		// e.Sel is already *ast.Ident, no need to type assert
+		sel := e.Sel
+		// Common field patterns
+		if sel.Name == "Id" || sel.Name == "ID" {
+			return map[string]interface{}{
+				"type": "string",
+			}
+		}
+		if strings.Contains(strings.ToLower(sel.Name), "time") || strings.Contains(strings.ToLower(sel.Name), "date") {
+			return map[string]interface{}{
+				"type":   "string",
+				"format": "date-time",
+			}
+		}
+
+		// Default for selector expressions
 		return map[string]interface{}{
 			"type": "string",
 		}
 	}
 
-	// Default fallback
-	return map[string]interface{}{
-		"type": "string",
-	}
+	// No fallback - return nil for unknown expressions
+	fmt.Printf("[DEBUG] analyzeValueForSchemaWithContext - Unknown expression type %T for field '%s'\n", expr, fieldName)
+	return nil
 }
 
 // isMapType checks if a type expression represents a map type
@@ -685,8 +789,19 @@ func (p *ASTParser) isMapType(expr ast.Expr) bool {
 
 // extractTypeFromExpression extracts type information from an expression
 func (p *ASTParser) extractTypeFromExpression(expr ast.Expr) string {
+	return p.extractTypeFromExpressionWithContext(expr, nil)
+}
+
+func (p *ASTParser) extractTypeFromExpressionWithContext(expr ast.Expr, handlerInfo *ASTHandlerInfo) string {
 	switch e := expr.(type) {
 	case *ast.Ident:
+		// If we have handler context and the identifier is a tracked variable, return its type
+		if handlerInfo != nil && handlerInfo.Variables != nil {
+			if varType, exists := handlerInfo.Variables[e.Name]; exists {
+				fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Found tracked variable %s with type: %s\n", e.Name, varType)
+				return varType
+			}
+		}
 		return e.Name
 	case *ast.SelectorExpr:
 		return p.extractTypeName(e)
@@ -695,11 +810,97 @@ func (p *ASTParser) extractTypeFromExpression(expr ast.Expr) string {
 		if p.isMapType(e.Type) {
 			return "map[string]any" // Special marker for map literals
 		}
-		return p.extractTypeName(e.Type)
+		typeName := p.extractTypeName(e.Type)
+		fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Composite literal type: %s\n", typeName)
+
+		// Handle &StructType{} patterns - the type is still StructType
+		if typeName != "" {
+			return typeName
+		}
+
+		// If no explicit type, try to infer from the context
+		if e.Type == nil {
+			fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Composite literal with no explicit type\n")
+			return ""
+		}
+
+		return typeName
 	case *ast.UnaryExpr:
 		if e.Op == token.AND {
-			return p.extractTypeFromExpression(e.X)
+			// For &variable, recursively get the variable's type
+			underlyingType := p.extractTypeFromExpressionWithContext(e.X, handlerInfo)
+			fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Pointer to type: %s\n", underlyingType)
+			return underlyingType
 		}
+	case *ast.CallExpr:
+		// Handle function calls - try to infer return type
+		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
+			// Handle method calls like SomeType{} or pkg.NewType()
+			if ident, ok := sel.X.(*ast.Ident); ok {
+				fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Method call on: %s.%s\n", ident.Name, sel.Sel.Name)
+
+				// Handle constructor patterns like NewType(), CreateType(), etc.
+				if strings.HasPrefix(sel.Sel.Name, "New") || strings.HasPrefix(sel.Sel.Name, "Create") {
+					constructorType := strings.TrimPrefix(sel.Sel.Name, "New")
+					constructorType = strings.TrimPrefix(constructorType, "Create")
+					if constructorType != "" {
+						return constructorType
+					}
+				}
+
+				// For other method calls, we can't easily determine the return type
+				return ""
+			}
+		}
+
+		// Handle direct function calls like make(), new(), etc.
+		if ident, ok := e.Fun.(*ast.Ident); ok {
+			switch ident.Name {
+			case "make":
+				// make(Type, ...) - first argument is the type
+				if len(e.Args) > 0 {
+					fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - make() call with %d args, first arg type: %T\n", len(e.Args), e.Args[0])
+					typeResult := p.extractTypeFromExpressionWithContext(e.Args[0], handlerInfo)
+					if typeResult == "" {
+						// Try extractTypeName directly if context-aware version fails
+						typeResult = p.extractTypeName(e.Args[0])
+						fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - make() call fallback type extraction: %s\n", typeResult)
+					}
+					fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - make() call with type: %s\n", typeResult)
+					return typeResult
+				}
+			case "new":
+				// new(Type) - returns *Type, but we want Type
+				if len(e.Args) > 0 {
+					typeResult := p.extractTypeFromExpressionWithContext(e.Args[0], handlerInfo)
+					fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - new() call with type: %s\n", typeResult)
+					return typeResult
+				}
+			default:
+				// Handle constructor patterns like NewType(), CreateType(), etc.
+				if strings.HasPrefix(ident.Name, "New") {
+					constructorType := strings.TrimPrefix(ident.Name, "New")
+					if constructorType != "" {
+						fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Constructor call %s() inferred type: %s\n", ident.Name, constructorType)
+						return constructorType
+					}
+				}
+				if strings.HasPrefix(ident.Name, "Create") {
+					constructorType := strings.TrimPrefix(ident.Name, "Create")
+					if constructorType != "" {
+						fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Constructor call %s() inferred type: %s\n", ident.Name, constructorType)
+						return constructorType
+					}
+				}
+			}
+		}
+
+		fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Function call detected, cannot determine return type\n")
+	case *ast.TypeAssertExpr:
+		// Handle type assertions like value.(Type)
+		assertedType := p.extractTypeName(e.Type)
+		fmt.Printf("[DEBUG] extractTypeFromExpressionWithContext - Type assertion to: %s\n", assertedType)
+		return assertedType
 	}
 	return ""
 }
@@ -723,6 +924,12 @@ func (p *ASTParser) extractTypeName(expr ast.Expr) string {
 		key := p.extractTypeName(t.Key)
 		value := p.extractTypeName(t.Value)
 		return "map[" + key + "]" + value
+	case *ast.InterfaceType:
+		// Handle interface{} types
+		if t.Methods == nil || len(t.Methods.List) == 0 {
+			return "interface{}"
+		}
+		return "interface"
 	default:
 		return ""
 	}
@@ -781,8 +988,14 @@ func (p *ASTParser) generateStructSchema(structInfo *StructInfo) map[string]inte
 	properties := schema["properties"].(map[string]interface{})
 	var required []string
 
+	fmt.Printf("[DEBUG] generateStructSchema - Processing struct '%s' with %d fields\n", structInfo.Name, len(structInfo.Fields))
+
 	for fieldName, fieldInfo := range structInfo.Fields {
 		fieldSchema := p.generateFieldSchema(fieldInfo)
+		if fieldSchema == nil {
+			fmt.Printf("[DEBUG] generateStructSchema - Skipped field '%s': no schema generated\n", fieldName)
+			continue
+		}
 
 		jsonName := fieldInfo.JSONName
 		if jsonName == "" {
@@ -790,6 +1003,7 @@ func (p *ASTParser) generateStructSchema(structInfo *StructInfo) map[string]inte
 		}
 
 		properties[jsonName] = fieldSchema
+		fmt.Printf("[DEBUG] generateStructSchema - Added field '%s' as '%s': %+v\n", fieldName, jsonName, fieldSchema)
 
 		if fieldInfo.Required {
 			required = append(required, jsonName)
@@ -809,36 +1023,70 @@ func (p *ASTParser) generateStructSchema(structInfo *StructInfo) map[string]inte
 
 // generateFieldSchema generates a JSON schema for a struct field
 func (p *ASTParser) generateFieldSchema(fieldInfo *FieldInfo) map[string]interface{} {
-	schema := p.goTypeToJSONSchema(fieldInfo.Type)
+	// Try PocketBase field type mapping first
+	pbMapping := NewPocketBaseFieldTypeMapping()
 
-	if fieldInfo.Description != "" {
-		schema["description"] = fieldInfo.Description
+	// Convert validation map from map[string]string to map[string]interface{}
+	validationConfig := make(map[string]interface{})
+	for k, v := range fieldInfo.Validation {
+		validationConfig[k] = v
 	}
 
-	// Add validation constraints
-	for key, value := range fieldInfo.Validation {
-		switch key {
-		case "min":
-			if minVal, err := strconv.Atoi(value); err == nil {
-				schema["minimum"] = minVal
-			}
-		case "max":
-			if maxVal, err := strconv.Atoi(value); err == nil {
-				schema["maximum"] = maxVal
-			}
-		case "len":
-			if lenVal, err := strconv.Atoi(value); err == nil {
-				schema["minLength"] = lenVal
-				schema["maxLength"] = lenVal
+	if pbSchema := pbMapping.GetSchemaForField(fieldInfo.Type, validationConfig); pbSchema != nil {
+		schema := pbSchema
+		fmt.Printf("[DEBUG] generateFieldSchema - PocketBase mapping found for '%s' type '%s': %+v\n", fieldInfo.Name, fieldInfo.Type, schema)
+
+		// Add description if available
+		if fieldInfo.Description != "" {
+			schema["description"] = fieldInfo.Description
+		}
+
+		// Add example if available
+		if fieldInfo.Example != nil {
+			schema["example"] = fieldInfo.Example
+		}
+
+		return schema
+	}
+
+	// Try Go type mapping - only for known types
+	if goSchema := p.goTypeToJSONSchema(fieldInfo.Type); goSchema != nil {
+		schema := goSchema
+		fmt.Printf("[DEBUG] generateFieldSchema - Go type mapping found for '%s' type '%s': %+v\n", fieldInfo.Name, fieldInfo.Type, schema)
+
+		if fieldInfo.Description != "" {
+			schema["description"] = fieldInfo.Description
+		}
+
+		// Add validation constraints only for known constraint types
+		for key, value := range fieldInfo.Validation {
+			switch key {
+			case "min":
+				if minVal, err := strconv.Atoi(value); err == nil {
+					schema["minimum"] = minVal
+				}
+			case "max":
+				if maxVal, err := strconv.Atoi(value); err == nil {
+					schema["maximum"] = maxVal
+				}
+			case "len":
+				if lenVal, err := strconv.Atoi(value); err == nil {
+					schema["minLength"] = lenVal
+					schema["maxLength"] = lenVal
+				}
 			}
 		}
+
+		if fieldInfo.Example != nil {
+			schema["example"] = fieldInfo.Example
+		}
+
+		return schema
 	}
 
-	if fieldInfo.Example != nil {
-		schema["example"] = fieldInfo.Example
-	}
-
-	return schema
+	// No fallback - return nil for unknown types
+	fmt.Printf("[DEBUG] generateFieldSchema - No schema found for '%s' type '%s'\n", fieldInfo.Name, fieldInfo.Type)
+	return nil
 }
 
 // goTypeToJSONSchema converts Go types to JSON schema format
@@ -863,10 +1111,13 @@ func (p *ASTParser) goTypeToJSONSchema(goType string) map[string]interface{} {
 	default:
 		if strings.HasPrefix(goType, "[]") {
 			itemType := strings.TrimPrefix(goType, "[]")
-			return map[string]interface{}{
-				"type":  "array",
-				"items": p.goTypeToJSONSchema(itemType),
+			if itemSchema := p.goTypeToJSONSchema(itemType); itemSchema != nil {
+				return map[string]interface{}{
+					"type":  "array",
+					"items": itemSchema,
+				}
 			}
+			return nil
 		}
 		if strings.HasPrefix(goType, "map[") {
 			return map[string]interface{}{
@@ -874,10 +1125,14 @@ func (p *ASTParser) goTypeToJSONSchema(goType string) map[string]interface{} {
 				"additionalProperties": true,
 			}
 		}
-		// For custom types, reference them
-		return map[string]interface{}{
-			"$ref": "#/components/schemas/" + CleanTypeName(goType),
+		// For custom types, reference them only if they exist in parsed structs
+		if _, exists := p.structs[goType]; exists {
+			return map[string]interface{}{
+				"$ref": "#/components/schemas/" + CleanTypeName(goType),
+			}
 		}
+		// No fallback for unknown custom types
+		return nil
 	}
 }
 
@@ -970,28 +1225,31 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 	}
 
 	handlerName := ExtractHandlerNameFromPath(endpoint.Handler)
-	fmt.Printf("🔍 Enhance: %s %s -> %s\n", endpoint.Method, endpoint.Path, handlerName)
 
-	// Get available handler names for debugging
+	fmt.Printf("[DEBUG] EnhanceEndpoint - Looking for handler '%s' for %s %s\n", handlerName, endpoint.Method, endpoint.Path)
+
+	// Get available handler names
 	availableHandlers := make([]string, 0, len(p.handlers))
 	for name := range p.handlers {
 		availableHandlers = append(availableHandlers, name)
 	}
+
+	fmt.Printf("[DEBUG] EnhanceEndpoint - Available handlers: %v\n", availableHandlers)
 
 	var handlerInfo *ASTHandlerInfo
 	var exists bool
 
 	// Try exact match first
 	if handlerInfo, exists = p.GetHandlerByName(handlerName); exists {
-		fmt.Printf("  ✅ Exact match: %s\n", handlerName)
+		fmt.Printf("[DEBUG] EnhanceEndpoint - Found exact handler match: '%s'\n", handlerInfo.Name)
 	} else {
 		// Try matching by route registration
 		if handlerInfo, exists = p.findHandlerByRoute(endpoint); exists {
-			fmt.Printf("  ✅ Route match: %s\n", handlerInfo.Name)
+			fmt.Printf("[DEBUG] EnhanceEndpoint - Found route-based handler match: '%s'\n", handlerInfo.Name)
 		} else {
 			// Try fuzzy matching as last resort
 			if handlerInfo, exists = p.findHandlerByFuzzyMatch(endpoint, availableHandlers); exists {
-				fmt.Printf("  ✅ Fuzzy match: %s\n", handlerInfo.Name)
+				fmt.Printf("[DEBUG] EnhanceEndpoint - Found fuzzy handler match: '%s'\n", handlerInfo.Name)
 			}
 		}
 	}
@@ -1007,26 +1265,50 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 		}
 
 		// Set request/response schemas if available
+		// Handle request schema if available
 		if handlerInfo.RequestType != "" {
+			fmt.Printf("[DEBUG] EnhanceEndpoint - Handler '%s' has request type: '%s'\n", handlerInfo.Name, handlerInfo.RequestType)
+			fmt.Printf("[DEBUG] EnhanceEndpoint - Available structs: %v\n", func() []string {
+				var names []string
+				for name := range p.structs {
+					names = append(names, name)
+				}
+				return names
+			}())
 			if structInfo, exists := p.GetStructByName(handlerInfo.RequestType); exists {
 				endpoint.Request = structInfo.JSONSchema
+				fmt.Printf("[DEBUG] EnhanceEndpoint - Applied request schema for %s %s from type '%s'\n", endpoint.Method, endpoint.Path, handlerInfo.RequestType)
+				fmt.Printf("[DEBUG] EnhanceEndpoint - Request schema: %+v\n", structInfo.JSONSchema)
+			} else {
+				fmt.Printf("[DEBUG] EnhanceEndpoint - Request type '%s' not found in parsed structs\n", handlerInfo.RequestType)
 			}
+		} else {
+			fmt.Printf("[DEBUG] EnhanceEndpoint - No request type specified for handler '%s'\n", handlerInfo.Name)
 		}
 
+		// Handle response schema
 		if handlerInfo.ResponseType != "" {
 			if handlerInfo.ResponseType == "map[string]any" {
 				// Handle inline map literals - try to find the actual composite literal
 				if handlerInfo.ResponseSchema != nil {
 					endpoint.Response = handlerInfo.ResponseSchema
-					fmt.Printf("  📤 Map schema: %d props\n", len(handlerInfo.ResponseSchema))
+					fmt.Printf("[DEBUG] EnhanceEndpoint - Applied map literal response schema for %s %s: %d properties\n", endpoint.Method, endpoint.Path, len(handlerInfo.ResponseSchema))
+					fmt.Printf("[DEBUG] EnhanceEndpoint - Response schema: %+v\n", handlerInfo.ResponseSchema)
+				} else {
+					fmt.Printf("[DEBUG] EnhanceEndpoint - Handler has map[string]any response but no schema parsed\n")
 				}
 			} else if structInfo, exists := p.GetStructByName(handlerInfo.ResponseType); exists {
 				endpoint.Response = structInfo.JSONSchema
-				fmt.Printf("  📤 Struct schema: %s\n", handlerInfo.ResponseType)
+				fmt.Printf("[DEBUG] EnhanceEndpoint - Applied struct response schema for %s %s from type '%s'\n", endpoint.Method, endpoint.Path, handlerInfo.ResponseType)
+				fmt.Printf("[DEBUG] EnhanceEndpoint - Response schema: %+v\n", structInfo.JSONSchema)
+			} else {
+				fmt.Printf("[DEBUG] EnhanceEndpoint - Response type '%s' not found in parsed structs\n", handlerInfo.ResponseType)
 			}
+		} else {
+			fmt.Printf("[DEBUG] EnhanceEndpoint - No response type specified for handler '%s'\n", handlerInfo.Name)
 		}
 	} else {
-		fmt.Printf("  ❌ No handler found (available: %d)\n", len(availableHandlers))
+		fmt.Printf("[DEBUG] EnhanceEndpoint - No handler found for %s %s (looked for: %s)\n", endpoint.Method, endpoint.Path, handlerName)
 	}
 
 	return nil
@@ -1054,113 +1336,32 @@ func (p *ASTParser) findHandlerByRoute(endpoint *APIEndpoint) (*ASTHandlerInfo, 
 
 // findHandlerByFuzzyMatch tries to find a handler using various matching strategies
 func (p *ASTParser) findHandlerByFuzzyMatch(endpoint *APIEndpoint, availableHandlers []string) (*ASTHandlerInfo, bool) {
-	if len(availableHandlers) == 0 {
-		return nil, false
-	}
-
-	// Strategy 1: Path-based matching - find handler that matches the endpoint path pattern
-	pathSegments := strings.Split(strings.Trim(endpoint.Path, "/"), "/")
-	for _, handlerName := range availableHandlers {
-		if p.handlerMatchesPathPattern(handlerName, pathSegments) {
-			if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
-				return handlerInfo, true
-			}
-		}
-	}
-
-	// Strategy 2: Method-based matching - find handler that matches the HTTP method
-	for _, handlerName := range availableHandlers {
-		if p.handlerMatchesMethod(handlerName, endpoint.Method) {
-			if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
-				return handlerInfo, true
-			}
-		}
-	}
-
-	// Strategy 3: Response pattern matching - if there's only one handler, use it
-	if len(availableHandlers) == 1 {
-		if handlerInfo, exists := p.GetHandlerByName(availableHandlers[0]); exists {
-			return handlerInfo, true
-		}
-	}
-
-	// Strategy 4: First handler with response schema - prefer handlers with actual response data
-	for _, handlerName := range availableHandlers {
-		if handlerInfo, exists := p.GetHandlerByName(handlerName); exists {
-			if len(handlerInfo.ResponseSchema) > 0 {
-				return handlerInfo, true
-			}
-		}
-	}
-
+	// No fuzzy matching - only exact handler name matches are allowed
 	return nil, false
 }
 
 // handlerMatchesPathPattern checks if a handler name matches the endpoint path pattern
 func (p *ASTParser) handlerMatchesPathPattern(handlerName string, pathSegments []string) bool {
-	handlerLower := strings.ToLower(handlerName)
-
-	// Check if handler name contains any path segments
-	for _, segment := range pathSegments {
-		if segment == "" || strings.HasPrefix(segment, ":") || strings.HasPrefix(segment, "{") {
-			continue
-		}
-
-		segmentLower := strings.ToLower(segment)
-		if strings.Contains(handlerLower, segmentLower) {
-			return true
-		}
-
-		// Also check without common suffixes/prefixes
-		cleanSegment := strings.TrimSuffix(strings.TrimPrefix(segmentLower, "api"), "s")
-		if cleanSegment != "" && strings.Contains(handlerLower, cleanSegment) {
-			return true
-		}
-	}
-
+	// No pattern matching - only exact matches allowed
 	return false
 }
 
 // handlerMatchesMethod checks if a handler name suggests it handles a specific HTTP method
 func (p *ASTParser) handlerMatchesMethod(handlerName string, method string) bool {
-	handlerLower := strings.ToLower(handlerName)
-	methodLower := strings.ToLower(method)
-
-	// Direct method name matching
-	if strings.Contains(handlerLower, methodLower) {
-		return true
-	}
-
-	// Common method patterns
-	methodPatterns := map[string][]string{
-		"get":    {"get", "fetch", "retrieve", "find", "list", "show", "read"},
-		"post":   {"post", "create", "add", "insert", "new", "register"},
-		"put":    {"put", "update", "replace", "modify", "edit", "change"},
-		"patch":  {"patch", "update", "modify", "edit", "partial"},
-		"delete": {"delete", "remove", "destroy", "drop", "clear"},
-	}
-
-	if patterns, exists := methodPatterns[methodLower]; exists {
-		for _, pattern := range patterns {
-			if strings.Contains(handlerLower, pattern) {
-				return true
-			}
-		}
-	}
-
+	// No method pattern matching - only exact matches allowed
 	return false
 }
 
-// parseRouteRegistration detects route registration patterns in function calls
+// parseRouteRegistration detects explicit route registrations only
 func (p *ASTParser) parseRouteRegistration(call *ast.CallExpr) *RouteRegistration {
-	if call.Fun == nil || len(call.Args) < 2 {
+	if call.Fun == nil || len(call.Args) != 2 {
 		return nil
 	}
 
-	// Detect patterns like router.GET("/path", handler) or router.POST("/path", handlerVar)
+	// Only handle exact method calls - no pattern matching
 	var method, path, handlerRef string
 
-	// Extract method from function call
+	// Extract method from function call - must be exact HTTP method name
 	if selExpr, ok := call.Fun.(*ast.SelectorExpr); ok {
 		method = strings.ToUpper(selExpr.Sel.Name)
 		if !isHTTPMethod(method) {
@@ -1170,24 +1371,21 @@ func (p *ASTParser) parseRouteRegistration(call *ast.CallExpr) *RouteRegistratio
 		return nil
 	}
 
-	// Extract path from first argument (should be a string literal)
-	if pathLit, ok := call.Args[0].(*ast.BasicLit); ok && pathLit.Kind.String() == "STRING" {
-		path = strings.Trim(pathLit.Value, `"`)
+	// Extract path from first argument - must be string literal
+	if basicLit, ok := call.Args[0].(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
+		path = strings.Trim(basicLit.Value, `"`)
 	} else {
 		return nil
 	}
 
 	// Extract handler reference from second argument
-	if len(call.Args) >= 2 {
-		handlerRef = p.extractHandlerReference(call.Args[1])
-	}
+	handlerRef = p.extractHandlerReference(call.Args[1])
 
 	if method != "" && path != "" && handlerRef != "" {
 		return &RouteRegistration{
 			Method:     method,
 			Path:       path,
 			HandlerRef: handlerRef,
-			CallExpr:   call,
 		}
 	}
 
@@ -1212,25 +1410,12 @@ func (p *ASTParser) extractHandlerReference(expr ast.Expr) string {
 	return ""
 }
 
-// analyzeRouteRegistration processes a route registration to improve handler mapping
+// analyzeRouteRegistration processes a route registration - only exact matches
 func (p *ASTParser) analyzeRouteRegistration(routeReg *RouteRegistration) {
-	fmt.Printf("🔗 Route: %s %s -> %s\n", routeReg.Method, routeReg.Path, routeReg.HandlerRef)
-
-	// Try to find the handler function that matches this registration
+	// Only use exact handler name matches - no fuzzy matching
 	if handlerInfo, exists := p.handlers[routeReg.HandlerRef]; exists {
-		// Update handler with route information
 		handlerInfo.HTTPMethods = append(handlerInfo.HTTPMethods, routeReg.Method)
 		handlerInfo.RoutePath = routeReg.Path
-	} else {
-		// Look for similar handler names
-		for handlerName, handlerInfo := range p.handlers {
-			if strings.Contains(strings.ToLower(handlerName), strings.ToLower(routeReg.HandlerRef)) ||
-				strings.Contains(strings.ToLower(routeReg.HandlerRef), strings.ToLower(handlerName)) {
-				handlerInfo.HTTPMethods = append(handlerInfo.HTTPMethods, routeReg.Method)
-				handlerInfo.RoutePath = routeReg.Path
-				break
-			}
-		}
 	}
 }
 
@@ -1277,7 +1462,6 @@ func (p *ASTParser) GetStructsForFinding() map[string]*StructInfo {
 
 // DiscoverSourceFiles discovers Go source files with API_SOURCE directive
 func (p *ASTParser) DiscoverSourceFiles() error {
-	fmt.Printf("🚶 Discovering API_SOURCE files...\n")
 	return filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors, continue walking
@@ -1287,15 +1471,19 @@ func (p *ASTParser) DiscoverSourceFiles() error {
 		if !strings.HasSuffix(path, ".go") ||
 			strings.Contains(path, "_test.go") ||
 			strings.Contains(path, "/vendor/") ||
-			strings.Contains(path, "/.git/") ||
-			strings.HasPrefix(filepath.Base(path), ".") {
+			strings.Contains(path, "/.") ||
+			strings.Contains(path, "node_modules") {
 			return nil
 		}
 
+		fmt.Printf("[DEBUG] DiscoverSourceFiles - Checking file: %s\n", path)
+
 		// Check if file contains API_SOURCE directive
 		if p.fileContainsAPISourceDirective(path) {
-			fmt.Printf("  📁 %s\n", path)
+			fmt.Printf("[DEBUG] DiscoverSourceFiles - Found API_SOURCE in: %s\n", path)
 			return p.ParseFile(path)
+		} else {
+			fmt.Printf("[DEBUG] DiscoverSourceFiles - No API_SOURCE directive in: %s\n", path)
 		}
 
 		return nil

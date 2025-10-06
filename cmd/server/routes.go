@@ -17,9 +17,9 @@ func registerRoutes(pbApp core.App) {
 		Version:     "0.0.1",
 		Description: "Hello",
 		Status:      "deprecated",
-		Enabled:     true,
+		Enabled:     false,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
-			Enabled: true,
+			Enabled: false,
 		},
 	}
 
@@ -39,9 +39,9 @@ func registerRoutes(pbApp core.App) {
 		Version:     "2.0.0",
 		Description: "Hello world?",
 		Status:      "development",
-		Enabled:     true,
+		Enabled:     false,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
-			Enabled: true,
+			Enabled: false,
 		},
 	}
 
