@@ -9,6 +9,40 @@
             endpoints: false
         },
 
+        // Get superuser authentication token from localStorage
+        getSuperuserAuthToken() {
+            try {
+                const authData = localStorage.getItem('__pb_superuser_auth__');
+                if (!authData) {
+                    console.warn('No superuser authentication token found in localStorage');
+                    return null;
+                }
+
+                const parsed = JSON.parse(authData);
+                return parsed.token || null;
+            } catch (error) {
+                console.error('Failed to parse superuser auth token:', error);
+                return null;
+            }
+        },
+
+        // Create authenticated fetch options
+        getAuthenticatedFetchOptions(options = {}) {
+            const token = this.getSuperuserAuthToken();
+            if (!token) {
+                throw new Error('SuperUser authentication required');
+            }
+
+            return {
+                ...options,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            };
+        },
+
         // Load available API versions
         async loadVersions() {
             if (this.loadingState.versions) {
@@ -25,8 +59,11 @@
                     StatusManager.updateStatus('loading', 'Loading API versions...');
                 }
 
-                const response = await fetch('/api/docs/versions');
+                const response = await fetch('/api/docs/versions', this.getAuthenticatedFetchOptions());
                 if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('SuperUser authentication required. Please log in as superuser.');
+                    }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
@@ -80,8 +117,11 @@
                     StatusManager.updateStatus('loading', `Loading endpoints for version ${version}...`);
                 }
 
-                const response = await fetch(`/api/docs/${version}`);
+                const response = await fetch(`/api/docs/${version}`, this.getAuthenticatedFetchOptions());
                 if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('SuperUser authentication required. Please log in as superuser.');
+                    }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 

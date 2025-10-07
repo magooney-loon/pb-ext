@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -304,10 +305,15 @@ func (vm *APIVersionManager) RegisterWithServer(app core.App) {
 		// Version listing endpoint
 		e.Router.GET("/api/docs/versions", func(c *core.RequestEvent) error {
 			return vm.VersionsHandler(c)
-		})
+		}).Bind(apis.RequireSuperuserAuth())
 
 		// Debug AST endpoint
 		e.Router.GET("/api/docs/debug/ast", func(c *core.RequestEvent) error {
+			// Check authentication
+			if c.Auth == nil {
+				return c.JSON(http.StatusUnauthorized, map[string]any{"error": "SuperUser Authentication required"})
+			}
+
 			// Create a temporary AST parser for debugging
 			astParser := NewASTParser()
 
@@ -361,13 +367,13 @@ func (vm *APIVersionManager) RegisterWithServer(app core.App) {
 			versionPath := fmt.Sprintf("/api/docs/%s", version)
 			e.Router.GET(versionPath, func(c *core.RequestEvent) error {
 				return vm.GetVersionOpenAPI(c, version)
-			})
+			}).Bind(apis.RequireSuperuserAuth())
 
 			// Version-specific schema configuration endpoints
 			schemaConfigPath := fmt.Sprintf("/api/%s/schema/config", version)
 			e.Router.GET(schemaConfigPath, func(c *core.RequestEvent) error {
 				return vm.GetVersionSchemaConfig(c, version)
-			})
+			}).Bind(apis.RequireSuperuserAuth())
 		}
 
 		return e.Next()
@@ -376,6 +382,11 @@ func (vm *APIVersionManager) RegisterWithServer(app core.App) {
 
 // VersionsHandler returns list of all available API versions
 func (vm *APIVersionManager) VersionsHandler(c *core.RequestEvent) error {
+	// Check authentication
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "SuperUser Authentication required"})
+	}
+
 	infos, err := vm.GetAllVersionsInfo()
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -393,6 +404,11 @@ func (vm *APIVersionManager) VersionsHandler(c *core.RequestEvent) error {
 
 // GetVersionOpenAPI returns the complete OpenAPI schema for a specific version
 func (vm *APIVersionManager) GetVersionOpenAPI(c *core.RequestEvent, version string) error {
+	// Check authentication
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "SuperUser Authentication required"})
+	}
+
 	// Get version-specific registry
 	registry, err := vm.GetVersionRegistry(version)
 	if err != nil {
@@ -409,6 +425,11 @@ func (vm *APIVersionManager) GetVersionOpenAPI(c *core.RequestEvent, version str
 
 // GetVersionSchemaConfig returns the schema configuration for a specific version
 func (vm *APIVersionManager) GetVersionSchemaConfig(c *core.RequestEvent, version string) error {
+	// Check authentication
+	if c.Auth == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]any{"error": "SuperUser Authentication required"})
+	}
+
 	// Verify version exists
 	if _, err := vm.GetVersionConfig(version); err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
