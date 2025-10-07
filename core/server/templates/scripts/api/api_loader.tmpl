@@ -266,29 +266,41 @@
 
         // Display API description
         displayAPIDescription() {
-            // Look for or create description container
+            // Look for or create description container above filters/stats
             let descContainer = document.getElementById('api-description-display');
 
             if (!descContainer) {
-                // Create container after version selector
-                const versionSelect = document.getElementById('version-select');
-                if (versionSelect && versionSelect.parentElement && versionSelect.parentElement.parentElement) {
+                // Create container before the filters section
+                const filtersSection = document.getElementById('api-filters');
+                if (filtersSection && filtersSection.parentElement) {
                     descContainer = document.createElement('div');
                     descContainer.id = 'api-description-display';
-                    descContainer.className = 'api-description-inline';
-                    versionSelect.parentElement.parentElement.appendChild(descContainer);
+                    descContainer.className = 'api-description-compact';
+                    filtersSection.parentElement.insertBefore(descContainer, filtersSection);
                 }
             }
 
             if (descContainer && APIState.openApiSchema) {
                 const description = APIState.openApiSchema.description;
                 if (description && description.trim()) {
-                    descContainer.textContent = description;
+                    // Render as compact row with icon and description
+                    descContainer.innerHTML = `
+                        <div class="flex align-center gap-2 p-2 mb-3" style="background: var(--baseAlt1Color); border-radius: var(--baseRadius); border-left: 3px solid var(--infoColor);">
+                            <i class="ri-information-line txt-info"></i>
+                            <span class="txt-sm flex-fill" style="line-height: 1.4;">${this._escapeHtml(description)}</span>
+                        </div>
+                    `;
                     descContainer.style.display = 'block';
                 } else {
                     descContainer.style.display = 'none';
                 }
             }
+        },
+
+        _escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         },
 
         // Get CSS class for version status badge

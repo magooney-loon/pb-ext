@@ -64,6 +64,8 @@
             `;
         },
 
+
+
         renderEndpoint(endpoint) {
             const method = endpoint.method.toLowerCase();
             const operationId = (endpoint.handler || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
