@@ -72,8 +72,40 @@
                 }
             });
 
-            // Default to body tab
+            // Default to body tab and ensure empty state is shown initially
             this._switchResponseTab('body');
+            this._showEmptyResponseState();
+        },
+
+        // Show empty response state
+        _showEmptyResponseState() {
+            const emptyState = this._getElementById('response-empty-state');
+            const bodyContent = this._getElementById('response-body');
+            const headersContent = this._getElementById('response-headers');
+
+            if (emptyState) emptyState.style.display = 'block';
+            if (bodyContent) bodyContent.style.display = 'none';
+            if (headersContent) headersContent.style.display = 'none';
+        },
+
+        // Hide empty response state and show content
+        _hideEmptyResponseState() {
+            const emptyState = this._getElementById('response-empty-state');
+            if (emptyState) emptyState.style.display = 'none';
+
+            // Show the active response tab
+            const activeTab = document.querySelector('.response-tab.active');
+            if (activeTab) {
+                const tabName = activeTab.dataset.tab;
+                this._switchResponseTab(tabName);
+            } else {
+                this._switchResponseTab('body');
+            }
+        },
+
+        // Method to be called when a response is received
+        showResponseContent() {
+            this._hideEmptyResponseState();
         },
 
         // Bind event listeners
@@ -172,17 +204,40 @@
                     btn.classList.toggle('active', btn.dataset.tab === tabName);
                 });
 
-                // Update content visibility
-                this._safeQueryAll('.response-tab-content').forEach(content => {
-                    const isActive = content.id === `response-${tabName}`;
-                    content.classList.toggle('active', isActive);
-                    content.style.display = isActive ? 'block' : 'none';
+                // Update content visibility - fix the ID matching
+                const bodyContent = this._getElementById('response-body');
+                const headersContent = this._getElementById('response-headers');
+                const emptyState = this._getElementById('response-empty-state');
+
+                // Only show response content if we actually have a response
+                const hasResponse = bodyContent && bodyContent.querySelector('code').textContent.trim();
+
+                if (!hasResponse) {
+                    // Show empty state, hide content
+                    if (emptyState) emptyState.style.display = 'block';
+                    if (bodyContent) bodyContent.style.display = 'none';
+                    if (headersContent) headersContent.style.display = 'none';
+                } else {
+                    // Hide empty state, show appropriate content
+                    if (emptyState) emptyState.style.display = 'none';
+
+                    if (bodyContent) {
+                        bodyContent.classList.toggle('active', tabName === 'body');
+                        bodyContent.style.display = tabName === 'body' ? 'block' : 'none';
+                    }
+
+                    if (headersContent) {
+                        headersContent.classList.toggle('active', tabName === 'headers');
+                        headersContent.style.display = tabName === 'headers' ? 'block' : 'none';
+                    }
 
                     // Re-apply syntax highlighting when tab becomes visible
-                    if (isActive && typeof SchemaProcessor !== 'undefined') {
-                        this._refreshSyntaxHighlighting(content);
+                    if (tabName === 'body' && typeof SchemaProcessor !== 'undefined') {
+                        if (bodyContent) {
+                            this._refreshSyntaxHighlighting(bodyContent);
+                        }
                     }
-                });
+                }
 
                 console.log(`Switched to response tab: ${tabName}`);
             } catch (error) {
@@ -251,7 +306,11 @@
 
                 // Update UI components
                 this._updateEndpointInfo();
-                this._updateSchemaDisplay();
+
+                // Update schema display with proper timing
+                setTimeout(() => {
+                    this._updateSchemaDisplay();
+                }, 50);
 
                 // Reset to parameters tab
                 this._switchTesterTab('parameters');
@@ -306,12 +365,45 @@
                     return;
                 }
 
+                // Clear existing content
+                container.innerHTML = `
+                    <div class="txt-center txt-hint">
+                        <i class="ri-loader-4-line animate-spin"></i>
+                        <p>Loading schema...</p>
+                    </div>
+                `;
+
                 const { data } = this.currentEndpoint;
 
                 // Use APIFormBuilder to generate the parameter form
                 if (typeof APIFormBuilder !== 'undefined') {
                     console.log('Generating parameter form for endpoint:', data);
-                    APIFormBuilder.generateParameterForm(container, data);
+
+                    // Generate form with a small delay to ensure proper rendering
+                    setTimeout(() => {
+                        try {
+                            APIFormBuilder.generateParameterForm(container, data);
+
+                            // Initialize URL updating after form is built
+                            setTimeout(() => {
+                                if (APIFormBuilder.initUrlUpdating) {
+                                    APIFormBuilder.initUrlUpdating();
+                                }
+                                if (APIFormBuilder.updateUrlDisplay) {
+                                    APIFormBuilder.updateUrlDisplay();
+                                }
+                            }, 100);
+                        } catch (formError) {
+                            console.error('Error generating form:', formError);
+                            container.innerHTML = `
+                                <div class="txt-center txt-danger p-3">
+                                    <i class="ri-error-warning-line"></i>
+                                    <p>Error generating form: ${formError.message}</p>
+                                </div>
+                            `;
+                        }
+                    }, 10);
+
                 } else {
                     console.error('APIFormBuilder not available');
                     container.innerHTML = `

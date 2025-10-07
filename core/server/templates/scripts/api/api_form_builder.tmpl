@@ -376,7 +376,18 @@
 
         // Clear all form fields
         clearForm() {
-            document.querySelectorAll('.form-control').forEach(field => {
+            // Only clear form controls within the API tester sidebar
+            const sidebar = document.getElementById('api-tester-sidebar');
+            if (!sidebar) return;
+
+            sidebar.querySelectorAll('.form-control').forEach(field => {
+                // Skip if this field is part of API version selection or other global controls
+                if (field.closest('.api-version-selector') ||
+                    field.closest('#api-tester-sidebar .endpoint-info') ||
+                    field.hasAttribute('data-preserve-on-reset')) {
+                    return;
+                }
+
                 if (field.type === 'checkbox') {
                     field.checked = false;
                 } else {
@@ -384,8 +395,8 @@
                 }
             });
 
-            // Remove added query parameters
-            document.querySelectorAll('.query-param-added').forEach(param => {
+            // Remove added query parameters only within the sidebar
+            sidebar.querySelectorAll('.query-param-added').forEach(param => {
                 param.remove();
             });
 
