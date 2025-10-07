@@ -110,9 +110,10 @@ func (vm *APIVersionManager) RegisterVersion(version string, config *APIDocsConf
 		return fmt.Errorf("version %s already exists", version)
 	}
 
-	// Create version-specific registry with shared AST parser and schema generator
-	globalSystem := GetGlobalDocumentationSystem()
-	registry := NewAPIRegistry(config, globalSystem.astParser, globalSystem.schemaGenerator)
+	// Create version-specific registry with its own AST parser and schema generator
+	astParser := NewASTParser()
+	schemaGenerator := NewSchemaGenerator(astParser)
+	registry := NewAPIRegistry(config, astParser, schemaGenerator)
 
 	// Store version information
 	vm.versions = append(vm.versions, version)
@@ -307,8 +308,8 @@ func (vm *APIVersionManager) RegisterWithServer(app core.App) {
 
 		// Debug AST endpoint
 		e.Router.GET("/api/docs/debug/ast", func(c *core.RequestEvent) error {
-			system := GetGlobalDocumentationSystem()
-			astParser := system.astParser
+			// Create a temporary AST parser for debugging
+			astParser := NewASTParser()
 
 			allStructs := astParser.GetAllStructs()
 			allHandlers := astParser.GetAllHandlers()

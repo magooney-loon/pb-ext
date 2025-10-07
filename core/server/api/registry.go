@@ -314,13 +314,3 @@ func (r *APIRegistry) rebuildEndpointsList() {
 	r.docs.Endpoints = endpoints
 	r.docs.Generated = time.Now().Format(time.RFC3339)
 }
-
-// =============================================================================
-// Server Integration Methods
-// =============================================================================
-
-// RegisterAPIDocsRoutes is deprecated - use versioned system only
-func (r *APIRegistry) RegisterAPIDocsRoutes(app core.App) {
-	// This method is deprecated and disabled
-	// Use the versioned API documentation system instead
-}

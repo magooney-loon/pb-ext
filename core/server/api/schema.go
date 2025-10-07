@@ -170,18 +170,8 @@ func (sg *SchemaGenerator) generateStructSchemas() map[string]interface{} {
 }
 
 // =============================================================================
-// Path-Based Schema Generation
+// Schema Pattern Matching
 // =============================================================================
-
-// generateRequestSchemaFromPath is disabled - only use AST-based generation
-func (sg *SchemaGenerator) generateRequestSchemaFromPath(method, path string) map[string]interface{} {
-	return nil
-}
-
-// generateResponseSchemaFromPath is disabled - only use AST-based generation
-func (sg *SchemaGenerator) generateResponseSchemaFromPath(method, path string) map[string]interface{} {
-	return nil
-}
 
 // getSchemaPatterns returns predefined schema patterns for common endpoints
 func (sg *SchemaGenerator) getSchemaPatterns() []*SchemaPattern {
@@ -251,18 +241,8 @@ func (sg *SchemaGenerator) getSchemaPatterns() []*SchemaPattern {
 }
 
 // =============================================================================
-// Generic Schema Generators
+// List Endpoint Detection
 // =============================================================================
-
-// generateGenericRequestSchema is disabled - only use exact AST data
-func (sg *SchemaGenerator) generateGenericRequestSchema(method, path string) map[string]interface{} {
-	return nil
-}
-
-// generateGenericResponseSchema is disabled - only use exact AST data
-func (sg *SchemaGenerator) generateGenericResponseSchema(method, path string) map[string]interface{} {
-	return nil
-}
 
 // isListEndpoint determines if a path represents a list endpoint
 func (sg *SchemaGenerator) isListEndpoint(path string) bool {
@@ -520,26 +500,9 @@ func (sg *SchemaGenerator) generateDeleteResponseSchema() map[string]interface{}
 	}
 }
 
-// Generic schemas disabled - only use exact AST data
-
 // =============================================================================
-// OpenAPI Component Generators
+// Cache Management
 // =============================================================================
-
-// generateCommonResponses disabled - only use exact schemas
-func (sg *SchemaGenerator) generateCommonResponses() map[string]interface{} {
-	return map[string]interface{}{}
-}
-
-// generateCommonParameters disabled - only use exact parameter data
-func (sg *SchemaGenerator) generateCommonParameters() map[string]interface{} {
-	return map[string]interface{}{}
-}
-
-// generateSecuritySchemes disabled - no generic security schemes
-func (sg *SchemaGenerator) generateSecuritySchemes() map[string]interface{} {
-	return map[string]interface{}{}
-}
 
 // =============================================================================
 // Cache Management

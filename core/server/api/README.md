@@ -46,10 +46,10 @@ v2Config := &api.APIDocsConfig{
     Title:       "pb-ext demo api",
     Version:     "2.0.0",
     Description: "Development preview API",
-    Status:      "development",
-    Enabled:     false,
+    Status:      "testing",
+    Enabled:     true,
     AutoDiscovery: &api.AutoDiscoveryConfig{
-        Enabled: false,
+        Enabled: true,
     },
 }
 
@@ -71,20 +71,44 @@ v1Router, err := versionManager.GetVersionRouter("v1", e)
 v2Router, err := versionManager.GetVersionRouter("v2", e)
 
 // Register routes per version
-v1Router.GET("/api/v1/time", timeHandler)
-v1Router.POST("/api/v1/posts", createPostHandler).Bind(apis.RequireAuth())
+v1Router.GET("/api/v1/todos", getTodosHandler)
+v1Router.POST("/api/v1/todos", createTodoHandler).Bind(apis.RequireAuth())
+v1Router.PATCH("/api/v1/todos/{id}", updateTodoHandler).Bind(apis.RequireAuth())
 
 v2Router.GET("/api/v2/time", timeHandler)
-v2Router.POST("/api/v2/posts", createPostHandler).Bind(apis.RequireAuth())
+v2Router.GET("/api/v2/analytics", analyticsHandler).Bind(apis.RequireAuth())
 ```
 
-## Usage Patterns
+## Usage Pattern
 
-### Basic Versioned Setup
+### Complete Implementation
 
 ```go
 func registerRoutes(pbApp core.App) {
-    // Initialize versioned system
+    // Create configs for API versions
+    v1Config := &api.APIDocsConfig{
+        Title:       "pb-ext demo api",
+        Version:     "1.0.0",
+        Description: "Stable production API",
+        Status:      "stable",
+        Enabled:     true,
+        AutoDiscovery: &api.AutoDiscoveryConfig{
+            Enabled: true,
+        },
+    }
+
+    v2Config := &api.APIDocsConfig{
+        Title:       "pb-ext demo api", 
+        Version:     "2.0.0",
+        Description: "Development API with new features",
+        Status:      "testing",
+        Enabled:     true,
+        AutoDiscovery: &api.AutoDiscoveryConfig{
+            Enabled: true,
+        },
+    }
+
+    // Initialize version manager
     versions := map[string]*api.APIDocsConfig{
         "v1": v1Config,
         "v2": v2Config,
@@ -92,13 +116,19 @@ func registerRoutes(pbApp core.App) {
     versionManager := api.InitializeVersionedSystem(versions, "v1")
 
     pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
-        // Get version routers and register routes
+        // Get version-specific routers
         v1Router, _ := versionManager.GetVersionRouter("v1", e)
         v2Router, _ := versionManager.GetVersionRouter("v2", e)
 
-        // Register version-specific routes
-        v1Router.GET("/api/v1/endpoint", handler)
-        v2Router.GET("/api/v2/endpoint", handler)
+        // v1 API routes
+        v1Router.GET("/api/v1/todos", getTodosHandler)
+        v1Router.POST("/api/v1/todos", createTodoHandler).Bind(apis.RequireAuth())
+        v1Router.GET("/api/v1/todos/{id}", getTodoHandler)
+        v1Router.PATCH("/api/v1/todos/{id}", updateTodoHandler).Bind(apis.RequireAuth())
+        v1Router.DELETE("/api/v1/todos/{id}", deleteTodoHandler).Bind(apis.RequireAuth())
+
+        // v2 API routes with new features
+        v2Router.GET("/api/v2/time", timeHandler)
 
         return e.Next()
     })
@@ -114,9 +144,13 @@ Mark your Go files for automatic analysis:
 
 ```go
 // API_SOURCE - Mark file for AST analysis
-// API_DESC Get user information
-// API_TAGS users,profile
-func getUsersHandler(c *core.RequestEvent) error { }
+// API_DESC Get todos list
+// API_TAGS todos,list
+func getTodosHandler(c *core.RequestEvent) error { }
+
+// API_DESC Create a new todo
+// API_TAGS todos,create
+func createTodoHandler(c *core.RequestEvent) error { }
 ```
 
 ### Authentication Middleware Detection
@@ -125,46 +159,44 @@ The system automatically detects authentication requirements:
 
 ```go
 // Different auth types are automatically documented
-router.GET("/public", handler)                                    // No auth
-router.GET("/guest", handler).Bind(apis.RequireGuestOnly())       // Guest only
-router.POST("/auth", handler).Bind(apis.RequireAuth())            // Auth required
-router.DELETE("/admin", handler).Bind(apis.RequireSuperuserAuth()) // Admin only
-router.PUT("/owner", handler).Bind(apis.RequireSuperuserOrOwnerAuth("id")) // Owner/Admin
+v1Router.GET("/api/v1/public", handler)                                    // No auth
+v1Router.GET("/api/v1/guest", handler).Bind(apis.RequireGuestOnly())       // Guest only
+v1Router.POST("/api/v1/todos", handler).Bind(apis.RequireAuth())            // Auth required
+v1Router.DELETE("/api/v1/admin", handler).Bind(apis.RequireSuperuserAuth()) // Admin only
+v1Router.PUT("/api/v1/todos/{id}", handler).Bind(apis.RequireSuperuserOrOwnerAuth("id")) // Owner/Admin
 ```
 
 ## Documentation Endpoints
 
 ### Version-Specific Documentation
-- **OpenAPI JSON**: `GET /api/v1/docs/openapi` (for v1)
-- **OpenAPI JSON**: `GET /api/v2/docs/openapi` (for v2)
-- **Statistics**: `GET /api/v1/docs/stats`
-- **Components**: `GET /api/v1/docs/components`
+- **Version OpenAPI**: `GET /api/docs/v1` (for v1)
+- **Version OpenAPI**: `GET /api/docs/v2` (for v2)
+- **Schema Config**: `GET /api/v1/schema/config`
+- **AST Debug**: `GET /api/docs/debug/ast`
 
 ### Version Management
-- **List Versions**: `GET /api/versions`
-- **Version Info**: `GET /api/versions/{version}`
-- **Default Version**: `GET /api/versions/default`
+- **List Versions**: `GET /api/docs/versions`
 
 ## Features
 
 - ✅ **Multi-Version Support**: Run multiple API versions simultaneously
 - ✅ **Independent Configs**: Each version has its own configuration and status
-- ✅ **Zero Configuration**: Works out of the box with sensible defaults
 - ✅ **AST Analysis**: Deep code analysis for accurate documentation
 - ✅ **Auto-Discovery**: Automatically detect routes and middleware per version
-- ✅ **Schema Generation**: Generate schemas from Go types
+- ✅ **Schema Generation**: Generate schemas from Go types using AST
 - ✅ **Auth Detection**: Analyze middleware for authentication requirements
 - ✅ **OpenAPI Compatible**: Standard OpenAPI 3.0 output format per version
 - ✅ **Thread Safe**: Concurrent access support with proper locking
-- ✅ **Status Management**: Mark versions as stable, development, deprecated
+- ✅ **Status Management**: Mark versions as stable, testing, deprecated
 - ✅ **Selective Enabling**: Enable/disable versions independently
+- ✅ **Clean Architecture**: No legacy code, versioned system only
 
 ## Version Lifecycle Management
 
 Versions can have different statuses:
 - **stable**: Production-ready, fully enabled
-- **development**: Preview/beta, may have limited availability
+- **testing**: Preview/beta, may have limited availability
 - **deprecated**: Legacy version, marked for removal
 - **maintenance**: Bug fixes only, no new features
 
-Each version can be independently enabled/disabled.
+Each version can be independently enabled/disabled through configuration.

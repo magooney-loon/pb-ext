@@ -28,6 +28,7 @@ func registerRoutes(pbApp core.App) {
 		Version:     "2.0.0",
 		Description: "Hello world",
 		Status:      "testing",
+		BaseURL:     "http://127.0.0.1:8090/",
 		Enabled:     true,
 		AutoDiscovery: &api.AutoDiscoveryConfig{
 			Enabled: true,

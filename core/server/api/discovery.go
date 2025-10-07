@@ -391,54 +391,6 @@ func (rc *RouteChain) getAuthIcon(authType string) string {
 }
 
 // =============================================================================
-// Global Functions for Easy Access
-// =============================================================================
-
-// EnableAutoDocumentation wraps a router with automatic documentation capabilities
-func EnableAutoDocumentation(e *core.ServeEvent) *AutoAPIRouter {
-	system := GetGlobalDocumentationSystem()
-	return NewAutoAPIRouter(e.Router, system.registry)
-}
-
-// EnableAutoDocumentationWithRegistry wraps a router with a specific registry
-func EnableAutoDocumentationWithRegistry(e *core.ServeEvent, registry *APIRegistry) *AutoAPIRouter {
-	return NewAutoAPIRouter(e.Router, registry)
-}
-
-// AutoRegisterRoute provides global route registration through documentation system
-func AutoRegisterRoute(method, path string, handler func(*core.RequestEvent) error) {
-	system := GetGlobalDocumentationSystem()
-	system.registry.AutoRegisterRoute(method, path, handler)
-}
-
-// ConfigureAutoDiscovery configures auto-discovery settings
-func ConfigureAutoDiscovery(config *AutoDiscoveryConfig) {
-	system := GetGlobalDocumentationSystem()
-	if system.config != nil {
-		system.config.AutoDiscovery = config
-	}
-}
-
-// GetDiscoveredEndpoints returns all discovered endpoints
-func GetDiscoveredEndpoints() []APIEndpoint {
-	system := GetGlobalDocumentationSystem()
-	docs := system.GetDocs()
-	return docs.Endpoints
-}
-
-// GetEndpointByPath retrieves a specific endpoint by method and path
-func GetEndpointByPath(method, path string) (*APIEndpoint, bool) {
-	system := GetGlobalDocumentationSystem()
-	return system.registry.GetEndpoint(method, path)
-}
-
-// GetEndpointsByTag returns all endpoints with a specific tag
-func GetEndpointsByTag(tag string) []APIEndpoint {
-	system := GetGlobalDocumentationSystem()
-	return system.registry.GetEndpointsByTag(tag)
-}
-
-// =============================================================================
 // Route Analysis Utilities
 // =============================================================================
 

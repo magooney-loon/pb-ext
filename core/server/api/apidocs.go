@@ -5,95 +5,63 @@ package api
 // =============================================================================
 
 /*
-Example Usage:
+Example Usage - Versioned System Only:
 
-1. Basic Setup:
    ```go
-   func init() {
-       app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-           router := EnableAutoDocumentation(e)
-
-           router.GET("/api/hello", helloHandler)
-           router.POST("/api/users", createUserHandler).Bind(apis.RequireAuth())
-
-           return e.Next()
-       })
-   }
-   ```
-
-2. Custom Configuration:
-   ```go
-   config := &APIDocsConfig{
-       Title: "My API",
-       Version: "2.0.0",
-       Description: "Custom API documentation",
-       Enabled: true,
-   }
-
-   system := InitializeWithConfig(config)
-   ```
-
-3. Multi-Version Setup (Versioned-Only):
-   ```go
-   func init() {
-       // Create version configs
-       v1Config := &APIDocsConfig{
-           Title: "My API v1",
-           Version: "1.0.0",
-           Description: "Stable API version",
+   func registerRoutes(pbApp core.App) {
+       // Create configs for API versions
+       v1Config := &api.APIDocsConfig{
+           Title:       "pb-ext demo api",
+           Version:     "1.0.0",
+           Description: "Stable production API",
+           Status:      "stable",
+           Enabled:     true,
+           AutoDiscovery: &api.AutoDiscoveryConfig{
+               Enabled: true,
+           },
        }
 
-       v2Config := &APIDocsConfig{
-           Title: "My API v2",
-           Version: "2.0.0",
-           Description: "New API version in development",
+       v2Config := &api.APIDocsConfig{
+           Title:       "pb-ext demo api",
+           Version:     "2.0.0",
+           Description: "Development API with new features",
+           Status:      "testing",
+           Enabled:     true,
+           AutoDiscovery: &api.AutoDiscoveryConfig{
+               Enabled: true,
+           },
        }
 
-       // Initialize versioned system
-       versions := map[string]*APIDocsConfig{
+       // Initialize version manager
+       versions := map[string]*api.APIDocsConfig{
            "v1": v1Config,
            "v2": v2Config,
        }
-       versionManager := InitializeVersionedSystem(versions, "v1")
+       versionManager := api.InitializeVersionedSystem(versions, "v1")
 
-       app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+       pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
            // Get version-specific routers
            v1Router, _ := versionManager.GetVersionRouter("v1", e)
            v2Router, _ := versionManager.GetVersionRouter("v2", e)
 
-           // Version 1 routes (stable production API)
-           v1Router.GET("/api/v1/users", v1UsersHandler)
-           v1Router.POST("/api/v1/posts", v1CreatePostHandler)
+           // v1 Example CRUD routes
+           v1Router.GET("/api/v1/todos", getTodosHandler)
+           v1Router.POST("/api/v1/todos", createTodoHandler).Bind(apis.RequireAuth())
+           v1Router.GET("/api/v1/todos/{id}", getTodoHandler)
+           v1Router.PATCH("/api/v1/todos/{id}", updateTodoHandler).Bind(apis.RequireAuth())
+           v1Router.DELETE("/api/v1/todos/{id}", deleteTodoHandler).Bind(apis.RequireAuth())
 
-           // Version 2 routes (development API with new features)
-           v2Router.GET("/api/v2/users", v2UsersHandler)
-           v2Router.POST("/api/v2/posts", v2CreatePostHandler)
-           v2Router.GET("/api/v2/analytics", v2AnalyticsHandler) // New v2 feature
-
-           // No non-versioned routes - all APIs must specify version
+           // v2 routes with new features
+           v2Router.GET("/api/v2/time", timeHandler)
 
            return e.Next()
        })
 
-       // Register version management routes
-       versionManager.RegisterWithServer(app)
-   }
-   ```
-
-4. Manual Endpoint Registration:
-   ```go
-   endpoint := APIEndpoint{
-       Method: "GET",
-       Path: "/api/custom",
-       Description: "Custom endpoint",
-       Tags: []string{"custom"},
+       // Register version management endpoints
+       versionManager.RegisterWithServer(pbApp)
    }
 
-   RegisterEndpoint(endpoint)
-   ```
-
-5. AST Analysis Directives:
-   ```go
+   // AST Analysis Directives:
    // API_SOURCE - Include this file in AST analysis
 
    // API_DESC Retrieves user profile information
@@ -106,121 +74,11 @@ Example Usage:
 
 import (
 	"strings"
-
-	"github.com/pocketbase/pocketbase/core"
 )
 
 // =============================================================================
-// Main API Documentation System
+// Versioned System Only
 // =============================================================================
-
-// APIDocumentationSystem provides the main interface for API documentation
-type APIDocumentationSystem struct {
-	registry        *APIRegistry
-	astParser       ASTParserInterface
-	schemaGenerator SchemaGeneratorInterface
-	config          *APIDocsConfig
-}
-
-// NewAPIDocumentationSystem creates a new API documentation system with all components
-func NewAPIDocumentationSystem(config *APIDocsConfig) *APIDocumentationSystem {
-	if config == nil {
-		config = DefaultAPIDocsConfig()
-	}
-
-	// Initialize components
-	astParser := NewASTParser()
-	schemaGenerator := NewSchemaGenerator(astParser)
-	registry := NewAPIRegistry(config, astParser, schemaGenerator)
-
-	return &APIDocumentationSystem{
-		registry:        registry,
-		astParser:       astParser,
-		schemaGenerator: schemaGenerator,
-		config:          config,
-	}
-}
-
-// GetRegistry returns the API registry
-func (ads *APIDocumentationSystem) GetRegistry() *APIRegistry {
-	return ads.registry
-}
-
-// GetDocs returns the complete API documentation
-func (ads *APIDocumentationSystem) GetDocs() *APIDocs {
-	return ads.registry.GetDocsWithComponents()
-}
-
-// CreateAutoRouter creates an auto-documenting router for the given serve event
-func (ads *APIDocumentationSystem) CreateAutoRouter(e *core.ServeEvent) *AutoAPIRouter {
-	return NewAutoAPIRouter(e.Router, ads.registry)
-}
-
-// RegisterWithServer registers the documentation system with a PocketBase server
-func (ads *APIDocumentationSystem) RegisterWithServer(app core.App) {
-	ads.registry.RegisterAPIDocsRoutes(app)
-}
-
-// UpdateConfig updates the system configuration
-func (ads *APIDocumentationSystem) UpdateConfig(config *APIDocsConfig) {
-	if config != nil {
-		ads.config = config
-		ads.registry.UpdateConfig(config)
-	}
-}
-
-// =============================================================================
-// Server Integration Methods
-// =============================================================================
-
-// RegisterAPIDocsRoutes is deprecated - use versioned system only
-func RegisterAPIDocsRoutes(app core.App) {
-	// This method is deprecated and disabled
-	// Use InitializeVersionedSystem instead
-}
-
-// =============================================================================
-// Versioned System Only - Global Functions Removed
-// =============================================================================
-
-// CreateVersionedSystem creates a new version manager with initial versions
-func CreateVersionedSystem(versions map[string]*APIDocsConfig, defaultVersion string) *APIVersionManager {
-	return InitializeVersionManager(versions, defaultVersion)
-}
-
-// GetAPIStats returns comprehensive statistics about the registered API endpoints
-// This function is kept for internal version manager use
-func GetAPIStats() map[string]interface{} {
-	system := GetGlobalDocumentationSystem()
-	docs := system.GetDocs()
-	return calculateComprehensiveStats(docs.Endpoints)
-}
-
-// =============================================================================
-// Global System Management
-// =============================================================================
-
-var globalDocSystem *APIDocumentationSystem
-
-// GetGlobalDocumentationSystem returns the global documentation system instance
-func GetGlobalDocumentationSystem() *APIDocumentationSystem {
-	if globalDocSystem == nil {
-		globalDocSystem = NewAPIDocumentationSystem(nil)
-	}
-	return globalDocSystem
-}
-
-// SetGlobalDocumentationSystem sets the global documentation system
-func SetGlobalDocumentationSystem(system *APIDocumentationSystem) {
-	globalDocSystem = system
-}
-
-// InitializeWithConfig initializes the global system with custom configuration
-func InitializeWithConfig(config *APIDocsConfig) *APIDocumentationSystem {
-	system := NewAPIDocumentationSystem(config)
-	SetGlobalDocumentationSystem(system)
-	return system
-}
 
 // InitializeVersionedSystem initializes a versioned documentation system
 func InitializeVersionedSystem(versions map[string]*APIDocsConfig, defaultVersion string) *APIVersionManager {
@@ -228,10 +86,8 @@ func InitializeVersionedSystem(versions map[string]*APIDocsConfig, defaultVersio
 }
 
 // =============================================================================
-// HTTP Handlers for API Documentation Endpoints
+// Statistics Calculation
 // =============================================================================
-
-// These handlers are deprecated - use versioned system endpoints only
 
 // calculateComprehensiveStats calculates comprehensive statistics for all endpoints
 func calculateComprehensiveStats(endpoints []APIEndpoint) map[string]interface{} {
@@ -298,8 +154,6 @@ func calculateComprehensiveStats(endpoints []APIEndpoint) map[string]interface{}
 
 	return stats
 }
-
-// ComponentsHandler is deprecated - use versioned system only
 
 // =============================================================================
 // Configuration Utilities
