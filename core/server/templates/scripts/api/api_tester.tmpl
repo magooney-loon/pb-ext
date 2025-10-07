@@ -1,11 +1,10 @@
 {{define "api_tester_js"}}
     // =============================================================================
-    // API TESTER - REFACTORED COORDINATOR
+    // API TESTER - SIMPLIFIED FOR AST-BASED SCHEMAS
     // =============================================================================
 
     const APITester = {
         currentEndpoint: null,
-        parameterSchema: null,
         initialized: false,
 
         // Initialize the API tester
@@ -15,27 +14,11 @@
             }
             this.bindEvents();
             this.initialized = true;
+            console.log('APITester initialized');
         },
-
-
 
         // Bind event listeners
         bindEvents() {
-            // Remove existing event listeners to prevent duplicates
-            document.removeEventListener('apiTesterSidebarOpened', this.handleSidebarOpened);
-            document.removeEventListener('apiTesterSidebarClosed', this.handleSidebarClosed);
-            document.removeEventListener('apiTesterTabChange', this.handleTabChange);
-
-            // Create bound methods for proper removal later
-            this.boundHandleSidebarOpened = (e) => this.handleSidebarOpened(e.detail);
-            this.boundHandleSidebarClosed = () => this.handleSidebarClosed();
-            this.boundHandleTabChange = (e) => this.handleTabChange(e.detail);
-
-            // Listen for sidebar events
-            document.addEventListener('apiTesterSidebarOpened', this.boundHandleSidebarOpened);
-            document.addEventListener('apiTesterSidebarClosed', this.boundHandleSidebarClosed);
-            document.addEventListener('apiTesterTabChange', this.boundHandleTabChange);
-
             // Form action buttons
             const sendBtn = document.getElementById('send-request-btn');
             const resetBtn = document.getElementById('reset-form-btn');
@@ -49,36 +32,16 @@
             }
         },
 
-        // Handle sidebar opened event
-        handleSidebarOpened(detail) {
-            // Prevent duplicate processing
-            if (this.currentEndpoint &&
-                this.currentEndpoint.method === detail.method &&
-                this.currentEndpoint.path === detail.path) {
+        // Process endpoint and generate form
+        processEndpoint(endpoint) {
+            if (!endpoint) {
+                console.error('No endpoint provided to process');
                 return;
             }
 
-            this.currentEndpoint = detail;
+            this.currentEndpoint = endpoint;
+            console.log('Processing endpoint:', endpoint.method, endpoint.path);
 
-            // Process the endpoint to generate form
-            this.processEndpointSchema();
-        },
-
-        // Handle sidebar closed event
-        handleSidebarClosed() {
-            this.currentEndpoint = null;
-            this.parameterSchema = null;
-        },
-
-        // Handle tab change event
-        handleTabChange(detail) {
-            if (detail.tab === 'response') {
-                this.refreshResponseDisplay();
-            }
-        },
-
-        // Process endpoint schema and generate form
-        async processEndpointSchema() {
             const container = document.getElementById('schema-form-container');
             if (!container) {
                 console.error('Schema form container not found');
@@ -86,56 +49,59 @@
             }
 
             try {
-                // Show loading state
-                this.showLoadingState(container);
+                // Generate form using simplified form builder
+                APIFormBuilder.generateParameterForm(container, endpoint);
 
-                // Ensure schema configuration is loaded
-                await APIState.loadSchemaConfig();
-
-                // Extract parameter schema from endpoint data using APISchemaManager
-                this.parameterSchema = APISchemaManager.extractParameterSchema(this.currentEndpoint);
-
-                // Generate form using APIFormBuilder
-                APIFormBuilder.generateParameterForm(container, this.parameterSchema, this.currentEndpoint);
+                // Update endpoint info display
+                this.updateEndpointInfo();
 
             } catch (error) {
-                console.error('Schema processing error:', error);
+                console.error('Failed to process endpoint:', error);
                 this.showError(container, error);
             }
         },
 
-        // Show loading state
-        showLoadingState(container) {
-            container.innerHTML = `
-                <div class="txt-center txt-hint p-4">
-                    <i class="ri-loader-4-line animate-spin"></i>
-                    <p>Processing endpoint schema...</p>
-                </div>
-            `;
+        // Update endpoint information display
+        updateEndpointInfo() {
+            const methodElement = document.getElementById('current-method');
+            const pathElement = document.getElementById('current-path');
+            const descElement = document.getElementById('current-description');
+
+            if (methodElement) {
+                methodElement.textContent = this.currentEndpoint.method.toUpperCase();
+                methodElement.className = `http-method ${this.currentEndpoint.method.toLowerCase()}`;
+            }
+
+            if (pathElement) {
+                pathElement.textContent = this.currentEndpoint.path;
+            }
+
+            if (descElement) {
+                descElement.textContent = this.currentEndpoint.description || 'No description available';
+            }
         },
 
         // Show error state
         showError(container, error) {
             container.innerHTML = `
-                <div class="txt-center p-4">
-                    <div class="alert alert-danger">
+                <div class="alert alert-danger">
+                    <div class="flex align-center gap-2 mb-2">
                         <i class="ri-error-warning-line"></i>
-                        <p><strong>Schema Processing Failed:</strong></p>
-                        <p>${error.message}</p>
+                        <strong>Failed to Process Endpoint</strong>
                     </div>
-                    <details>
-                        <summary>Debug Information</summary>
-                        <pre class="txt-xs mt-2">${JSON.stringify({
-                            currentEndpoint: this.currentEndpoint,
-                            error: error.toString(),
-                            stack: error.stack
+                    <p>${error.message}</p>
+                    <details class="mt-2">
+                        <summary class="txt-sm">Debug Information</summary>
+                        <pre class="txt-xs mt-1">${JSON.stringify({
+                            endpoint: this.currentEndpoint,
+                            error: error.toString()
                         }, null, 2)}</pre>
                     </details>
                 </div>
             `;
         },
 
-        // Send HTTP request using APIRequestHandler
+        // Send HTTP request
         async sendRequest() {
             if (!this.currentEndpoint) {
                 console.error('No current endpoint for request');
@@ -143,71 +109,101 @@
             }
 
             try {
+                console.log('Sending request for endpoint:', this.currentEndpoint.method, this.currentEndpoint.path);
                 await APIRequestHandler.sendRequest(this.currentEndpoint);
             } catch (error) {
+                console.error('Request failed:', error);
                 // Error handling is done by APIRequestHandler
             }
         },
 
-        // Reset form using APIRequestHandler
+        // Reset form
         resetForm() {
-            APIRequestHandler.resetForm();
+            console.log('Resetting form');
 
-            // Re-process the endpoint schema to regenerate clean form
-            this.processEndpointSchema();
-        },
+            // Clear form fields
+            APIFormBuilder.clearForm();
 
-        // Refresh response display when switching to response tab
-        refreshResponseDisplay() {
-            // Check if we have response content to display
-            const emptyState = document.getElementById('response-empty-state');
-            const hasContent = emptyState && emptyState.style.display === 'none';
+            // Clear response area
+            const responseContainer = document.getElementById('api-response-container');
+            if (responseContainer) {
+                responseContainer.innerHTML = `
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-send-plane-line ri-xl"></i>
+                        <p>Send a request to see the response</p>
+                    </div>
+                `;
+            }
 
-            // Content display is handled by UI state
-        },
-
-        // Public API for opening sidebar (for endpoint renderer integration)
-        openSidebar(method, path, endpointData) {
-            if (typeof APITesterSidebar !== 'undefined') {
-                APITesterSidebar.openSidebar(method, path, endpointData);
+            // Re-process the endpoint to regenerate clean form
+            if (this.currentEndpoint) {
+                this.processEndpoint(this.currentEndpoint);
             }
         },
 
-        // Switch to raw JSON input mode (public API for form builder)
-        useRawJSON() {
-            APIFormBuilder.switchToRawJSON();
+        // Public API for opening sidebar (for endpoint renderer integration)
+        openSidebar(method, path, endpoint) {
+            if (typeof APITesterSidebar !== 'undefined') {
+                console.log('Opening tester sidebar:', method, path);
+                APITesterSidebar.openSidebar(method, path, endpoint);
+            } else {
+                console.error('APITesterSidebar not available');
+            }
         },
 
-        // Get current endpoint info (public API)
+        // Get current endpoint info
         getCurrentEndpoint() {
             return this.currentEndpoint;
         },
 
-        // Get current parameter schema (public API)
-        getParameterSchema() {
-            return this.parameterSchema;
-        },
-
-        // Check if endpoint requires authentication (utility method)
+        // Check if endpoint requires authentication
         requiresAuth() {
-            if (!this.currentEndpoint || !this.currentEndpoint.data) return false;
-
-            // Check if endpoint has security requirements
-            return this.currentEndpoint.data.security && this.currentEndpoint.data.security.length > 0;
+            return this.currentEndpoint?.auth?.required || false;
         },
 
-        // Get endpoint summary information (utility method)
+        // Get endpoint summary information
         getEndpointSummary() {
             if (!this.currentEndpoint) return null;
 
             return {
                 method: this.currentEndpoint.method,
                 path: this.currentEndpoint.path,
-                summary: this.currentEndpoint.data?.summary || 'No summary available',
-                description: this.currentEndpoint.data?.description || '',
-                tags: this.currentEndpoint.data?.tags || [],
-                requiresAuth: this.requiresAuth()
+                description: this.currentEndpoint.description || 'No description available',
+                tags: this.currentEndpoint.tags || [],
+                requiresAuth: this.requiresAuth(),
+                authType: this.currentEndpoint.auth?.type || 'none'
             };
+        },
+
+        // Generate cURL command for current endpoint
+        generateCurlCommand() {
+            if (!this.currentEndpoint) {
+                return 'No endpoint selected';
+            }
+
+            try {
+                const validation = APIFormBuilder.validateForm(this.currentEndpoint);
+                if (!validation.valid) {
+                    return `Error: ${validation.errors.join(', ')}`;
+                }
+
+                return APIRequestHandler.generateCurlCommand(this.currentEndpoint, validation.data);
+            } catch (error) {
+                return `Error generating cURL: ${error.message}`;
+            }
+        },
+
+        // Copy cURL command to clipboard
+        copyCurlCommand() {
+            if (!this.currentEndpoint) {
+                console.error('No endpoint selected');
+                return;
+            }
+
+            APIRequestHandler.copyCurlCommand(this.currentEndpoint);
         }
     };
+
+    // Make APITester globally available
+    window.APITester = APITester;
 {{end}}

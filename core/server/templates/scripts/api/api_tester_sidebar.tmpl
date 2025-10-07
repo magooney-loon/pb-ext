@@ -1,12 +1,13 @@
 {{define "api_tester_sidebar_js"}}
     // =============================================================================
-    // API TESTER SIDEBAR - SIMPLIFIED UI CONTROLLER
+    // API TESTER SIDEBAR - CONSOLIDATED WITH SYNTAX HIGHLIGHTING
     // =============================================================================
 
     const APITesterSidebar = {
         isOpen: false,
         currentEndpoint: null,
         initialized: false,
+        _eventCleanup: [],
 
         // Initialize the sidebar controller
         init() {
@@ -14,255 +15,449 @@
                 return;
             }
 
-            this.bindEvents();
-            this.initializeTabs();
-            this.initialized = true;
+            console.log('Initializing API Tester Sidebar...');
+
+            try {
+                this._bindEvents();
+                this._initializeTabs();
+                this.initialized = true;
+                console.log('API Tester Sidebar initialized successfully');
+            } catch (error) {
+                console.error('Failed to initialize API Tester Sidebar:', error);
+                if (typeof ErrorStatusManager !== 'undefined') {
+                    ErrorStatusManager.handleError(error, 'APITesterSidebar.init');
+                }
+            }
         },
 
         // Initialize tab controllers for sidebar
-        initializeTabs() {
+        _initializeTabs() {
             // Initialize main tester tabs (parameters/response)
-            this.initializeTesterTabs();
+            this._initializeTesterTabs();
             // Initialize response sub-tabs (body/headers)
-            this.initializeResponseTabs();
+            this._initializeResponseTabs();
         },
 
-        // Initialize main tester tabs using TabController pattern
-        initializeTesterTabs() {
-            const tabButtons = document.querySelectorAll('.api-tester-tabs .tester-tab');
+        // Initialize main tester tabs
+        _initializeTesterTabs() {
+            const tabButtons = this._safeQueryAll('.api-tester-tabs .tester-tab');
 
             tabButtons.forEach(button => {
-                button.addEventListener('click', (e) => {
+                const cleanup = this._addListener(button, 'click', (e) => {
                     e.preventDefault();
-                    this.switchTesterTab(button.dataset.tab);
+                    this._switchTesterTab(button.dataset.tab);
                 });
+
+                if (cleanup) {
+                    this._eventCleanup.push(cleanup);
+                }
             });
 
             // Ensure parameters tab is active by default
-            this.switchTesterTab('parameters');
+            this._switchTesterTab('parameters');
         },
 
-        // Initialize response tabs using TabController pattern
-        initializeResponseTabs() {
-            const responseTabButtons = document.querySelectorAll('.response-tabs .response-tab');
+        // Initialize response tabs
+        _initializeResponseTabs() {
+            const responseTabButtons = this._safeQueryAll('.response-tabs .response-tab');
 
             responseTabButtons.forEach(button => {
-                button.addEventListener('click', (e) => {
+                const cleanup = this._addListener(button, 'click', (e) => {
                     e.preventDefault();
-                    this.switchResponseTab(button.dataset.tab);
+                    this._switchResponseTab(button.dataset.tab);
                 });
+
+                if (cleanup) {
+                    this._eventCleanup.push(cleanup);
+                }
             });
+
+            // Default to body tab
+            this._switchResponseTab('body');
         },
 
         // Bind event listeners
-        bindEvents() {
+        _bindEvents() {
             // Sidebar controls
-            const closeBtn = document.getElementById('close-tester-btn');
-            const copyBtn = document.getElementById('copy-response-btn');
+            const closeBtn = this._getElementById('close-tester-btn');
+            const copyBtn = this._getElementById('copy-response-btn');
+            const copySchemaBtn = this._getElementById('copy-schema-btn');
 
             if (closeBtn) {
-                closeBtn.addEventListener('click', () => this.closeSidebar());
+                const cleanup = this._addListener(closeBtn, 'click', () => this.closeSidebar());
+                if (cleanup) this._eventCleanup.push(cleanup);
             }
 
-
-
             if (copyBtn) {
-                copyBtn.addEventListener('click', () => this.copyResponse());
+                const cleanup = this._addListener(copyBtn, 'click', () => this._copyResponse());
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            if (copySchemaBtn) {
+                const cleanup = this._addListener(copySchemaBtn, 'click', () => this._copySchema());
+                if (cleanup) this._eventCleanup.push(cleanup);
             }
 
             // Escape key to close sidebar
-            document.addEventListener('keydown', (e) => {
+            const escapeHandler = (e) => {
                 if (e.key === 'Escape' && this.isOpen) {
                     this.closeSidebar();
                 }
-            });
+            };
+            document.addEventListener('keydown', escapeHandler);
+            this._eventCleanup.push(() => document.removeEventListener('keydown', escapeHandler));
+
+            // Listen to custom events from other components
+            const responseHandler = (e) => this._handleResponseReceived(e.detail);
+            document.addEventListener('apiResponseReceived', responseHandler);
+            this._eventCleanup.push(() => document.removeEventListener('apiResponseReceived', responseHandler));
         },
 
-        // Switch tester tabs (reusing TabController pattern)
-        switchTesterTab(tabName) {
-            // Update button states
-            document.querySelectorAll('.tester-tab').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === tabName);
-            });
-
-            // Update content visibility
-            document.querySelectorAll('.tester-tab-content').forEach(content => {
-                const isActive = content.id === `${tabName}-tab`;
-                content.classList.toggle('active', isActive);
-                content.style.display = isActive ? 'block' : 'none';
-
-                // Scroll to top when switching tabs
-                if (isActive) {
-                    content.scrollTop = 0;
-                }
-            });
-
-            // Trigger refresh event for other components
-            this.triggerTabChange(tabName);
-        },
-
-        // Switch response sub-tabs
-        switchResponseTab(tabName) {
-            // Update button states
-            document.querySelectorAll('.response-tab').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === tabName);
-            });
-
-            // Update content visibility
-            document.querySelectorAll('.response-tab-content').forEach(content => {
-                const isActive = content.id === `response-${tabName}`;
-                content.classList.toggle('active', isActive);
-                content.style.display = isActive ? 'block' : 'none';
-            });
-        },
-
-        // Trigger tab change event for other components to listen to
-        triggerTabChange(tabName) {
-            const event = new CustomEvent('apiTesterTabChange', {
-                detail: { tab: tabName, endpoint: this.currentEndpoint }
-            });
-            document.dispatchEvent(event);
-        },
-
-        // Open sidebar with endpoint data
-        openSidebar(method, path, endpointData) {
-            // Prevent duplicate opening of same endpoint
-            if (this.isOpen && this.currentEndpoint &&
-                this.currentEndpoint.method === method.toUpperCase() &&
-                this.currentEndpoint.path === path) {
+        // Switch tester tabs with improved error handling
+        _switchTesterTab(tabName) {
+            if (!tabName) {
+                console.warn('Tab name is required for switching');
                 return;
             }
 
-            // Parse the endpoint data if it's a string
-            let parsedData = endpointData;
+            try {
+                // Update button states
+                this._safeQueryAll('.tester-tab').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === tabName);
+                });
+
+                // Update content visibility
+                this._safeQueryAll('.tester-tab-content').forEach(content => {
+                    const isActive = content.id === `${tabName}-tab`;
+                    content.classList.toggle('active', isActive);
+                    content.style.display = isActive ? 'block' : 'none';
+
+                    // Scroll to top when switching tabs
+                    if (isActive) {
+                        content.scrollTop = 0;
+                    }
+                });
+
+                // Trigger refresh event for other components
+                this._triggerTabChange(tabName);
+
+                console.log(`Switched to tester tab: ${tabName}`);
+            } catch (error) {
+                console.error('Failed to switch tester tab:', error);
+            }
+        },
+
+        // Switch response sub-tabs with syntax highlighting updates
+        _switchResponseTab(tabName) {
+            if (!tabName) {
+                console.warn('Response tab name is required');
+                return;
+            }
+
+            try {
+                // Update button states
+                this._safeQueryAll('.response-tab').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === tabName);
+                });
+
+                // Update content visibility
+                this._safeQueryAll('.response-tab-content').forEach(content => {
+                    const isActive = content.id === `response-${tabName}`;
+                    content.classList.toggle('active', isActive);
+                    content.style.display = isActive ? 'block' : 'none';
+
+                    // Re-apply syntax highlighting when tab becomes visible
+                    if (isActive && typeof SchemaProcessor !== 'undefined') {
+                        this._refreshSyntaxHighlighting(content);
+                    }
+                });
+
+                console.log(`Switched to response tab: ${tabName}`);
+            } catch (error) {
+                console.error('Failed to switch response tab:', error);
+            }
+        },
+
+        // Refresh syntax highlighting for visible content
+        _refreshSyntaxHighlighting(container) {
+            if (!container || typeof SchemaProcessor === 'undefined') return;
+
+            try {
+                const codeElements = container.querySelectorAll('code');
+                codeElements.forEach(codeEl => {
+                    if (codeEl.textContent.trim()) {
+                        try {
+                            const data = JSON.parse(codeEl.textContent);
+                            const highlighted = SchemaProcessor.syntaxHighlight(data);
+                            codeEl.innerHTML = highlighted;
+                        } catch {
+                            // If not JSON, just apply basic highlighting
+                            codeEl.innerHTML = SchemaProcessor.escapeHtml(codeEl.textContent);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.warn('Failed to refresh syntax highlighting:', error);
+            }
+        },
+
+        // Trigger tab change event
+        _triggerTabChange(tabName) {
+            try {
+                const event = new CustomEvent('apiTesterTabChange', {
+                    detail: {
+                        tab: tabName,
+                        endpoint: this.currentEndpoint,
+                        sidebar: this
+                    }
+                });
+                document.dispatchEvent(event);
+            } catch (error) {
+                console.warn('Failed to trigger tab change event:', error);
+            }
+        },
+
+        // Open sidebar with comprehensive endpoint data processing
+        openSidebar(method, path, endpointData) {
+            try {
+                // Prevent duplicate opening of same endpoint
+                if (this.isOpen && this.currentEndpoint &&
+                    this.currentEndpoint.method === method.toUpperCase() &&
+                    this.currentEndpoint.path === path) {
+                    console.log('Same endpoint already open in sidebar');
+                    return;
+                }
+
+                // Parse endpoint data if needed
+                let parsedData = this._parseEndpointData(endpointData);
+
+                this.currentEndpoint = {
+                    method: method.toUpperCase(),
+                    path: path,
+                    data: parsedData
+                };
+
+                // Update UI components
+                this._updateEndpointInfo();
+                this._updateSchemaDisplay();
+
+                // Reset to parameters tab
+                this._switchTesterTab('parameters');
+
+                // Reset response state
+                this._resetResponseState();
+
+                // Show sidebar
+                this._showSidebar();
+
+                // Trigger event for other components
+                this._triggerSidebarOpened();
+
+                console.log(`Opened API tester for: ${method.toUpperCase()} ${path}`);
+
+            } catch (error) {
+                console.error('Failed to open sidebar:', error);
+                if (typeof ErrorStatusManager !== 'undefined') {
+                    ErrorStatusManager.handleError(error, 'APITesterSidebar.openSidebar');
+                }
+            }
+        },
+
+        // Parse endpoint data safely
+        _parseEndpointData(endpointData) {
+            if (!endpointData) return {};
+
             if (typeof endpointData === 'string') {
                 try {
-                    parsedData = JSON.parse(endpointData);
-                } catch (e) {
-                    console.error('Failed to parse endpoint data:', e);
-                    parsedData = {};
+                    return JSON.parse(endpointData);
+                } catch (error) {
+                    console.warn('Failed to parse endpoint data as JSON:', error);
+                    return {};
                 }
             }
 
-            this.currentEndpoint = {
-                method: method.toUpperCase(),
-                path: path,
-                data: parsedData || {}
-            };
+            if (typeof endpointData === 'object') {
+                return endpointData;
+            }
 
-            // Update endpoint info display
-            this.updateEndpointInfo();
-
-            // Reset to parameters tab
-            this.switchTesterTab('parameters');
-
-            // Reset response state
-            this.resetResponseState();
-
-            // Show sidebar
-            this.showSidebar();
-
-            // Trigger event for other components (like APITester)
-            const event = new CustomEvent('apiTesterSidebarOpened', {
-                detail: {
-                    method: this.currentEndpoint.method,
-                    path: this.currentEndpoint.path,
-                    data: this.currentEndpoint.data
-                }
-            });
-            document.dispatchEvent(event);
+            return {};
         },
 
-        // Close sidebar
+        // Update schema display with syntax highlighting
+        _updateSchemaDisplay() {
+            if (!this.currentEndpoint || typeof SchemaProcessor === 'undefined') return;
+
+            try {
+                const { data } = this.currentEndpoint;
+
+                // Update request schema
+                if (data.request) {
+                    SchemaProcessor.updateElement('request-schema', data.request, 'json');
+                }
+
+                // Update response schema
+                if (data.response) {
+                    SchemaProcessor.updateElement('response-schema', data.response, 'json');
+                }
+
+                // Update examples if available
+                this._updateExamples();
+
+            } catch (error) {
+                console.warn('Failed to update schema display:', error);
+            }
+        },
+
+        // Update examples display
+        _updateExamples() {
+            if (!this.currentEndpoint || typeof SchemaProcessor === 'undefined') return;
+
+            try {
+                const { data } = this.currentEndpoint;
+
+                // Extract and display request examples
+                if (data.request) {
+                    const requestExamples = SchemaProcessor.extractExamples(data.request);
+                    if (requestExamples) {
+                        this._displayExamples('request-examples', requestExamples);
+                    }
+                }
+
+                // Extract and display response examples
+                if (data.response) {
+                    const responseExamples = SchemaProcessor.extractExamples(data.response);
+                    if (responseExamples) {
+                        this._displayExamples('response-examples', responseExamples);
+                    }
+                }
+
+            } catch (error) {
+                console.warn('Failed to update examples:', error);
+            }
+        },
+
+        // Display examples with syntax highlighting
+        _displayExamples(containerId, examples) {
+            const container = this._getElementById(containerId);
+            if (!container || !examples || !Array.isArray(examples)) return;
+
+            try {
+                const examplesHtml = examples.map((example, index) => `
+                    <div class="example-item">
+                        <div class="example-header">
+                            <strong>${example.summary || example.name || `Example ${index + 1}`}</strong>
+                            ${example.description ? `<div class="txt-sm txt-hint">${example.description}</div>` : ''}
+                        </div>
+                        <div class="example-content">
+                            ${SchemaProcessor.formatForDisplay(example.value, 'json')}
+                        </div>
+                    </div>
+                `).join('');
+
+                container.innerHTML = examplesHtml;
+            } catch (error) {
+                console.warn('Failed to display examples:', error);
+            }
+        },
+
+        // Close sidebar with cleanup
         closeSidebar() {
-            this.hideSidebar();
-
-            // Trigger event for cleanup
-            const event = new CustomEvent('apiTesterSidebarClosed');
-            document.dispatchEvent(event);
-
-            this.currentEndpoint = null;
+            try {
+                this._hideSidebar();
+                this._triggerSidebarClosed();
+                this.currentEndpoint = null;
+                console.log('API tester sidebar closed');
+            } catch (error) {
+                console.error('Failed to close sidebar:', error);
+            }
         },
 
         // Show sidebar UI
-        showSidebar() {
-            const sidebar = document.getElementById('api-tester-sidebar');
-            const mainContent = document.querySelector('.api-main-content');
+        _showSidebar() {
+            const sidebar = this._getElementById('api-tester-sidebar');
+            const overlay = this._getElementById('sidebar-overlay');
 
             if (sidebar) {
                 sidebar.classList.add('open');
             }
 
+            if (overlay) {
+                overlay.style.display = 'block';
+            }
+
+            // Disable body scroll
+            document.body.classList.add('sidebar-open');
+
             this.isOpen = true;
         },
 
         // Hide sidebar UI
-        hideSidebar() {
-            const sidebar = document.getElementById('api-tester-sidebar');
-            const mainContent = document.querySelector('.api-main-content');
+        _hideSidebar() {
+            const sidebar = this._getElementById('api-tester-sidebar');
+            const overlay = this._getElementById('sidebar-overlay');
 
             if (sidebar) {
                 sidebar.classList.remove('open');
             }
 
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+
+            // Re-enable body scroll
+            document.body.classList.remove('sidebar-open');
+
             this.isOpen = false;
         },
 
-        // Update endpoint info display with proper auth detection
-        updateEndpointInfo() {
+        // Update endpoint info display with enhanced auth detection
+        _updateEndpointInfo() {
             if (!this.currentEndpoint) return;
 
-            const methodEl = document.getElementById('tester-method');
-            const pathEl = document.getElementById('tester-path');
-            const descEl = document.getElementById('tester-description');
-            const authEl = document.getElementById('tester-auth-info');
+            try {
+                const methodEl = this._getElementById('tester-method');
+                const pathEl = this._getElementById('tester-path');
+                const descEl = this._getElementById('tester-description');
+                const authEl = this._getElementById('tester-auth-info');
 
-            if (methodEl) {
-                methodEl.textContent = this.currentEndpoint.method;
-                methodEl.className = `http-method method-${this.currentEndpoint.method.toLowerCase()}`;
-            }
-
-            if (pathEl) {
-                pathEl.textContent = this.currentEndpoint.path;
-            }
-
-            if (descEl) {
-                descEl.textContent = this.currentEndpoint.data.description || 'Test this API endpoint with custom JSON payloads';
-            }
-
-            if (authEl) {
-                // Properly extract auth information from endpoint data
-                const endpointData = this.currentEndpoint.data;
-                let authRequired = false;
-                let authType = '';
-                let authDescription = '';
-
-                // Check multiple possible auth locations in the data structure
-                if (endpointData.auth) {
-                    authRequired = Boolean(endpointData.auth.required);
-                    authType = endpointData.auth.type || '';
-                    authDescription = endpointData.auth.description || '';
-
-                } else if (endpointData.security && endpointData.security.length > 0) {
-                    // OpenAPI style security
-                    authRequired = true;
-                    authType = 'OAuth2/Bearer';
-
-                } else if (endpointData.authorization) {
-                    // Alternative auth field
-                    authRequired = Boolean(endpointData.authorization.required);
-                    authType = endpointData.authorization.type || '';
-
+                if (methodEl) {
+                    methodEl.textContent = this.currentEndpoint.method;
+                    methodEl.className = `http-method method-${this.currentEndpoint.method.toLowerCase()}`;
                 }
+
+                if (pathEl) {
+                    pathEl.textContent = this.currentEndpoint.path;
+                }
+
+                if (descEl) {
+                    const description = this.currentEndpoint.data.description ||
+                                     'Test this API endpoint with custom parameters and view responses';
+                    descEl.textContent = description;
+                }
+
+                if (authEl) {
+                    this._updateAuthInfo(authEl);
+                }
+
+            } catch (error) {
+                console.warn('Failed to update endpoint info:', error);
+            }
+        },
+
+        // Update authentication info display
+        _updateAuthInfo(authEl) {
+            if (!authEl || !this.currentEndpoint) return;
+
+            try {
+                const { data } = this.currentEndpoint;
+                const authInfo = this._analyzeAuth(data);
 
                 const badge = authEl.querySelector('.auth-badge');
                 if (badge) {
-                    if (authRequired) {
-                        badge.textContent = authType ? `🔐 ${authType} required` : '🔐 Auth required';
+                    if (authInfo.required) {
+                        badge.textContent = `🔐 ${authInfo.type} required`;
                         badge.className = 'auth-badge auth-required';
-                        if (authDescription) {
-                            badge.title = authDescription;
-                        }
+                        badge.title = authInfo.description || 'Authentication is required for this endpoint';
                     } else {
                         badge.textContent = '🔓 No auth required';
                         badge.className = 'auth-badge auth-optional';
@@ -270,149 +465,355 @@
                     }
                 }
 
+                // Update auth details section if present
+                const authDetails = authEl.querySelector('.auth-details');
+                if (authDetails && authInfo.required) {
+                    authDetails.innerHTML = `
+                        <div class="auth-requirement">
+                            <strong>Required:</strong> ${authInfo.type}
+                        </div>
+                        ${authInfo.description ? `<div class="auth-description">${authInfo.description}</div>` : ''}
+                        ${authInfo.scopes ? `<div class="auth-scopes"><strong>Scopes:</strong> ${authInfo.scopes.join(', ')}</div>` : ''}
+                    `;
+                    authDetails.style.display = 'block';
+                } else if (authDetails) {
+                    authDetails.style.display = 'none';
+                }
 
+            } catch (error) {
+                console.warn('Failed to update auth info:', error);
             }
         },
 
-        // Reset response state to show empty state
-        resetResponseState() {
-            const emptyState = document.getElementById('response-empty-state');
-            const responseBody = document.getElementById('response-body');
-            const responseHeaders = document.getElementById('response-headers');
+        // Analyze authentication requirements
+        _analyzeAuth(endpointData) {
+            const authInfo = {
+                required: false,
+                type: 'None',
+                description: '',
+                scopes: []
+            };
 
-            if (emptyState) {
-                emptyState.style.display = 'flex';
+            try {
+                // Check direct auth property
+                if (endpointData.auth) {
+                    authInfo.required = Boolean(endpointData.auth.required);
+                    authInfo.type = endpointData.auth.type || 'Unknown';
+                    authInfo.description = endpointData.auth.description || '';
+                }
+
+                // Check OpenAPI security
+                else if (endpointData.security && Array.isArray(endpointData.security) && endpointData.security.length > 0) {
+                    authInfo.required = true;
+                    const securityScheme = endpointData.security[0];
+                    const schemeName = Object.keys(securityScheme)[0];
+                    authInfo.type = schemeName || 'OAuth2/Bearer';
+                    authInfo.scopes = securityScheme[schemeName] || [];
+                }
+
+                // Check alternative authorization field
+                else if (endpointData.authorization) {
+                    authInfo.required = Boolean(endpointData.authorization.required);
+                    authInfo.type = endpointData.authorization.type || 'Unknown';
+                    authInfo.description = endpointData.authorization.description || '';
+                }
+
+                return authInfo;
+
+            } catch (error) {
+                console.warn('Failed to analyze auth requirements:', error);
+                return authInfo;
             }
+        },
 
-            if (responseBody) {
-                responseBody.style.display = 'none';
-                const code = responseBody.querySelector('code');
-                if (code) code.textContent = '';
+        // Reset response state
+        _resetResponseState() {
+            try {
+                const emptyState = this._getElementById('response-empty-state');
+                const responseBody = this._getElementById('response-body');
+                const responseHeaders = this._getElementById('response-headers');
+
+                if (emptyState) {
+                    emptyState.style.display = 'flex';
+                }
+
+                if (responseBody) {
+                    responseBody.style.display = 'none';
+                    const code = responseBody.querySelector('code');
+                    if (code) code.innerHTML = '';
+                }
+
+                if (responseHeaders) {
+                    responseHeaders.style.display = 'none';
+                    const code = responseHeaders.querySelector('code');
+                    if (code) code.innerHTML = '';
+                }
+
+                // Reset status display
+                this._updateResponseStatus('Ready', 'Send a request', 0);
+
+                // Reset to body tab
+                this._switchResponseTab('body');
+
+            } catch (error) {
+                console.warn('Failed to reset response state:', error);
             }
+        },
 
-            if (responseHeaders) {
-                responseHeaders.style.display = 'none';
-                const code = responseHeaders.querySelector('code');
-                if (code) code.textContent = '';
+        // Handle response received event
+        _handleResponseReceived(responseData) {
+            if (!this.isOpen) return;
+
+            try {
+                // Show response content and hide empty state
+                this._showResponseContent();
+
+                // Update status
+                this._updateResponseStatus(
+                    responseData.status || 'Unknown',
+                    responseData.statusText || '',
+                    responseData.time || 0
+                );
+
+                // Update response content with syntax highlighting
+                this._updateResponseContent(responseData.body, responseData.headers);
+
+                // Auto-switch to response tab
+                this._switchTesterTab('response');
+
+            } catch (error) {
+                console.error('Failed to handle response:', error);
             }
-
-            // Reset status display
-            const statusEl = document.querySelector('#response-status-info .status-badge');
-            const timeEl = document.querySelector('#response-status-info .response-time');
-
-            if (statusEl) {
-                statusEl.textContent = 'Ready';
-                statusEl.className = 'status-badge status-ready';
-            }
-
-            if (timeEl) {
-                timeEl.textContent = 'Send a request';
-            }
-
-            // Reset to body tab
-            this.switchResponseTab('body');
         },
 
         // Show response content and hide empty state
-        showResponseContent() {
-            const emptyState = document.getElementById('response-empty-state');
-            const responseBody = document.getElementById('response-body');
-            const responseHeaders = document.getElementById('response-headers');
+        _showResponseContent() {
+            const emptyState = this._getElementById('response-empty-state');
+            const responseBody = this._getElementById('response-body');
+            const responseHeaders = this._getElementById('response-headers');
 
             if (emptyState) {
                 emptyState.style.display = 'none';
             }
 
-            // Ensure proper visibility based on active response tab
-            const activeResponseTab = document.querySelector('.response-tab.active');
-            if (activeResponseTab) {
-                const tabName = activeResponseTab.dataset.tab;
-                if (responseBody) {
-                    responseBody.style.display = tabName === 'body' ? 'block' : 'none';
-                }
-                if (responseHeaders) {
-                    responseHeaders.style.display = tabName === 'headers' ? 'block' : 'none';
-                }
-            } else {
-                // Default to body tab
-                if (responseBody) {
-                    responseBody.style.display = 'block';
-                }
-                if (responseHeaders) {
-                    responseHeaders.style.display = 'none';
-                }
+            // Show content based on active response tab
+            const activeResponseTab = this._safeQuery('.response-tab.active');
+            const activeTabName = activeResponseTab ? activeResponseTab.dataset.tab : 'body';
+
+            if (responseBody) {
+                responseBody.style.display = activeTabName === 'body' ? 'block' : 'none';
             }
-
-            // Auto-switch to response tab
-            this.switchTesterTab('response');
-
-            // Default to body tab if none active
-            if (!activeResponseTab) {
-                this.switchResponseTab('body');
+            if (responseHeaders) {
+                responseHeaders.style.display = activeTabName === 'headers' ? 'block' : 'none';
             }
         },
 
         // Update response status display
-        updateResponseStatus(status, statusText, time) {
-            const statusEl = document.querySelector('#response-status-info .status-badge');
-            const timeEl = document.querySelector('#response-status-info .response-time');
+        _updateResponseStatus(status, statusText, time) {
+            try {
+                const statusEl = this._safeQuery('#response-status-info .status-badge');
+                const timeEl = this._safeQuery('#response-status-info .response-time');
 
-            if (statusEl) {
-                statusEl.textContent = `${status} ${statusText}`;
-                statusEl.className = `status-badge status-${Math.floor(status / 100)}xx`;
-            }
-
-            if (timeEl) {
-                timeEl.textContent = `${time}ms`;
-            }
-        },
-
-        // Update response content with proper formatting
-        updateResponseContent(body, headers) {
-            const bodyCode = document.querySelector('#response-body code');
-            const headersCode = document.querySelector('#response-headers code');
-
-            if (bodyCode) {
-                // Try to format JSON
-                try {
-                    if (typeof body === 'string' && body.trim()) {
-                        const parsed = JSON.parse(body);
-                        bodyCode.textContent = JSON.stringify(parsed, null, 2);
+                if (statusEl) {
+                    if (typeof status === 'number') {
+                        statusEl.textContent = `${status} ${statusText}`;
+                        statusEl.className = `status-badge status-${Math.floor(status / 100)}xx`;
                     } else {
-                        bodyCode.textContent = body || 'No response body';
+                        statusEl.textContent = status;
+                        statusEl.className = 'status-badge status-ready';
                     }
-                } catch {
-                    bodyCode.textContent = body || 'No response body';
                 }
-            }
 
-            if (headersCode) {
-                headersCode.textContent = JSON.stringify(headers || {}, null, 2);
+                if (timeEl) {
+                    if (typeof time === 'number' && time > 0) {
+                        timeEl.textContent = `${time}ms`;
+                    } else {
+                        timeEl.textContent = typeof status === 'string' ? status : 'Ready';
+                    }
+                }
+
+            } catch (error) {
+                console.warn('Failed to update response status:', error);
             }
         },
 
-        // Copy response
-        copyResponse() {
-            const activeContent = document.querySelector('.response-tab-content.active code');
-            if (!activeContent?.textContent) return;
+        // Update response content with enhanced formatting
+        _updateResponseContent(body, headers) {
+            try {
+                const bodyCode = this._safeQuery('#response-body code');
+                const headersCode = this._safeQuery('#response-headers code');
 
-            navigator.clipboard.writeText(activeContent.textContent).then(() => {
-                const btn = document.getElementById('copy-response-btn');
-                const originalHtml = btn.innerHTML;
+                if (bodyCode && typeof SchemaProcessor !== 'undefined') {
+                    if (body) {
+                        try {
+                            // Try to parse and format as JSON
+                            const parsedBody = typeof body === 'string' ? JSON.parse(body) : body;
+                            const formattedBody = SchemaProcessor.syntaxHighlight(parsedBody);
+                            bodyCode.innerHTML = formattedBody;
+                        } catch {
+                            // If not JSON, display as plain text with escaping
+                            bodyCode.innerHTML = SchemaProcessor.escapeHtml(String(body));
+                        }
+                    } else {
+                        bodyCode.innerHTML = '<span class="json-null">No response body</span>';
+                    }
+                }
 
-                btn.innerHTML = '<i class="ri-check-line"></i>';
-                btn.classList.add('btn-success');
-                btn.classList.remove('btn-secondary');
+                if (headersCode && typeof SchemaProcessor !== 'undefined') {
+                    if (headers && Object.keys(headers).length > 0) {
+                        const formattedHeaders = SchemaProcessor.syntaxHighlight(headers);
+                        headersCode.innerHTML = formattedHeaders;
+                    } else {
+                        headersCode.innerHTML = '<span class="json-null">No response headers</span>';
+                    }
+                }
 
-                setTimeout(() => {
-                    btn.innerHTML = originalHtml;
-                    btn.classList.remove('btn-success');
-                    btn.classList.add('btn-secondary');
-                }, 2000);
-            }).catch(err => {
-                // Copy failed silently
-            });
+            } catch (error) {
+                console.warn('Failed to update response content:', error);
+            }
         },
+
+        // Copy response content
+        _copyResponse() {
+            try {
+                const activeContent = this._safeQuery('.response-tab-content.active code');
+                if (!activeContent?.textContent) {
+                    console.warn('No response content to copy');
+                    return;
+                }
+
+                navigator.clipboard.writeText(activeContent.textContent).then(() => {
+                    this._showCopySuccess('copy-response-btn');
+                }).catch(err => {
+                    console.warn('Failed to copy response:', err);
+                    this._showCopyFailure('copy-response-btn');
+                });
+
+            } catch (error) {
+                console.warn('Failed to copy response:', error);
+            }
+        },
+
+        // Copy schema content
+        _copySchema() {
+            try {
+                const activeSchemaContent = this._safeQuery('.tester-tab-content.active .code-block');
+                if (!activeSchemaContent?.textContent) {
+                    console.warn('No schema content to copy');
+                    return;
+                }
+
+                navigator.clipboard.writeText(activeSchemaContent.textContent).then(() => {
+                    this._showCopySuccess('copy-schema-btn');
+                }).catch(err => {
+                    console.warn('Failed to copy schema:', err);
+                    this._showCopyFailure('copy-schema-btn');
+                });
+
+            } catch (error) {
+                console.warn('Failed to copy schema:', error);
+            }
+        },
+
+        // Show copy success feedback
+        _showCopySuccess(buttonId) {
+            const btn = this._getElementById(buttonId);
+            if (!btn) return;
+
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="ri-check-line"></i>';
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-secondary');
+
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-secondary');
+            }, 2000);
+        },
+
+        // Show copy failure feedback
+        _showCopyFailure(buttonId) {
+            const btn = this._getElementById(buttonId);
+            if (!btn) return;
+
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="ri-close-line"></i>';
+            btn.classList.add('btn-danger');
+            btn.classList.remove('btn-secondary');
+
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('btn-danger');
+                btn.classList.add('btn-secondary');
+            }, 2000);
+        },
+
+        // Trigger sidebar opened event
+        _triggerSidebarOpened() {
+            try {
+                const event = new CustomEvent('apiTesterSidebarOpened', {
+                    detail: {
+                        method: this.currentEndpoint.method,
+                        path: this.currentEndpoint.path,
+                        data: this.currentEndpoint.data,
+                        sidebar: this
+                    }
+                });
+                document.dispatchEvent(event);
+            } catch (error) {
+                console.warn('Failed to trigger sidebar opened event:', error);
+            }
+        },
+
+        // Trigger sidebar closed event
+        _triggerSidebarClosed() {
+            try {
+                const event = new CustomEvent('apiTesterSidebarClosed', {
+                    detail: { sidebar: this }
+                });
+                document.dispatchEvent(event);
+            } catch (error) {
+                console.warn('Failed to trigger sidebar closed event:', error);
+            }
+        },
+
+        // =============================================================================
+        // UTILITY METHODS
+        // =============================================================================
+
+        _getElementById(id) {
+            return document.getElementById(id);
+        },
+
+        _safeQuery(selector, context = document) {
+            try {
+                return context.querySelector(selector);
+            } catch (error) {
+                console.warn('Invalid selector:', selector, error);
+                return null;
+            }
+        },
+
+        _safeQueryAll(selector, context = document) {
+            try {
+                return Array.from(context.querySelectorAll(selector));
+            } catch (error) {
+                console.warn('Invalid selector:', selector, error);
+                return [];
+            }
+        },
+
+        _addListener(element, event, handler, options = {}) {
+            if (!element || typeof handler !== 'function') return null;
+
+            element.addEventListener(event, handler, options);
+            return () => element.removeEventListener(event, handler, options);
+        },
+
+        // =============================================================================
+        // PUBLIC API
+        // =============================================================================
 
         // Get current endpoint data (for other components)
         getCurrentEndpoint() {
@@ -422,9 +823,69 @@
         // Check if sidebar is open (for other components)
         isSidebarOpen() {
             return this.isOpen;
+        },
+
+        // Get current active tab
+        getCurrentTab() {
+            const activeTab = this._safeQuery('.tester-tab.active');
+            return activeTab ? activeTab.dataset.tab : null;
+        },
+
+        // Get current active response tab
+        getCurrentResponseTab() {
+            const activeTab = this._safeQuery('.response-tab.active');
+            return activeTab ? activeTab.dataset.tab : null;
+        },
+
+        // Programmatically switch tabs
+        switchTab(tabName) {
+            this._switchTesterTab(tabName);
+        },
+
+        // Programmatically switch response tabs
+        switchResponseTab(tabName) {
+            this._switchResponseTab(tabName);
+        },
+
+        // Update response (for external use)
+        updateResponse(responseData) {
+            this._handleResponseReceived(responseData);
+        },
+
+        // Cleanup method
+        destroy() {
+            console.log('Destroying API Tester Sidebar...');
+
+            // Clean up event listeners
+            this._eventCleanup.forEach(cleanup => {
+                try {
+                    cleanup();
+                } catch (error) {
+                    console.warn('Error during event cleanup:', error);
+                }
+            });
+
+            // Hide sidebar
+            this._hideSidebar();
+
+            // Reset state
+            this.currentEndpoint = null;
+            this.isOpen = false;
+            this._eventCleanup = [];
+            this.initialized = false;
+
+            console.log('API Tester Sidebar destroyed');
         }
     };
 
+    // Auto-initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => APITesterSidebar.init());
+    } else {
+        APITesterSidebar.init();
+    }
+
     // Expose globally for endpoint renderer integration
-    window.APITester = APITesterSidebar;
+    window.APITesterSidebar = APITesterSidebar;
+    window.APITester = APITesterSidebar; // Backward compatibility
 {{end}}

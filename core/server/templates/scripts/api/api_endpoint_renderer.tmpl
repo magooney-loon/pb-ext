@@ -1,6 +1,6 @@
 {{define "api_endpoint_renderer_js"}}
     // =============================================================================
-    // UI CONTROLLERS - ENDPOINT RENDERING
+    // ENDPOINT RENDERER - SIMPLIFIED FOR AST-BASED SYSTEM
     // =============================================================================
 
     const EndpointRenderer = {
@@ -17,6 +17,7 @@
                 const html = APIState.filteredEndpoints.map(endpoint => this.renderEndpoint(endpoint)).join('');
                 container.innerHTML = html;
 
+                // Always attach fresh listeners after re-rendering
                 this.attachEventListeners(container);
 
                 console.log(`Rendered ${APIState.filteredEndpoints.length} endpoints`);
@@ -49,7 +50,7 @@
                     <i class="ri-route-line ri-2x mb-2"></i>
                     <h4>${message}</h4>
                     ${APIState.allEndpoints.length > 0 ? `
-                        <button onclick="window.FilterController.clearFilters()" class="btn btn-sm btn-outline mt-2">
+                        <button onclick="UIController.clearFilters()" class="btn btn-sm btn-outline mt-2">
                             <i class="ri-close-line"></i> Clear Filters
                         </button>
                     ` : ''}
@@ -59,7 +60,7 @@
 
         renderEndpoint(endpoint) {
             const method = endpoint.method.toLowerCase();
-            const operationId = endpoint.handler_name.replace(/[^a-zA-Z0-9]/g, '_');
+            const operationId = (endpoint.handler || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
             const authRequired = endpoint.auth?.required;
 
             return `
@@ -137,17 +138,6 @@
                                 <div class="auth-type">${auth.type.replace(/_/g, ' ')}</div>
                             </div>
                         </div>
-                        ${auth.collections?.length ? `
-                            <div class="auth-param">
-                                <strong>Required Collections:</strong>
-                                ${auth.collections.map(c => `<code class="auth-collection">${c}</code>`).join(', ')}
-                            </div>
-                        ` : ''}
-                        ${auth.owner_param ? `
-                            <div class="auth-param">
-                                <strong>Owner Parameter:</strong> <code class="auth-param-code">${auth.owner_param}</code>
-                            </div>
-                        ` : ''}
                     </div>
                 </div>
             `;
@@ -156,82 +146,87 @@
         renderSchemaSection(title, schema, id) {
             if (!schema) return '';
 
-            // Get supported content types from schema config for enhanced display
-            const supportedTypes = APIState.schemaConfig?.supported_content_types || ['application/json'];
-            const defaultContentType = APIState.getDefaultContentType();
-
             return `
                 <div class="mb-2">
                     <div class="flex justify-between align-center mb-1">
                         <strong>${title} Schema:</strong>
-                        <div class="flex gap-1 align-center">
-                            ${title === 'Request' && supportedTypes.length > 1 ? `
-                                <span class="txt-xs txt-hint">Content-Type: ${defaultContentType}</span>
-                            ` : ''}
-                            <button class="btn btn-xs btn-secondary copy-schema-btn" data-copy-target="${id}">
-                                <i class="ri-file-copy-line"></i> Copy
-                            </button>
-                        </div>
+                        <button class="btn btn-xs btn-secondary copy-schema-btn" data-copy-target="${id}">
+                            <i class="ri-file-copy-line"></i> Copy
+                        </button>
                     </div>
-                    <pre class="code-block mt-1"><code id="${id}">${SchemaProcessor.syntaxHighlight(schema)}</code></pre>
-                    ${this.renderSchemaInfo(schema, supportedTypes)}
+                    <div id="${id}" class="schema-container mt-1">${this.formatSchema(schema)}</div>
                 </div>
             `;
         },
 
-        renderSchemaInfo(schema, supportedTypes) {
-            if (!schema || typeof schema !== 'object') return '';
+        formatSchema(schema) {
+            if (!schema) return '<div class="code-block"><span class="json-null">No schema available</span></div>';
 
-            let info = '';
+            if (typeof schema === 'string') {
+                return `<div class="code-block"><pre><code>${this._escapeHtml(schema)}</code></pre></div>`;
+            }
 
-            // Show system fields that would be excluded from requests
-            if (schema.properties) {
-                const systemFields = APIState.getSystemFields();
-                const hasSystemFields = Object.keys(schema.properties).some(key =>
-                    systemFields.includes(key.toLowerCase())
-                );
-
-                if (hasSystemFields) {
-                    info += `
-                        <div class="txt-xs txt-hint mt-1">
-                            <i class="ri-information-line"></i>
-                            System fields (${systemFields.join(', ')}) are auto-generated and excluded from requests
-                        </div>
-                    `;
+            // Use SchemaProcessor if available for better formatting
+            if (typeof SchemaProcessor !== 'undefined') {
+                try {
+                    return SchemaProcessor.formatForDisplay(schema, 'json');
+                } catch (error) {
+                    console.warn('SchemaProcessor formatting failed, falling back to JSON.stringify:', error);
                 }
             }
 
-            return info;
+            // Fallback to basic JSON formatting
+            return `<div class="code-block"><pre><code>${this._escapeHtml(JSON.stringify(schema, null, 2))}</code></pre></div>`;
+        },
+
+        _escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         },
 
         attachEventListeners(container) {
-            // Handle endpoint toggle
-            container.addEventListener('click', (e) => {
-                const header = e.target.closest('.api-endpoint-header');
-                if (header && header.dataset.toggle === 'endpoint') {
-                    // Don't toggle if clicking on test button
-                    if (!e.target.closest('.test-endpoint-btn')) {
-                        const content = header.parentElement.querySelector('.api-endpoint-content');
-                        if (content) {
-                            const wasActive = content.classList.contains('active');
-                            content.classList.toggle('active');
+            // Remove any existing listeners by cloning the container
+            const newContainer = container.cloneNode(true);
+            container.parentNode.replaceChild(newContainer, container);
 
-                            // Log for debugging
-                            const endpoint = header.parentElement.querySelector('.txt-mono').textContent;
-                            console.log(`Endpoint ${endpoint} ${wasActive ? 'collapsed' : 'expanded'}`);
-                        }
+            // Update reference to new container
+            const endpointsList = document.getElementById('endpoints-list');
+
+            // Use a single delegated click handler on the fresh container
+            endpointsList.addEventListener('click', (e) => {
+                // Handle endpoint toggle
+                const header = e.target.closest('.api-endpoint-header[data-toggle="endpoint"]');
+                if (header) {
+                    // Don't toggle if clicking on buttons
+                    if (e.target.closest('.test-endpoint-btn') || e.target.closest('.copy-schema-btn')) {
+                        return;
                     }
-                }
-            });
 
-            // Handle test button clicks
-            container.addEventListener('click', (e) => {
-                if (e.target.closest('.test-endpoint-btn')) {
+                    e.preventDefault();
                     e.stopPropagation();
-                    const button = e.target.closest('.test-endpoint-btn');
-                    const method = button.dataset.method;
-                    const path = button.dataset.path;
-                    let endpointData = button.dataset.endpoint;
+
+                    const content = header.parentElement.querySelector('.api-endpoint-content');
+                    if (content) {
+                        const wasActive = content.classList.contains('active');
+                        content.classList.toggle('active');
+
+                        // Log for debugging
+                        const endpointPath = header.querySelector('.txt-mono')?.textContent || 'unknown';
+                        console.log(`Endpoint ${endpointPath} ${wasActive ? 'collapsed' : 'expanded'}`);
+                    }
+                    return;
+                }
+
+                // Handle test button clicks
+                const testBtn = e.target.closest('.test-endpoint-btn');
+                if (testBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const method = testBtn.dataset.method;
+                    const path = testBtn.dataset.path;
+                    let endpointData = testBtn.dataset.endpoint;
 
                     // Unescape HTML entities in JSON
                     if (endpointData) {
@@ -240,25 +235,33 @@
 
                     console.log(`Opening API tester for: ${method.toUpperCase()} ${path}`);
 
-                    // Check if schema configuration is ready
-                    if (!APISchemaManager.isReady()) {
-                        console.warn('Schema configuration not ready, tester may use fallback values');
-                    }
-
                     if (window.APITester && window.APITester.openSidebar) {
-                        window.APITester.openSidebar(method, path, endpointData);
+                        try {
+                            const endpoint = JSON.parse(endpointData);
+                            window.APITester.openSidebar(method, path, endpoint);
+                        } catch (error) {
+                            console.error('Failed to parse endpoint data:', error);
+                            // Fallback to basic data
+                            window.APITester.openSidebar(method, path, {
+                                method: method,
+                                path: path,
+                                description: 'API endpoint'
+                            });
+                        }
                     } else {
                         console.error('APITester not available');
                     }
+                    return;
                 }
-            });
 
-            // Handle copy schema buttons
-            container.querySelectorAll('.copy-schema-btn').forEach(button => {
-                button.addEventListener('click', (e) => {
+                // Handle copy schema buttons
+                const copyBtn = e.target.closest('.copy-schema-btn');
+                if (copyBtn) {
+                    e.preventDefault();
                     e.stopPropagation();
-                    this.copySchemaToClipboard(button);
-                });
+                    this.copySchemaToClipboard(copyBtn);
+                    return;
+                }
             });
         },
 
@@ -270,7 +273,14 @@
                 return;
             }
 
-            const content = targetElement.textContent || targetElement.innerText;
+            // Extract content from the formatted schema container
+            let content;
+            const codeElement = targetElement.querySelector('code');
+            if (codeElement) {
+                content = codeElement.textContent || codeElement.innerText;
+            } else {
+                content = targetElement.textContent || targetElement.innerText;
+            }
 
             if (!content || content.trim() === '') {
                 console.warn('No content to copy for target:', targetId);
@@ -304,20 +314,6 @@
                     button.classList.add('btn-secondary');
                 }, 2000);
             });
-        },
-
-        // Get configuration-aware debug information
-        getDebugInfo() {
-            return {
-                schemaConfigReady: APISchemaManager.isReady(),
-                systemFields: APIState.getSystemFields(),
-                defaultContentType: APIState.getDefaultContentType(),
-                supportedContentTypes: APIState.schemaConfig?.supported_content_types || [],
-                endpointsCount: APIState.filteredEndpoints?.length || 0
-            };
         }
     };
-
-    // Expose FilterController globally so it can be called from HTML templates
-    window.FilterController = FilterController;
 {{end}}

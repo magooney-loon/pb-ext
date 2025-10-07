@@ -1,18 +1,16 @@
 {{define "api_request_handler_js"}}
     // =============================================================================
-    // API REQUEST HANDLER - REQUEST EXECUTION AND RESPONSE HANDLING
+    // API REQUEST HANDLER - SIMPLIFIED FOR AST-BASED SCHEMAS
     // =============================================================================
 
     const APIRequestHandler = {
 
-        // Send HTTP request
+        // Send HTTP request using simplified form data
         async sendRequest(endpoint) {
             if (!endpoint) {
                 console.error('No endpoint provided for request');
                 return;
             }
-
-
 
             const sendBtn = document.getElementById('send-request-btn');
             const originalText = sendBtn ? sendBtn.innerHTML : '';
@@ -24,15 +22,23 @@
                     sendBtn.disabled = true;
                 }
 
-                // Collect and validate form data
-                const requestData = this.collectFormData();
+                // Validate and collect form data
+                const validation = APIFormBuilder.validateForm(endpoint);
 
+                if (!validation.valid) {
+                    throw new Error(`Form validation failed:\n${validation.errors.join('\n')}`);
+                }
 
-                // Make the HTTP request
-                const response = await this.makeRequest(endpoint, requestData);
+                const formData = validation.data;
+
+                // Build request configuration
+                const requestConfig = this.buildRequestConfig(endpoint, formData);
+
+                // Execute request
+                const response = await this.executeRequest(requestConfig);
 
                 // Display response
-                this.displayResponse(response);
+                this.displayResponse(response, endpoint);
 
                 // Switch to response tab
                 if (typeof APITesterSidebar !== 'undefined') {
@@ -42,14 +48,12 @@
                 return response;
 
             } catch (error) {
-
-                this.displayError(error);
+                console.error('Request failed:', error);
+                this.displayError(error, endpoint);
 
                 if (typeof APITesterSidebar !== 'undefined') {
                     APITesterSidebar.switchTesterTab('response');
                 }
-
-                throw error;
             } finally {
                 // Restore button state
                 if (sendBtn) {
@@ -59,400 +63,330 @@
             }
         },
 
-        // Collect form data from the UI
-        collectFormData() {
-            const data = {
-                pathParams: {},
-                queryParams: {},
-                headerParams: {},
-                body: null
-            };
-
-
-
-            // Collect parameter fields
-            const paramFields = document.querySelectorAll('.param-field[data-param]');
-
-            paramFields.forEach(field => {
-                const input = field.querySelector('input, select, textarea');
-                if (input && input.value.trim()) {
-                    const paramName = input.name;
-                    const paramType = input.dataset.type;
-                    const paramIn = field.dataset.in; // Get from parent field div
-
-                    const value = this.convertValue(input.value.trim(), paramType);
-
-
-
-                    switch (paramIn) {
-                        case 'path':
-                            data.pathParams[paramName] = value;
-                            break;
-                        case 'query':
-                            data.queryParams[paramName] = value;
-                            break;
-                        case 'header':
-                            data.headerParams[paramName] = value;
-                            break;
-                    }
-                }
-            });
-
-            // Collect manual query parameters
-            const manualQueryEntries = document.querySelectorAll('.query-param-entry');
-
-            manualQueryEntries.forEach(entry => {
-                const keyInput = entry.querySelector('.query-param-key');
-                const valueInput = entry.querySelector('.query-param-value');
-
-                if (keyInput && valueInput && keyInput.value.trim()) {
-                    const paramName = keyInput.value.trim();
-                    const paramValue = valueInput.value.trim();
-
-                    // Add to query parameters (manual parameters override auto-detected ones)
-                    data.queryParams[paramName] = paramValue;
-                }
-            });
-
-            // Collect request body from form fields
-            const bodyFields = document.querySelectorAll('.body-field[data-body-field]');
-
-            if (bodyFields.length > 0) {
-                const bodyData = {};
-                bodyFields.forEach(field => {
-                    const input = field.querySelector('input, select, textarea');
-                    if (input && input.value.trim()) {
-                        const fieldName = field.dataset.bodyField; // Use data attribute
-                        const fieldValue = input.value.trim();
-                        const inputType = input.type;
-                        const dataType = input.dataset.type; // Get the schema type from data attribute
-
-                        // Try to convert to appropriate type based on data-type attribute
-                        if (dataType === 'array') {
-                            if (fieldValue.startsWith('[') && fieldValue.endsWith(']')) {
-                                // Try to parse as JSON array
-                                try {
-                                    bodyData[fieldName] = JSON.parse(fieldValue);
-                                } catch (e) {
-                                    bodyData[fieldName] = fieldValue.split(',').map(v => v.trim()).filter(v => v);
-                                }
-                            } else {
-                                // Treat as comma-separated values
-                                bodyData[fieldName] = fieldValue.split(',').map(v => v.trim()).filter(v => v);
-                            }
-                        } else if (input.type === 'number') {
-                            bodyData[fieldName] = input.step === '1' ? parseInt(fieldValue, 10) : parseFloat(fieldValue);
-                        } else if (fieldValue === 'true' || fieldValue === 'false') {
-                            bodyData[fieldName] = fieldValue === 'true';
-                        } else {
-                            bodyData[fieldName] = fieldValue;
-                        }
-                    }
-                });
-
-                if (Object.keys(bodyData).length > 0) {
-                    data.body = JSON.stringify(bodyData, null, 2);
-                }
-            }
-
-            // Also check for raw JSON input
-            const rawJsonTextarea = document.getElementById('raw-json-payload');
-            if (rawJsonTextarea && rawJsonTextarea.value.trim()) {
-                try {
-                    // Validate JSON
-                    JSON.parse(rawJsonTextarea.value.trim());
-                    data.body = rawJsonTextarea.value.trim();
-
-                } catch (e) {
-                    console.error('Invalid JSON in raw textarea:', e);
-                    throw new Error(`Invalid JSON in request body: ${e.message}`);
-                }
-            }
-
-            // Legacy fallback to old JSON textarea
-            if (!data.body) {
-                const jsonTextarea = document.getElementById('request-body-json');
-                if (jsonTextarea && jsonTextarea.value.trim()) {
-                    try {
-                        JSON.parse(jsonTextarea.value.trim());
-                        data.body = jsonTextarea.value.trim();
-
-                    } catch (e) {
-                        console.error('Invalid JSON in legacy textarea:', e);
-                        throw new Error(`Invalid JSON in request body: ${e.message}`);
-                    }
-                }
-            }
-
-            return data;
-        },
-
-        // Convert value based on parameter type
-        convertValue(value, type) {
-            try {
-                switch (type) {
-                    case 'integer':
-                        const intVal = parseInt(value, 10);
-                        if (isNaN(intVal)) throw new Error(`Invalid integer: ${value}`);
-                        return intVal;
-
-                    case 'number':
-                        const numVal = parseFloat(value);
-                        if (isNaN(numVal)) throw new Error(`Invalid number: ${value}`);
-                        return numVal;
-
-                    case 'boolean':
-                        const boolVal = value === 'true';
-                        return boolVal;
-
-                    case 'array':
-                        try {
-                            const jsonArray = JSON.parse(value);
-                            return jsonArray;
-                        } catch (e) {
-                            // If not JSON, treat as comma-separated values
-                            const csvArray = value.split(',').map(v => v.trim()).filter(v => v);
-                            return csvArray;
-                        }
-
-                    default:
-                        return value;
-                }
-            } catch (error) {
-                console.warn(`Value conversion error for type ${type}:`, error);
-                return value;
-            }
-        },
-
-        // Make HTTP request
-        async makeRequest(endpoint, data) {
-            const startTime = Date.now();
-
+        // Build request configuration from form data
+        buildRequestConfig(endpoint, formData) {
+            // Build URL with path parameters
             let url = endpoint.path;
-            const method = endpoint.method;
-
-            // Replace path parameters (curly brace syntax: {param})
-            Object.entries(data.pathParams).forEach(([param, value]) => {
-                url = url.replace(`{${param}}`, encodeURIComponent(value));
-            });
-
-            // Build full URL
-            const baseUrl = window.location.origin;
-            let fullUrl = url.startsWith('http') ? url : baseUrl + url;
+            for (const [key, value] of Object.entries(formData.pathParameters)) {
+                url = url.replace(`{${key}}`, encodeURIComponent(value));
+            }
 
             // Add query parameters
-            if (Object.keys(data.queryParams).length > 0) {
-                const params = new URLSearchParams(data.queryParams);
-                const separator = fullUrl.includes('?') ? '&' : '?';
-                fullUrl += separator + params.toString();
+            const queryParams = new URLSearchParams(formData.queryParameters);
+            if (queryParams.toString()) {
+                url += '?' + queryParams.toString();
             }
 
-            // Get authentication token from localStorage
-            let authHeaders = {};
-            try {
-                const authData = localStorage.getItem('__pb_superuser_auth__');
-                if (authData) {
-                    const parsed = JSON.parse(authData);
-                    if (parsed.token) {
-                        authHeaders['Authorization'] = `Bearer ${parsed.token}`;
-                    }
+            // Build request configuration
+            const config = {
+                method: endpoint.method,
+                url: url,
+                headers: {
+                    'Content-Type': 'application/json'
                 }
-            } catch (error) {
-                console.warn('Could not parse auth data:', error);
-            }
-
-            // Build request headers
-            const headers = {
-                'Accept': 'application/json, text/plain, */*',
-                ...authHeaders,
-                ...data.headerParams
             };
 
-            // Add Content-Type for requests with body
-            if (['POST', 'PUT', 'PATCH'].includes(method) && data.body) {
-                headers['Content-Type'] = 'application/json';
+            // Add request body for methods that support it
+            if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) &&
+                Object.keys(formData.requestBody).length > 0) {
+                config.body = JSON.stringify(formData.requestBody);
             }
 
-            const options = {
-                method: method,
-                headers: headers
+            return config;
+        },
+
+        // Execute HTTP request
+        async executeRequest(config) {
+            const startTime = performance.now();
+
+            const response = await fetch(config.url, {
+                method: config.method,
+                headers: config.headers,
+                body: config.body
+            });
+
+            const endTime = performance.now();
+            const duration = Math.round(endTime - startTime);
+
+            // Parse response body
+            let responseData;
+            const contentType = response.headers.get('content-type');
+
+            if (contentType && contentType.includes('application/json')) {
+                try {
+                    responseData = await response.json();
+                } catch (e) {
+                    responseData = await response.text();
+                }
+            } else {
+                responseData = await response.text();
+            }
+
+            return {
+                ok: response.ok,
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries(response.headers.entries()),
+                data: responseData,
+                duration: duration,
+                url: config.url,
+                method: config.method
             };
-
-            // Add request body for appropriate methods
-            if (['POST', 'PUT', 'PATCH'].includes(method) && data.body) {
-                try {
-                    // Validate JSON if it's a string
-                    if (typeof data.body === 'string') {
-                        JSON.parse(data.body);
-                    }
-                    options.body = data.body;
-                } catch (e) {
-                    throw new Error(`Invalid JSON in request body: ${e.message}`);
-                }
-            }
-
-            try {
-                const response = await fetch(fullUrl, options);
-                const endTime = Date.now();
-
-                let responseBody = '';
-                const contentType = response.headers.get('content-type') || '';
-
-                try {
-                    responseBody = await response.text();
-                } catch (e) {
-                    console.warn('Failed to read response body:', e);
-                    responseBody = '';
-                }
-
-                const responseData = {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: Object.fromEntries(response.headers.entries()),
-                    body: responseBody,
-                    contentType: contentType,
-                    time: endTime - startTime,
-                    url: fullUrl,
-                    ok: response.ok
-                };
-
-                return responseData;
-
-            } catch (error) {
-                const endTime = Date.now();
-
-                throw {
-                    message: `Network error: ${error.message}`,
-                    time: endTime - startTime,
-                    url: fullUrl,
-                    type: 'NetworkError'
-                };
-            }
         },
 
         // Display successful response
-        displayResponse(response) {
+        displayResponse(response, endpoint) {
+            const container = document.getElementById('api-response-container');
+            if (!container) return;
 
+            const responseInfo = APISchemaManager.extractResponseInfo(endpoint);
 
-            if (typeof APITesterSidebar !== 'undefined') {
-                APITesterSidebar.updateResponseStatus(response.status, response.statusText, response.time);
-                APITesterSidebar.updateResponseContent(response.body, response.headers);
-                APITesterSidebar.showResponseContent();
-            }
+            container.innerHTML = `
+                <div class="api-response-success">
+                    <div class="response-header">
+                        <div class="response-status">
+                            <span class="status-badge ${this.getStatusClass(response.status)}">
+                                ${response.status} ${response.statusText}
+                            </span>
+                            <span class="response-time">${response.duration}ms</span>
+                        </div>
+                        <div class="response-url">
+                            <strong>${response.method}</strong> ${response.url}
+                        </div>
+                    </div>
+
+                    <div class="response-tabs">
+                        <div class="tab-nav">
+                            <button class="tab-btn active" data-tab="body">Response Body</button>
+                            <button class="tab-btn" data-tab="headers">Headers</button>
+                            ${responseInfo.hasSchema ? '<button class="tab-btn" data-tab="schema">Expected Schema</button>' : ''}
+                        </div>
+
+                        <div class="tab-content">
+                            <div class="tab-panel active" data-panel="body">
+                                <div class="response-body">
+                                    <pre><code class="json">${this.formatJSON(response.data)}</code></pre>
+                                </div>
+                            </div>
+
+                            <div class="tab-panel" data-panel="headers">
+                                <div class="response-headers">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Header</th>
+                                                <th>Value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${Object.entries(response.headers).map(([key, value]) => `
+                                                <tr>
+                                                    <td><code>${key}</code></td>
+                                                    <td>${value}</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            ${responseInfo.hasSchema ? `
+                                <div class="tab-panel" data-panel="schema">
+                                    <div class="response-schema">
+                                        <h6>Expected Response Schema:</h6>
+                                        <pre><code class="json">${this.formatJSON(responseInfo.schema)}</code></pre>
+                                        ${responseInfo.required.length > 0 ? `
+                                            <div class="schema-info m-t-sm">
+                                                <strong>Required fields:</strong> ${responseInfo.required.join(', ')}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            this.initializeResponseTabs(container);
         },
 
         // Display error response
-        displayError(error) {
+        displayError(error, endpoint) {
+            const container = document.getElementById('api-response-container');
+            if (!container) return;
 
-            const errorResponse = {
-                error: {
-                    message: error.message || 'Unknown error',
-                    type: error.type || 'RequestError',
-                    timestamp: new Date().toISOString(),
-                    url: error.url
-                }
-            };
+            container.innerHTML = `
+                <div class="api-response-error">
+                    <div class="error-header">
+                        <div class="error-icon">
+                            <i class="ri-error-warning-line"></i>
+                        </div>
+                        <div class="error-title">Request Failed</div>
+                    </div>
 
-            const status = error.status || 'Error';
-            const statusText = error.message || 'Request failed';
-            const time = error.time || 0;
+                    <div class="error-details">
+                        <div class="error-message">
+                            <strong>Error:</strong>
+                            <pre>${error.message || 'Unknown error occurred'}</pre>
+                        </div>
 
-            if (typeof APITesterSidebar !== 'undefined') {
-                APITesterSidebar.updateResponseStatus(status, statusText, time);
-                APITesterSidebar.updateResponseContent(JSON.stringify(errorResponse, null, 2), {
-                    'content-type': 'application/json',
-                    'x-error': 'true'
+                        ${error.response ? `
+                            <div class="error-response m-t-sm">
+                                <strong>Response Details:</strong>
+                                <div class="response-status">
+                                    Status: <span class="status-badge status-error">
+                                        ${error.response.status} ${error.response.statusText}
+                                    </span>
+                                </div>
+                                ${error.response.data ? `
+                                    <div class="response-body m-t-xs">
+                                        <pre><code>${this.formatJSON(error.response.data)}</code></pre>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        ` : ''}
+
+                        <div class="error-help m-t-sm">
+                            <h6>Troubleshooting Tips:</h6>
+                            <ul class="list-unstyled">
+                                <li><i class="ri-checkbox-circle-line"></i> Check that all required fields are filled</li>
+                                <li><i class="ri-checkbox-circle-line"></i> Verify the endpoint URL and method</li>
+                                <li><i class="ri-checkbox-circle-line"></i> Ensure authentication if required</li>
+                                <li><i class="ri-checkbox-circle-line"></i> Check server logs for detailed errors</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Initialize response tab functionality
+        initializeResponseTabs(container) {
+            const tabBtns = container.querySelectorAll('.tab-btn');
+            const tabPanels = container.querySelectorAll('.tab-panel');
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tabName = btn.getAttribute('data-tab');
+
+                    // Update active states
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    tabPanels.forEach(p => p.classList.remove('active'));
+
+                    btn.classList.add('active');
+                    const panel = container.querySelector(`[data-panel="${tabName}"]`);
+                    if (panel) {
+                        panel.classList.add('active');
+                    }
                 });
-                APITesterSidebar.showResponseContent();
+            });
+        },
+
+        // Get CSS class for HTTP status code
+        getStatusClass(status) {
+            if (status >= 200 && status < 300) return 'status-success';
+            if (status >= 300 && status < 400) return 'status-redirect';
+            if (status >= 400 && status < 500) return 'status-client-error';
+            if (status >= 500) return 'status-server-error';
+            return 'status-unknown';
+        },
+
+        // Format JSON for display
+        formatJSON(data) {
+            if (!data) return 'No data';
+
+            if (typeof data === 'string') {
+                try {
+                    data = JSON.parse(data);
+                } catch (e) {
+                    return data; // Return as-is if not valid JSON
+                }
             }
 
-            // Use ErrorHandler if available
-            if (typeof ErrorHandler !== 'undefined') {
-                ErrorHandler.logError('API Tester Request Failed', error);
+            return JSON.stringify(data, null, 2);
+        },
+
+        // Build cURL command for the request
+        generateCurlCommand(endpoint, formData) {
+            const config = this.buildRequestConfig(endpoint, formData);
+
+            let curl = `curl -X ${config.method}`;
+
+            // Add headers
+            Object.entries(config.headers).forEach(([key, value]) => {
+                curl += ` -H "${key}: ${value}"`;
+            });
+
+            // Add body if present
+            if (config.body) {
+                curl += ` -d '${config.body}'`;
+            }
+
+            // Add URL (quote it to handle query parameters)
+            curl += ` "${config.url}"`;
+
+            return curl;
+        },
+
+        // Copy cURL command to clipboard
+        copyCurlCommand(endpoint) {
+            try {
+                const validation = APIFormBuilder.validateForm(endpoint);
+                if (!validation.valid) {
+                    throw new Error('Form validation failed');
+                }
+
+                const curlCommand = this.generateCurlCommand(endpoint, validation.data);
+
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(curlCommand).then(() => {
+                        this.showToast('cURL command copied to clipboard!', 'success');
+                    });
+                } else {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = curlCommand;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    this.showToast('cURL command copied to clipboard!', 'success');
+                }
+            } catch (error) {
+                this.showToast('Failed to generate cURL command: ' + error.message, 'error');
             }
         },
 
-        // Reset form to default values
-        resetForm() {
+        // Show toast notification
+        showToast(message, type = 'info') {
+            // Simple toast implementation
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 10px 15px;
+                background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
+                color: white;
+                border-radius: 4px;
+                z-index: 1000;
+                opacity: 0;
+                transition: opacity 0.3s;
+            `;
 
+            document.body.appendChild(toast);
 
-            // Clear all parameter fields
-            const paramFields = document.querySelectorAll('.param-field input, .param-field select, .param-field textarea');
-            paramFields.forEach(field => {
-                if (field.type === 'checkbox' || field.type === 'radio') {
-                    field.checked = false;
-                } else {
-                    field.value = '';
-                }
-            });
+            // Fade in
+            setTimeout(() => toast.style.opacity = '1', 10);
 
-            // Clear request body fields
-            const bodyFields = document.querySelectorAll('.body-field input, .body-field select, .body-field textarea');
-            bodyFields.forEach(field => {
-                if (field.type === 'checkbox' || field.type === 'radio') {
-                    field.checked = false;
-                } else {
-                    field.value = '';
-                }
-            });
-
-            // Clear raw JSON textarea if exists
-            const rawJsonTextarea = document.getElementById('raw-json-payload');
-            if (rawJsonTextarea) {
-                rawJsonTextarea.value = '{}';
-            }
-
-            // Also clear legacy JSON textarea if exists
-            const jsonTextarea = document.getElementById('request-body-json');
-            if (jsonTextarea) {
-                jsonTextarea.value = '';
-            }
-
-            // Reset response state
-            if (typeof APITesterSidebar !== 'undefined') {
-                APITesterSidebar.resetResponseState();
-            }
-
-
-        },
-
-        // Validate collected form data
-        validateFormData(data, endpoint) {
-            const errors = [];
-
-            // Check required path parameters
-            if (endpoint.data && endpoint.data.parameters) {
-                endpoint.data.parameters
-                    .filter(param => param.in === 'path' && param.required)
-                    .forEach(param => {
-                        if (!data.pathParams[param.name]) {
-                            errors.push(`Path parameter '${param.name}' is required`);
-                        }
-                    });
-
-                // Check required query parameters
-                endpoint.data.parameters
-                    .filter(param => param.in === 'query' && param.required)
-                    .forEach(param => {
-                        if (!data.queryParams[param.name]) {
-                            errors.push(`Query parameter '${param.name}' is required`);
-                        }
-                    });
-            }
-
-            // Check request body for methods that typically require it
-            if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) && !data.body) {
-                const hasRequiredBody = endpoint.data?.requestBody?.required;
-                if (hasRequiredBody) {
-                    errors.push('Request body is required for this endpoint');
-                }
-            }
-
-            if (errors.length > 0) {
-                throw new Error(`Validation failed:\n${errors.join('\n')}`);
-            }
-
-            return true;
+            // Fade out and remove
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => document.body.removeChild(toast), 300);
+            }, 3000);
         }
     };
 {{end}}

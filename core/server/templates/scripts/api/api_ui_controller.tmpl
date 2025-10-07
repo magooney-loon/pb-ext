@@ -1,0 +1,1069 @@
+{{define "api_ui_controller_js"}}
+    // =============================================================================
+    // UI CONTROLLER - CONSOLIDATED TAB AND FILTER MANAGEMENT
+    // =============================================================================
+
+    const UIController = {
+        // Tab management state
+        currentTab: 'endpoints',
+        isTabSwitching: false,
+        _tabCache: new Map(),
+        _eventCleanup: [],
+
+        // Filter state
+        _debounceTimers: new Map(),
+
+        // Initialize the UI controller
+        init() {
+            console.log('Initializing UI Controller...');
+
+            try {
+                this._initTabs();
+                this._initFilters();
+                this._setupStateObservers();
+
+                console.log('UI Controller initialized successfully');
+            } catch (error) {
+                console.error('Failed to initialize UI Controller:', error);
+                this._showInitializationError(error);
+            }
+        },
+
+        // Initialize tab functionality
+        _initTabs() {
+            this._setupTabEventListeners();
+            this._cacheTabElements();
+            this._initializeDefaultTab();
+        },
+
+        // Initialize filter functionality
+        _initFilters() {
+            this._setupFilterEventListeners();
+        },
+
+        // Setup state observers
+        _setupStateObservers() {
+            if (window.APIState) {
+                this._eventCleanup.push(
+                    APIState.addObserver('endpoints:updated', (data) => {
+                        this._refreshCurrentTab();
+                        this.updateStatistics();
+                        this.populateFilterOptions(data);
+                    }),
+                    APIState.addObserver('schema:updated', () => this._refreshCurrentTab()),
+                    APIState.addObserver('filter:applied', (data) => {
+                        this._updateFilterSummary(data);
+                        this.updateStatistics();
+                    })
+                );
+            }
+        },
+
+        // =============================================================================
+        // TAB MANAGEMENT
+        // =============================================================================
+
+        _setupTabEventListeners() {
+            const tabButtons = this._safeQueryAll('#api-tabs .tab-item');
+
+            tabButtons.forEach(button => {
+                const cleanup = this._addListener(button, 'click', (e) => {
+                    e.preventDefault();
+                    this._handleTabClick(e.target);
+                });
+
+                if (cleanup) {
+                    this._eventCleanup.push(cleanup);
+                }
+            });
+        },
+
+        _handleTabClick(button) {
+            if (this.isTabSwitching) {
+                console.log('Tab switching in progress, ignoring click');
+                return;
+            }
+
+            const tabName = button.getAttribute('data-tab');
+            if (!tabName) {
+                console.error('Tab button missing data-tab attribute:', button);
+                return;
+            }
+
+            this.switchTab(tabName, button);
+        },
+
+        _cacheTabElements() {
+            const tabs = ['endpoints', 'raw', 'components'];
+
+            tabs.forEach(tabName => {
+                const button = this._safeQuery(`#api-tabs .tab-item[data-tab="${tabName}"]`);
+                const content = this._getElementById(`${tabName}-tab`);
+
+                if (button && content) {
+                    this._tabCache.set(tabName, { button, content });
+                } else {
+                    console.warn(`Tab elements not found for: ${tabName}`);
+                }
+            });
+
+            console.log(`Cached ${this._tabCache.size} tab elements`);
+        },
+
+        _initializeDefaultTab() {
+            const activeButton = this._safeQuery('#api-tabs .tab-item.active');
+            const activeContent = this._safeQuery('.tab-content.active');
+
+            if (activeButton && activeContent) {
+                this.currentTab = activeButton.getAttribute('data-tab') || 'endpoints';
+                console.log(`Found active tab: ${this.currentTab}`);
+                return;
+            }
+
+            console.log('No active tab found, activating default tab');
+            this._activateDefaultTab();
+        },
+
+        _activateDefaultTab() {
+            const defaultTabName = 'endpoints';
+            const cached = this._tabCache.get(defaultTabName);
+
+            if (!cached) {
+                console.error('Default tab elements not found in cache');
+                return;
+            }
+
+            try {
+                this._clearAllActiveStates();
+                this._activateTab(cached.button, cached.content);
+                this.currentTab = defaultTabName;
+                console.log(`Default tab '${defaultTabName}' activated`);
+            } catch (error) {
+                console.error('Failed to activate default tab:', error);
+            }
+        },
+
+        async switchTab(tabName, button = null) {
+            if (this.isTabSwitching) {
+                console.log(`Tab switching in progress, ignoring switch to ${tabName}`);
+                return false;
+            }
+
+            if (tabName === this.currentTab) {
+                console.log(`Tab '${tabName}' already active`);
+                return true;
+            }
+
+            console.log(`Switching tab: ${this.currentTab} -> ${tabName}`);
+            return await this._performTabSwitch(tabName, button);
+        },
+
+        async _performTabSwitch(tabName, button) {
+            this.isTabSwitching = true;
+
+            try {
+                const cached = this._tabCache.get(tabName);
+                if (!cached && !button) {
+                    throw new Error(`Tab '${tabName}' not found in cache and no button provided`);
+                }
+
+                const targetButton = button || cached?.button;
+                const targetContent = cached?.content || this._getElementById(`${tabName}-tab`);
+
+                if (!targetButton || !targetContent) {
+                    throw new Error(`Tab elements not found for '${tabName}'`);
+                }
+
+                // Perform the switch
+                await this._batchUpdate([
+                    () => this._clearAllActiveStates(),
+                    () => this._activateTab(targetButton, targetContent),
+                    () => this.currentTab = tabName
+                ]);
+
+                // Refresh tab content
+                await this._refreshTabContent(tabName);
+
+                // Ensure content is loaded for schema tabs
+                if (tabName === 'raw' || tabName === 'components') {
+                    setTimeout(() => this._ensureSchemaContentLoaded(tabName), 100);
+                }
+
+                console.log(`Successfully switched to tab: ${tabName}`);
+                return true;
+
+            } catch (error) {
+                console.error(`Failed to switch to tab '${tabName}':`, error);
+                await this._recoverFromTabSwitchError(this.currentTab);
+                return false;
+            } finally {
+                this.isTabSwitching = false;
+            }
+        },
+
+        _clearAllActiveStates() {
+            this._safeQueryAll('#api-tabs .tab-item').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            this._safeQueryAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+                content.style.display = 'none';
+            });
+        },
+
+        _activateTab(button, content) {
+            if (!button || !content) {
+                throw new Error('Invalid button or content element');
+            }
+
+            button.classList.add('active');
+            content.style.display = 'block';
+            content.classList.add('active');
+            content.offsetHeight; // Force reflow
+        },
+
+        async _recoverFromTabSwitchError(fallbackTabName) {
+            try {
+                console.log(`Attempting recovery to tab: ${fallbackTabName}`);
+                const fallbackCached = this._tabCache.get(fallbackTabName) || this._tabCache.get('endpoints');
+
+                if (!fallbackCached) {
+                    console.error('No fallback tab available for recovery');
+                    return;
+                }
+
+                await this._batchUpdate([
+                    () => this._clearAllActiveStates(),
+                    () => this._activateTab(fallbackCached.button, fallbackCached.content)
+                ]);
+
+                console.log(`Recovery successful, restored tab: ${fallbackTabName}`);
+            } catch (recoveryError) {
+                console.error('Tab recovery also failed:', recoveryError);
+            }
+        },
+
+        async _refreshTabContent(tabName) {
+            try {
+                console.log(`Refreshing content for tab: ${tabName}`);
+
+                switch (tabName) {
+                    case 'raw':
+                        await this._refreshRawTab();
+                        break;
+                    case 'components':
+                        await this._refreshComponentsTab();
+                        break;
+                    case 'endpoints':
+                        await this._refreshEndpointsTab();
+                        break;
+                }
+            } catch (error) {
+                console.warn(`Failed to refresh tab content for '${tabName}':`, error.message);
+            }
+        },
+
+        _refreshCurrentTab() {
+            if (this.currentTab && !this.isTabSwitching) {
+                this._refreshTabContent(this.currentTab);
+            }
+        },
+
+        async _refreshRawTab() {
+            const rawContent = this._getElementById('raw-schema-content');
+            if (!rawContent) return;
+
+            // Ensure format buttons are initialized
+            this._initializeFormatButtons('raw-tab');
+
+            if (window.APIState && APIState.openApiSchema) {
+                const formatBtn = this._safeQuery('#raw-tab .btn.active');
+                const format = formatBtn?.getAttribute('data-format') || 'json';
+
+                if (typeof APILoader !== 'undefined' && APILoader.updateRawSchema) {
+                    APILoader.updateRawSchema(format);
+                }
+            } else {
+                rawContent.innerHTML = '<div class="code-block"><span class="json-null">No schema data available. Try refreshing the page.</span></div>';
+            }
+        },
+
+        async _refreshComponentsTab() {
+            const componentsContent = this._getElementById('components-content');
+            if (!componentsContent) return;
+
+            // Ensure format buttons are initialized
+            this._initializeFormatButtons('components-tab');
+
+            if (window.APIState && APIState.openApiSchema?.components && Object.keys(APIState.openApiSchema.components).length > 0) {
+                const formatBtn = this._safeQuery('#components-tab .btn.active');
+                const format = formatBtn?.getAttribute('data-format') || 'json';
+
+                if (typeof APILoader !== 'undefined' && APILoader.updateComponents) {
+                    APILoader.updateComponents(format);
+                }
+            } else {
+                componentsContent.innerHTML = '<div class="code-block"><span class="json-null">No components available in this API schema.</span></div>';
+            }
+        },
+
+        async _refreshEndpointsTab() {
+            const endpointsList = this._getElementById('endpoints-list');
+            if (!endpointsList) return;
+
+            if (window.APIState) {
+                if (APIState.filteredEndpoints.length === 0 && APIState.allEndpoints.length > 0) {
+                    if (typeof EndpointRenderer !== 'undefined' && EndpointRenderer.render) {
+                        EndpointRenderer.render();
+                    }
+                } else if (APIState.allEndpoints.length === 0) {
+                    endpointsList.innerHTML = `
+                        <div class="txt-center txt-hint p-4">
+                            <i class="ri-route-line ri-2x mb-2"></i>
+                            <h4>No endpoints available</h4>
+                            <p class="txt-sm">No API endpoints have been discovered yet.</p>
+                        </div>
+                    `;
+                }
+            }
+        },
+
+        // =============================================================================
+        // FILTER MANAGEMENT
+        // =============================================================================
+
+        // Setup filter event listeners
+        _setupFilterEventListeners() {
+            const searchInput = this._getElementById('search-input');
+            const methodFilter = this._getElementById('method-filter');
+            const authFilter = this._getElementById('auth-filter');
+            const tagFilter = this._getElementById('tag-filter');
+            const clearBtn = this._getElementById('clear-filters-btn');
+
+            // Format button handlers for Raw Schema tab
+            const rawJsonBtn = this._getElementById('json-format-btn');
+            const rawYamlBtn = this._getElementById('yaml-format-btn');
+
+            if (rawJsonBtn) {
+                this._eventCleanup.push(
+                    this._addListener(rawJsonBtn, 'click', () => this._setRawFormat('json'))
+                );
+            }
+            if (rawYamlBtn) {
+                this._eventCleanup.push(
+                    this._addListener(rawYamlBtn, 'click', () => this._setRawFormat('yaml'))
+                );
+            }
+
+            // Format button handlers for Components tab
+            const compJsonBtn = this._getElementById('components-json-format-btn');
+            const compYamlBtn = this._getElementById('components-yaml-format-btn');
+
+            if (compJsonBtn) {
+                this._eventCleanup.push(
+                    this._addListener(compJsonBtn, 'click', () => this._setComponentsFormat('json'))
+                );
+            }
+            if (compYamlBtn) {
+                this._eventCleanup.push(
+                    this._addListener(compYamlBtn, 'click', () => this._setComponentsFormat('yaml'))
+                );
+            }
+
+            // Copy button handlers
+            const copySchemaBtn = this._getElementById('copy-schema-btn');
+            const copyComponentsBtn = this._getElementById('copy-components-btn');
+
+            if (copySchemaBtn) {
+                this._eventCleanup.push(
+                    this._addListener(copySchemaBtn, 'click', () => this._copyRawSchemaToClipboard())
+                );
+            }
+
+            if (copyComponentsBtn) {
+                this._eventCleanup.push(
+                    this._addListener(copyComponentsBtn, 'click', () => this._copyComponentsToClipboard())
+                );
+            }
+
+            // Format button handlers for Raw Schema tab
+            const jsonFormatBtn = this._getElementById('json-format-btn');
+            const yamlFormatBtn = this._getElementById('yaml-format-btn');
+
+            if (jsonFormatBtn) {
+                const cleanup = this._addListener(jsonFormatBtn, 'click', () => {
+                    this._setActiveFormatButton('raw-tab', jsonFormatBtn);
+                    if (typeof APILoader !== 'undefined' && APILoader.updateRawSchema) {
+                        APILoader.updateRawSchema('json');
+                    }
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            if (yamlFormatBtn) {
+                const cleanup = this._addListener(yamlFormatBtn, 'click', () => {
+                    this._setActiveFormatButton('raw-tab', yamlFormatBtn);
+                    if (typeof APILoader !== 'undefined' && APILoader.updateRawSchema) {
+                        APILoader.updateRawSchema('yaml');
+                    }
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            // Format button handlers for Components tab
+            const componentsJsonBtn = this._getElementById('components-json-format-btn');
+            const componentsYamlBtn = this._getElementById('components-yaml-format-btn');
+
+            if (componentsJsonBtn) {
+                const cleanup = this._addListener(componentsJsonBtn, 'click', () => {
+                    this._setActiveFormatButton('components-tab', componentsJsonBtn);
+                    if (typeof APILoader !== 'undefined' && APILoader.updateComponents) {
+                        APILoader.updateComponents('json');
+                    }
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            if (componentsYamlBtn) {
+                const cleanup = this._addListener(componentsYamlBtn, 'click', () => {
+                    this._setActiveFormatButton('components-tab', componentsYamlBtn);
+                    if (typeof APILoader !== 'undefined' && APILoader.updateComponents) {
+                        APILoader.updateComponents('yaml');
+                    }
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            if (searchInput) {
+                const cleanup = this._addListener(searchInput, 'input',
+                    this._debounce(() => this.applyFilters(), 300)
+                );
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            [methodFilter, authFilter, tagFilter].forEach(filter => {
+                if (filter) {
+                    const cleanup = this._addListener(filter, 'change', () => this.applyFilters());
+                    if (cleanup) this._eventCleanup.push(cleanup);
+                }
+            });
+
+            if (clearBtn) {
+                const cleanup = this._addListener(clearBtn, 'click', () => this.clearFilters());
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+        },
+
+        applyFilters() {
+            if (!window.APIState) {
+                console.warn('APIState not available for filtering');
+                return;
+            }
+
+            const searchTerm = this._getElementById('search-input')?.value.toLowerCase() || '';
+            const methodValue = this._getElementById('method-filter')?.value || '';
+            const authValue = this._getElementById('auth-filter')?.value || '';
+            const tagValue = this._getElementById('tag-filter')?.value || '';
+
+            const filteredEndpoints = APIState.allEndpoints.filter(endpoint => {
+                const matchesSearch = !searchTerm || this._matchesSearchTerm(endpoint, searchTerm);
+                const matchesMethod = !methodValue || endpoint.method.toLowerCase() === methodValue.toLowerCase();
+                const matchesAuth = this._matchesAuth(endpoint, authValue);
+                const matchesTag = !tagValue || endpoint.tags?.includes(tagValue);
+
+                return matchesSearch && matchesMethod && matchesAuth && matchesTag;
+            });
+
+            APIState.setFilteredEndpoints(filteredEndpoints);
+
+            if (typeof EndpointRenderer !== 'undefined' && EndpointRenderer.render) {
+                EndpointRenderer.render();
+            }
+
+            this._updateActiveFilters();
+            this.updateStatistics();
+        },
+
+        _matchesSearchTerm(endpoint, term) {
+            const searchableFields = [
+                endpoint.path,
+                endpoint.description,
+                endpoint.handler_name,
+                ...(endpoint.tags || [])
+            ];
+
+            return searchableFields.some(field =>
+                field?.toLowerCase().includes(term));
+        },
+
+        _matchesAuth(endpoint, authValue) {
+            if (!authValue) return true;
+
+            if (authValue === 'required') return endpoint.auth?.required;
+            if (authValue === 'none') return !endpoint.auth?.required;
+
+            return endpoint.auth?.type === authValue;
+        },
+
+        clearFilters() {
+            ['search-input', 'method-filter', 'auth-filter', 'tag-filter'].forEach(id => {
+                const element = this._getElementById(id);
+                if (element) element.value = '';
+            });
+
+            if (window.APIState) {
+                APIState.setFilteredEndpoints([...APIState.allEndpoints]);
+            }
+
+            if (typeof EndpointRenderer !== 'undefined' && EndpointRenderer.render) {
+                EndpointRenderer.render();
+            }
+
+            this._updateActiveFilters();
+            this.updateStatistics();
+        },
+
+        _updateFilterSummary(data) {
+            const filteredCountSpan = this._getElementById('filtered-count');
+            const totalCountSpan = this._getElementById('total-count');
+            const summaryDiv = this._getElementById('results-summary');
+            const clearBtn = this._getElementById('clear-filters-btn');
+
+            if (filteredCountSpan) filteredCountSpan.textContent = data.filtered || 0;
+            if (totalCountSpan) totalCountSpan.textContent = data.total || 0;
+            if (summaryDiv) summaryDiv.style.display = (data.total > 0) ? 'block' : 'none';
+
+            // Show/hide clear button based on active filters
+            const hasActiveFilters = this._hasActiveFilters();
+            if (clearBtn) {
+                clearBtn.style.display = hasActiveFilters ? 'inline-block' : 'none';
+            }
+        },
+
+        _updateActiveFilters() {
+            const activeFiltersDiv = this._getElementById('active-filters');
+            const filterTagsDiv = this._getElementById('filter-tags');
+
+            if (!activeFiltersDiv || !filterTagsDiv) return;
+
+            const filters = [];
+            const searchValue = this._getElementById('search-input')?.value;
+            const methodValue = this._getElementById('method-filter')?.value;
+            const authValue = this._getElementById('auth-filter')?.value;
+            const tagValue = this._getElementById('tag-filter')?.value;
+
+            if (searchValue) filters.push({ type: 'search', value: searchValue, label: `Search: "${searchValue}"` });
+            if (methodValue) filters.push({ type: 'method', value: methodValue, label: `Method: ${methodValue.toUpperCase()}` });
+            if (authValue) filters.push({ type: 'auth', value: authValue, label: `Auth: ${authValue.replace(/_/g, ' ')}` });
+            if (tagValue) filters.push({ type: 'tag', value: tagValue, label: `Tag: ${tagValue}` });
+
+            if (filters.length > 0) {
+                activeFiltersDiv.style.display = 'block';
+                filterTagsDiv.innerHTML = filters.map(filter => `
+                    <span class="badge badge-sm badge-secondary">
+                        ${filter.label}
+                        <i class="ri-close-line cursor-pointer ml-1" onclick="window.UIController.clearFilter('${filter.type}')"></i>
+                    </span>
+                `).join('');
+            } else {
+                activeFiltersDiv.style.display = 'none';
+            }
+
+            // Update clear button visibility
+            const clearBtn = this._getElementById('clear-filters-btn');
+            if (clearBtn) {
+                clearBtn.style.display = filters.length > 0 ? 'inline-block' : 'none';
+            }
+        },
+
+        clearFilter(type) {
+            const elementId = {
+                'search': 'search-input',
+                'method': 'method-filter',
+                'auth': 'auth-filter',
+                'tag': 'tag-filter'
+            }[type];
+
+            if (elementId) {
+                const element = this._getElementById(elementId);
+                if (element) element.value = '';
+                this.applyFilters();
+            }
+        },
+
+        _hasActiveFilters() {
+            const searchValue = this._getElementById('search-input')?.value;
+            const methodValue = this._getElementById('method-filter')?.value;
+            const authValue = this._getElementById('auth-filter')?.value;
+            const tagValue = this._getElementById('tag-filter')?.value;
+
+            return !!(searchValue || methodValue || authValue || tagValue);
+        },
+
+        // Format switching methods
+        _setRawFormat(format) {
+            // Update button states
+            const jsonBtn = this._getElementById('json-format-btn');
+            const yamlBtn = this._getElementById('yaml-format-btn');
+
+            if (jsonBtn) jsonBtn.classList.toggle('active', format === 'json');
+            if (yamlBtn) yamlBtn.classList.toggle('active', format === 'yaml');
+
+            // Update content
+            if (typeof APILoader !== 'undefined' && APILoader.updateRawSchema) {
+                APILoader.updateRawSchema(format);
+            }
+        },
+
+        _setComponentsFormat(format) {
+            // Update button states
+            const jsonBtn = this._getElementById('components-json-format-btn');
+            const yamlBtn = this._getElementById('components-yaml-format-btn');
+
+            if (jsonBtn) jsonBtn.classList.toggle('active', format === 'json');
+            if (yamlBtn) yamlBtn.classList.toggle('active', format === 'yaml');
+
+            // Update content
+            if (typeof APILoader !== 'undefined' && APILoader.updateComponents) {
+                APILoader.updateComponents(format);
+            }
+        },
+
+        _setActiveFormatButton(tabId, activeButton) {
+            // Remove active class from all format buttons in the tab
+            const tab = this._getElementById(tabId);
+            if (tab) {
+                const formatButtons = tab.querySelectorAll('.btn[data-format]');
+                formatButtons.forEach(btn => btn.classList.remove('active'));
+            }
+
+            // Add active class to clicked button
+            activeButton.classList.add('active');
+        },
+
+        // Copy methods for Raw Schema and Components tabs
+        _copyRawSchemaToClipboard() {
+            const rawSchemaElement = this._getElementById('raw-schema-content');
+            if (!rawSchemaElement) {
+                console.error('Raw schema element not found');
+                return;
+            }
+
+            let content;
+            try {
+                // Extract text content, handling both formatted HTML and plain text
+                const codeElement = rawSchemaElement.querySelector('code') || rawSchemaElement.querySelector('pre') || rawSchemaElement;
+                content = codeElement.textContent || codeElement.innerText;
+
+                console.log('Raw schema copy - extracted content length:', content?.length || 0);
+
+                if (!content || content.trim() === '' || content.includes('Loading schema') || content.includes('No schema data')) {
+                    // Fallback to raw schema data
+                    if (window.APIState && APIState.openApiSchema) {
+                        const formatBtn = this._safeQuery('#raw-tab .btn.active');
+                        const format = formatBtn?.getAttribute('data-format') || 'json';
+
+                        if (format === 'yaml' && typeof SchemaProcessor !== 'undefined') {
+                            content = SchemaProcessor.jsonToYaml(APIState.openApiSchema);
+                        } else {
+                            content = JSON.stringify(APIState.openApiSchema, null, 2);
+                        }
+                    } else {
+                        console.warn('No schema content available to copy');
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to extract schema content:', error);
+                return;
+            }
+
+            this._copyToClipboardWithFeedback(content, 'copy-schema-btn', 'Schema');
+        },
+
+        _copyComponentsToClipboard() {
+            const componentsElement = this._getElementById('components-content');
+            if (!componentsElement) {
+                console.error('Components element not found');
+                return;
+            }
+
+            let content;
+            try {
+                // Extract text content, handling both formatted HTML and plain text
+                const codeElement = componentsElement.querySelector('code') || componentsElement.querySelector('pre') || componentsElement;
+                content = codeElement.textContent || codeElement.innerText;
+
+                console.log('Components copy - extracted content length:', content?.length || 0);
+
+                if (!content || content.trim() === '' || content.includes('Loading components') || content.includes('No components')) {
+                    // Fallback to raw components data
+                    if (window.APIState && APIState.openApiSchema?.components) {
+                        const formatBtn = this._safeQuery('#components-tab .btn.active');
+                        const format = formatBtn?.getAttribute('data-format') || 'json';
+
+                        if (format === 'yaml' && typeof SchemaProcessor !== 'undefined') {
+                            content = SchemaProcessor.jsonToYaml(APIState.openApiSchema.components);
+                        } else {
+                            content = JSON.stringify(APIState.openApiSchema.components, null, 2);
+                        }
+                    } else {
+                        console.warn('No components content available to copy');
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to extract components content:', error);
+                return;
+            }
+
+            this._copyToClipboardWithFeedback(content, 'copy-components-btn', 'Components');
+        },
+
+        _copyToClipboardWithFeedback(content, buttonId, contentType) {
+            const button = this._getElementById(buttonId);
+            if (!button) return;
+
+            console.log(`Copying ${contentType} content (${content.length} characters)`);
+
+            navigator.clipboard.writeText(content).then(() => {
+                const originalHtml = button.innerHTML;
+                button.innerHTML = '<i class="ri-check-line"></i> Copied!';
+                button.classList.add('btn-success');
+                button.classList.remove('btn-secondary');
+
+                setTimeout(() => {
+                    button.innerHTML = originalHtml;
+                    button.classList.remove('btn-success');
+                    button.classList.add('btn-secondary');
+                }, 2000);
+
+                console.log(`${contentType} content copied to clipboard successfully`);
+            }).catch(err => {
+                console.error(`Failed to copy ${contentType}:`, err);
+
+                const originalHtml = button.innerHTML;
+                button.innerHTML = '<i class="ri-close-line"></i> Failed';
+                button.classList.add('btn-danger');
+                button.classList.remove('btn-secondary');
+
+                setTimeout(() => {
+                    button.innerHTML = originalHtml;
+                    button.classList.remove('btn-danger');
+                    button.classList.add('btn-secondary');
+                }, 2000);
+            });
+        },
+
+        // Initialize format buttons for a specific tab
+        _initializeFormatButtons(tabId) {
+            const tab = this._getElementById(tabId);
+            if (!tab) return;
+
+            const formatButtons = tab.querySelectorAll('.btn[data-format]');
+            if (formatButtons.length === 0) return;
+
+            // Check if any button is already active
+            const activeButton = tab.querySelector('.btn[data-format].active');
+
+            // If no active button, make JSON the default
+            if (!activeButton) {
+                const jsonButton = tab.querySelector('.btn[data-format="json"]');
+                if (jsonButton) {
+                    jsonButton.classList.add('active');
+                }
+            }
+        },
+
+        // Ensure schema content is loaded for Raw Schema and Components tabs
+        _ensureSchemaContentLoaded(tabName) {
+            console.log(`Ensuring schema content is loaded for tab: ${tabName}`);
+
+            if (tabName === 'raw') {
+                const rawContent = this._getElementById('raw-schema-content');
+                if (rawContent && (!rawContent.innerHTML || rawContent.innerHTML.includes('Loading schema'))) {
+                    console.log('Raw schema content missing, triggering reload...');
+                    this._refreshRawTab();
+                }
+            } else if (tabName === 'components') {
+                const componentsContent = this._getElementById('components-content');
+                if (componentsContent && (!componentsContent.innerHTML || componentsContent.innerHTML.includes('Loading components'))) {
+                    console.log('Components content missing, triggering reload...');
+                    this._refreshComponentsTab();
+                }
+            }
+        },
+
+        // Update statistics display
+        updateStatistics() {
+            try {
+                if (!window.APIState) return;
+
+                const stats = {
+                    totalEndpoints: APIState.allEndpoints.length,
+                    filteredEndpoints: APIState.filteredEndpoints.length,
+                    authRequired: APIState.allEndpoints.filter(ep => ep.auth?.required).length,
+                    uniquePaths: new Set(APIState.allEndpoints.map(ep => ep.path)).size,
+                    totalTags: APIState.getAllTags().length,
+                    methodCounts: {},
+                    authTypes: {},
+                    tags: {}
+                };
+
+                // Calculate method counts
+                APIState.allEndpoints.forEach(endpoint => {
+                    const method = endpoint.method.toUpperCase();
+                    stats.methodCounts[method] = (stats.methodCounts[method] || 0) + 1;
+
+                    const authType = endpoint.auth?.required ? (endpoint.auth.type || 'required') : 'none';
+                    stats.authTypes[authType] = (stats.authTypes[authType] || 0) + 1;
+
+                    endpoint.tags?.forEach(tag => {
+                        stats.tags[tag] = (stats.tags[tag] || 0) + 1;
+                    });
+                });
+
+                // Update endpoint count (showing filtered count)
+                const endpointsCountEl = this._getElementById('api-endpoints-count');
+                if (endpointsCountEl) {
+                    endpointsCountEl.textContent = stats.filteredEndpoints;
+                }
+
+                // Update the results summary
+                this._updateFilterSummary({
+                    filtered: stats.filteredEndpoints,
+                    total: stats.totalEndpoints
+                });
+
+                // Update unique paths count
+                const uniquePathsEl = this._getElementById('stats-unique-paths');
+                if (uniquePathsEl) {
+                    uniquePathsEl.textContent = stats.uniquePaths;
+                }
+
+                // Update auth required count
+                const authRequiredEl = this._getElementById('stats-auth-required');
+                if (authRequiredEl) {
+                    authRequiredEl.textContent = stats.authRequired;
+                }
+
+                // Update total tags count
+                const totalTagsEl = this._getElementById('stats-total-tags');
+                if (totalTagsEl) {
+                    totalTagsEl.textContent = stats.totalTags;
+                }
+
+                // Store stats for filter population
+                this._lastStats = stats;
+
+                console.log('Statistics updated:', stats);
+            } catch (error) {
+                console.warn('Failed to update statistics:', error);
+            }
+        },
+
+        // Alias for backward compatibility
+        _updateStatistics() {
+            return this.updateStatistics();
+        },
+
+        populateFilterOptions(stats) {
+            // Use provided stats or last calculated stats
+            const statsToUse = stats || this._lastStats;
+            if (!statsToUse) {
+                console.warn('No statistics available for populating filter options');
+                return;
+            }
+
+            this._populateMethodOptions(statsToUse.methodCounts || statsToUse.methods || {});
+            this._populateAuthOptions(statsToUse.authTypes || statsToUse.auth_types || {});
+            this._populateTagOptions(statsToUse.tags || {});
+
+            // Update statistics display
+            this.updateStatistics();
+
+            console.log('Filter options populated with stats:', statsToUse);
+        },
+
+        _populateMethodOptions(methods) {
+            const select = this._getElementById('method-filter');
+            if (!select || !methods) return;
+
+            while (select.children.length > 1) {
+                select.removeChild(select.lastChild);
+            }
+
+            Object.entries(methods).sort(([,a], [,b]) => b - a).forEach(([method, count]) => {
+                const option = document.createElement('option');
+                option.value = method.toLowerCase();
+                option.textContent = `${method} (${count})`;
+                select.appendChild(option);
+            });
+        },
+
+        _populateAuthOptions(authTypes) {
+            const select = this._getElementById('auth-filter');
+            if (!select || !authTypes) return;
+
+            while (select.children.length > 1) {
+                select.removeChild(select.lastChild);
+            }
+
+            const authLabels = {
+                'none': 'No Auth Required',
+                'required': 'Auth Required',
+                'superuser': 'Superuser Only',
+                'user': 'User Auth',
+                'guest_only': 'Guest Only'
+            };
+
+            Object.entries(authTypes).sort(([,a], [,b]) => b - a).forEach(([authType, count]) => {
+                const option = document.createElement('option');
+                option.value = authType;
+                option.textContent = `${authLabels[authType] || authType} (${count})`;
+                select.appendChild(option);
+            });
+        },
+
+        _populateTagOptions(tags) {
+            const select = this._getElementById('tag-filter');
+            if (!select || !Object.keys(tags).length) return;
+
+            while (select.children.length > 1) {
+                select.removeChild(select.lastChild);
+            }
+
+            Object.entries(tags).sort(([,a], [,b]) => b - a).forEach(([tag, count]) => {
+                const option = document.createElement('option');
+                option.value = tag;
+                option.textContent = `${tag} (${count})`;
+                select.appendChild(option);
+            });
+        },
+
+        // =============================================================================
+        // UTILITY METHODS
+        // =============================================================================
+
+        _getElementById(id) {
+            return document.getElementById(id);
+        },
+
+        _safeQuery(selector, context = document) {
+            try {
+                return context.querySelector(selector);
+            } catch (error) {
+                console.warn('Invalid selector:', selector, error);
+                return null;
+            }
+        },
+
+        _safeQueryAll(selector, context = document) {
+            try {
+                return Array.from(context.querySelectorAll(selector));
+            } catch (error) {
+                console.warn('Invalid selector:', selector, error);
+                return [];
+            }
+        },
+
+        _addListener(element, event, handler, options = {}) {
+            if (!element || typeof handler !== 'function') return null;
+
+            element.addEventListener(event, handler, options);
+            return () => element.removeEventListener(event, handler, options);
+        },
+
+        async _batchUpdate(updates) {
+            return new Promise(resolve => {
+                requestAnimationFrame(() => {
+                    updates.forEach(update => {
+                        if (typeof update === 'function') {
+                            update();
+                        }
+                    });
+                    resolve();
+                });
+            });
+        },
+
+        _debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        },
+
+        _showInitializationError(error) {
+            const container = this._getElementById('main-content');
+            if (container) {
+                container.innerHTML = `
+                    <div class="alert alert-danger">
+                        <h4><i class="ri-error-warning-line"></i> UI Initialization Failed</h4>
+                        <p>The user interface failed to initialize:</p>
+                        <pre>${error.message}</pre>
+                        <div class="mt-3">
+                            <button class="btn btn-primary" onclick="window.location.reload()">
+                                <i class="ri-refresh-line"></i> Reload Page
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+        },
+
+        // Public API
+        getCurrentTab() {
+            return {
+                name: this.currentTab,
+                isActive: !this.isTabSwitching,
+                element: this._tabCache.get(this.currentTab)
+            };
+        },
+
+        hasTab(tabName) {
+            return this._tabCache.has(tabName);
+        },
+
+        getAvailableTabs() {
+            return Array.from(this._tabCache.keys());
+        },
+
+        activateTab(tabName) {
+            if (!this.hasTab(tabName)) {
+                console.error(`Cannot activate non-existent tab: ${tabName}`);
+                return false;
+            }
+            return this.switchTab(tabName);
+        },
+
+        destroy() {
+            console.log('Destroying UI Controller...');
+
+            this._eventCleanup.forEach(cleanup => {
+                try {
+                    cleanup();
+                } catch (error) {
+                    console.warn('Error during event cleanup:', error);
+                }
+            });
+
+            this._tabCache.clear();
+            this._debounceTimers.clear();
+            this._eventCleanup = [];
+
+            console.log('UI Controller destroyed');
+        }
+    };
+
+    // Make UIController globally available (replaces TabController and FilterController)
+    window.UIController = UIController;
+    window.TabController = UIController; // Backward compatibility
+    window.FilterController = UIController; // Backward compatibility
+{{end}}

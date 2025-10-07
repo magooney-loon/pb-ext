@@ -1,37 +1,248 @@
 {{define "api_init_js"}}
     // =============================================================================
-    // APPLICATION INITIALIZATION
+    // API DOCUMENTATION SYSTEM INITIALIZATION - CONSOLIDATED
     // =============================================================================
 
     // Global initialization guard
     if (window.apiSystemInitialized) {
+        console.log('API system already initialized, skipping...');
         return;
     }
 
+    // System initialization
     async function initializeApp() {
         try {
-            // Initialize UI controllers
-            TabController.init();
-            FilterController.init();
-            FormatController.init();
-            APITesterSidebar.init();
+            console.log('Initializing API Documentation System...');
 
-            // Initialize modular API tester components
-            // Note: APISchemaManager, APIFormBuilder, and APIRequestHandler
-            // are utility modules that don't require initialization
-            APITester.init(); // Now uses refactored modular architecture
+            // Initialize error/status manager first
+            if (typeof ErrorStatusManager !== 'undefined') {
+                ErrorStatusManager.init();
+                ErrorStatusManager.updateStatus('loading', 'Initializing system...');
+            }
 
-            // Load API data
-            await APILoader.loadVersions();
+            // Initialize schema processor for syntax highlighting and formatting
+            if (typeof SchemaProcessor !== 'undefined') {
+                console.log('Initializing SchemaProcessor...');
+                SchemaProcessor.init();
+            } else {
+                console.warn('SchemaProcessor not available, schema formatting will be limited');
+            }
+
+            // Initialize API state management
+            console.log('Checking APIState availability...');
+            if (typeof APIState !== 'undefined') {
+                console.log('Initializing APIState...');
+                APIState.init();
+            } else {
+                throw new Error('APIState not available');
+            }
+
+            // Initialize UI controllers (tabs and filters)
+            console.log('Checking UIController availability...');
+            if (typeof UIController !== 'undefined') {
+                console.log('Initializing UIController...');
+                UIController.init();
+            } else {
+                console.warn('UIController not available, falling back to legacy controllers');
+
+                // Fallback to individual controllers if consolidated version not available
+                if (typeof TabController !== 'undefined') {
+                    console.log('Initializing fallback TabController...');
+                    TabController.init();
+                }
+                if (typeof FilterController !== 'undefined') {
+                    console.log('Initializing fallback FilterController...');
+                    FilterController.init();
+                }
+            }
+
+            // Initialize API tester components
+            console.log('Checking APITester availability...');
+            if (typeof APITester !== 'undefined') {
+                console.log('Initializing APITester...');
+                APITester.init();
+            } else {
+                console.log('APITester not available, will initialize later if needed');
+            }
+
+            // Load API versions and endpoints
+            console.log('Checking APILoader availability...');
+            if (typeof APILoader !== 'undefined') {
+                console.log('Loading API versions...');
+                await APILoader.loadVersions();
+            } else {
+                throw new Error('APILoader not available');
+            }
 
             // Mark as initialized
             window.apiSystemInitialized = true;
+
+            console.log('API Documentation System initialized successfully');
+
+            // Final setup - ensure UI is properly updated
+            if (typeof UIController !== 'undefined') {
+                console.log('Final UI update...');
+                // Trigger statistics update
+                UIController.updateStatistics();
+                // Show filters if we have endpoints
+                if (window.APIState && APIState.allEndpoints.length > 0) {
+                    const filtersSection = document.getElementById('api-filters');
+                    if (filtersSection) {
+                        filtersSection.style.display = 'block';
+                        console.log('Filters section made visible');
+                    }
+                }
+            }
+
+            if (typeof ErrorStatusManager !== 'undefined') {
+                ErrorStatusManager.updateStatus('success', 'System ready');
+            }
+
         } catch (error) {
             console.error('Failed to initialize API Documentation System:', error);
-            ErrorHandler.showError('Failed to initialize the documentation system. Please refresh the page to try again.');
+
+            if (typeof ErrorStatusManager !== 'undefined') {
+                ErrorStatusManager.handleError(error, 'System Initialization');
+            } else {
+                // Fallback error display if ErrorStatusManager not available
+                showInitializationError(error);
+            }
         }
     }
 
-    // Start the application
-    initializeApp();
+    // Fallback error display function
+    function showInitializationError(error) {
+        const container = document.getElementById('main-content');
+        if (container) {
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <h4><i class="ri-error-warning-line"></i> Initialization Failed</h4>
+                    <p>The API documentation system failed to initialize:</p>
+                    <pre>${error.message}</pre>
+                    <div class="mt-3">
+                        <button class="btn btn-primary" onclick="window.location.reload()">
+                            <i class="ri-refresh-line"></i> Retry
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeApp);
+    } else {
+        // DOM is already loaded
+        setTimeout(initializeApp, 0);
+    }
+
+    // Expose global utilities and debug functions
+    window.APIDebug = {
+        // System state
+        getState: () => {
+            if (typeof APIState !== 'undefined') {
+                return APIState.getDebugInfo();
+            }
+            return { error: 'APIState not available' };
+        },
+
+        // Health check
+        healthCheck: () => {
+            const results = {
+                system: window.apiSystemInitialized || false,
+                timestamp: new Date().toISOString()
+            };
+
+            // Check API State
+            if (typeof APIState !== 'undefined') {
+                results.apiState = APIState.isHealthy();
+            }
+
+            // Check Error/Status Manager
+            if (typeof ErrorStatusManager !== 'undefined') {
+                results.errorManager = ErrorStatusManager.getSystemHealth();
+            }
+
+            // Check UI Controller
+            if (typeof UIController !== 'undefined') {
+                results.uiController = {
+                    available: true,
+                    currentTab: UIController.getCurrentTab(),
+                    availableTabs: UIController.getAvailableTabs()
+                };
+            }
+
+            // Check API Loader
+            if (typeof APILoader !== 'undefined') {
+                results.apiLoader = {
+                    available: true,
+                    ready: APILoader.isReady(),
+                    loading: APILoader.isLoading()
+                };
+            }
+
+            return results;
+        },
+
+        // Refresh data
+        refreshData: () => {
+            if (typeof APILoader !== 'undefined') {
+                return APILoader.refresh();
+            }
+            console.error('APILoader not available');
+            return Promise.reject(new Error('APILoader not available'));
+        },
+
+        // System readiness check
+        isReady: () => {
+            if (!window.apiSystemInitialized) return false;
+            if (typeof APILoader !== 'undefined') {
+                return APILoader.isReady();
+            }
+            return false;
+        },
+
+        // Get error information
+        getErrors: () => {
+            if (typeof ErrorStatusManager !== 'undefined') {
+                return ErrorStatusManager.getErrorHistory();
+            }
+            return [];
+        },
+
+        // Reset system (for debugging)
+        reset: () => {
+            console.warn('Resetting API system...');
+
+            if (typeof APIState !== 'undefined') {
+                APIState.reset();
+            }
+
+            if (typeof ErrorStatusManager !== 'undefined') {
+                ErrorStatusManager.reset();
+            }
+
+            window.apiSystemInitialized = false;
+
+            console.log('API system reset complete');
+        },
+
+        // Force reinitialization
+        reinitialize: () => {
+            window.APIDebug.reset();
+            setTimeout(initializeApp, 100);
+        }
+    };
+
+    // Global refresh function (backward compatibility)
+    window.refreshAPIData = () => {
+        if (typeof APILoader !== 'undefined') {
+            return APILoader.refresh();
+        }
+        console.error('APILoader not available for refresh');
+    };
+
+    // Export initialization function for manual triggering
+    window.initializeAPISystem = initializeApp;
 {{end}}

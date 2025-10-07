@@ -9,7 +9,7 @@
         <!-- Version Selector -->
         <div class="flex align-center gap-2">
             <span class="txt-sm txt-hint">Version:</span>
-            <select id="version-selector" class="form-control form-control-sm" style="min-width: 120px;">
+            <select id="version-select" class="form-control form-control-sm" style="min-width: 120px;">
                 <option value="">Loading versions...</option>
             </select>
         </div>
@@ -22,7 +22,7 @@
                 <div class="card-body">
 
                     <!-- API Statistics and Filters -->
-                    <div id="api-filters" class="m-t-base ml-2" style="display: none;">
+                    <div id="api-filters" class="m-t-base ml-2">
                         <!-- Search and Filters with Integrated Statistics -->
                         <div class="flex flex-gap-10 mb-3">
                             <div class="form-field">
@@ -66,9 +66,12 @@
                         </div>
 
                         <!-- Results Summary -->
-                        <div id="results-summary" class="mb-2" style="display: none;">
+                        <div id="results-summary" class="mb-2">
                             <div class="txt-sm txt-hint">
                                 Showing <span id="filtered-count">0</span> of <span id="total-count">0</span> endpoints
+                                <button id="clear-filters-btn" class="btn btn-xs btn-secondary ml-2" title="Clear all filters">
+                                    <i class="ri-close-line"></i> Clear
+                                </button>
                             </div>
                         </div>
                     </div>

@@ -1,682 +1,384 @@
 {{define "api_form_builder_js"}}
     // =============================================================================
-    // API FORM BUILDER - FORM GENERATION AND FIELD BUILDING
+    // API FORM BUILDER - SIMPLIFIED FOR AST-BASED SCHEMAS
     // =============================================================================
 
     const APIFormBuilder = {
 
-
-        // Generate parameter form from schema
-        generateParameterForm(container, parameterSchema, endpoint) {
-
-
-            if (!parameterSchema) {
-                console.error('No parameter schema available');
-                container.innerHTML = '<p class="txt-center txt-hint p-4">No parameter schema available</p>';
+        // Generate parameter form from endpoint schema
+        generateParameterForm(container, endpoint) {
+            if (!container || !endpoint) {
+                console.error('Invalid container or endpoint for form generation');
                 return;
             }
 
-
-
+            container.innerHTML = '';
             const sections = [];
 
-            // Build query parameters section first
-            if (parameterSchema.queryParameters.length > 0) {
-
-                sections.push(this.buildParameterSection(
-                    'Query Parameters',
-                    'ri-search-line',
-                    parameterSchema.queryParameters,
-                    'These parameters are added to the URL as query string.'
-                ));
-            } else {
-
-            }
-
-            // Build manual query parameter section for all methods
-            sections.push(this.buildManualQueryParamSection(endpoint.method));
-
             // Build path parameters section
-            if (parameterSchema.pathParameters.length > 0) {
-
-                sections.push(this.buildParameterSection(
-                    'Path Parameters',
-                    'ri-route-line',
-                    parameterSchema.pathParameters,
-                    'These parameters are part of the URL path and are typically required.'
-                ));
-            } else {
-
+            const pathParams = APISchemaManager.extractPathParameters(endpoint.path);
+            if (pathParams.length > 0) {
+                sections.push(this.buildPathParametersSection(pathParams));
             }
 
-            // Build request body section for POST/PUT/PATCH
-            if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
+            // Build request body section from AST schema
+            const requestFields = APISchemaManager.extractRequestFields(endpoint);
+            if (requestFields.length > 0) {
+                sections.push(this.buildRequestBodySection(requestFields));
+            }
 
-                if (parameterSchema.requestBody) {
-                    sections.push(this.buildRequestBodySection(parameterSchema.requestBody, endpoint.method));
+            // Build manual query parameters section (always available)
+            sections.push(this.buildManualQuerySection());
+
+            // Add all sections to container
+            sections.forEach(section => {
+                if (section) {
+                    container.appendChild(section);
                 }
-            }
+            });
 
-
-
-            // Combine all sections
-            const formHtml = sections.join('');
-            if (formHtml) {
-                container.innerHTML = formHtml;
-                // Initialize query parameter handlers after form is rendered
-                this.initializeQueryParamHandlers();
-            } else {
-                container.innerHTML = this.getNoParametersMessage(endpoint.method);
-                // Initialize query parameter handlers even for no parameters message
-                this.initializeQueryParamHandlers();
+            // If no sections, show helpful message
+            if (sections.length === 0) {
+                container.innerHTML = `
+                    <div class="card card-body">
+                        <div class="txt-center txt-hint p-4">
+                            <i class="ri-information-line"></i>
+                            <p>This endpoint doesn't require any parameters.</p>
+                        </div>
+                    </div>
+                `;
             }
         },
 
-        // Build parameter section
-        buildParameterSection(title, icon, parameters, description) {
-            const fields = parameters.map(param => {
-                return this.buildParameterField(param);
-            }).join('');
-
-            return `
+        // Build path parameters section
+        buildPathParametersSection(pathParams) {
+            const section = document.createElement('div');
+            section.className = 'card card-body m-b-sm';
+            section.innerHTML = `
                 <div class="form-section">
-                    <div class="section-header">
-                        <h6 class="section-title">
-                            <i class="${icon}"></i>
-                            ${title}
-                        </h6>
-                        <p class="section-description">${description}</p>
-                    </div>
-                    <div class="parameter-fields">
-                        ${fields}
+                    <h6 class="form-section-title">
+                        <i class="ri-route-line"></i>
+                        Path Parameters
+                    </h6>
+                    <p class="txt-hint txt-xs m-b-sm">These parameters are part of the URL path and are required.</p>
+                    <div class="path-parameters">
+                        ${pathParams.map(param => this.buildParameterField(param, 'path')).join('')}
                     </div>
                 </div>
             `;
+            return section;
         },
 
-        // Build individual parameter field
-        buildParameterField(param) {
-            const fieldId = `param-${param.in}-${param.name}`;
-            const isRequired = param.required;
-            const requiredMark = isRequired ? '<span class="txt-danger">*</span>' : '';
+        // Build request body section from AST schema
+        buildRequestBodySection(requestFields) {
+            const section = document.createElement('div');
+            section.className = 'card card-body m-b-sm';
+
+            const requiredFields = requestFields.filter(field => field.required);
+            const optionalFields = requestFields.filter(field => !field.required);
+
+            section.innerHTML = `
+                <div class="form-section">
+                    <h6 class="form-section-title">
+                        <i class="ri-file-text-line"></i>
+                        Request Body
+                        <span class="txt-xs txt-hint">(application/json)</span>
+                    </h6>
+                    <p class="txt-hint txt-xs m-b-sm">Data to be sent in the request body.</p>
+
+                    ${requiredFields.length > 0 ? `
+                        <div class="required-fields">
+                            <h7 class="txt-sm txt-bold">Required Fields</h7>
+                            ${requiredFields.map(field => this.buildRequestField(field)).join('')}
+                        </div>
+                    ` : ''}
+
+                    ${optionalFields.length > 0 ? `
+                        <div class="optional-fields ${requiredFields.length > 0 ? 'm-t-sm' : ''}">
+                            <h7 class="txt-sm txt-bold">Optional Fields</h7>
+                            ${optionalFields.map(field => this.buildRequestField(field)).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            return section;
+        },
+
+        // Build manual query parameters section
+        buildManualQuerySection() {
+            const section = document.createElement('div');
+            section.className = 'card card-body m-b-sm';
+            section.innerHTML = `
+                <div class="form-section">
+                    <h6 class="form-section-title">
+                        <i class="ri-search-line"></i>
+                        Query Parameters
+                        <span class="txt-xs txt-hint">(optional)</span>
+                    </h6>
+                    <p class="txt-hint txt-xs m-b-sm">Add custom query parameters to the URL.</p>
+                    <div class="query-parameters">
+                        <div class="query-param-row">
+                            <input type="text" class="form-field query-param-name" placeholder="Parameter name">
+                            <input type="text" class="form-field query-param-value" placeholder="Parameter value">
+                            <button type="button" class="btn btn-sm btn-secondary btn-outline add-query-param">
+                                <i class="ri-add-line"></i>
+                            </button>
+                        </div>
+                        <div class="added-query-params"></div>
+                    </div>
+                </div>
+            `;
+
+            // Add event listener for adding query parameters
+            const addBtn = section.querySelector('.add-query-param');
+            addBtn.addEventListener('click', () => this.addQueryParameter(section));
+
+            return section;
+        },
+
+        // Build parameter field (for path parameters)
+        buildParameterField(param, source) {
+            const fieldId = `param-${source}-${param.name}`;
 
             return `
-                <div class="form-field param-field" data-param="${param.name}" data-in="${param.in}">
-                    <label class="form-label" for="${fieldId}">
-                        ${param.name} ${requiredMark}
-                        <span class="param-type">(${param.type}${param.format ? `:${param.format}` : ''})</span>
+                <div class="form-field-group m-b-xs">
+                    <label for="${fieldId}" class="form-label">
+                        ${param.name}
+                        ${param.required ? '<span class="txt-danger">*</span>' : ''}
                     </label>
-                    ${this.buildInputElement(param, fieldId)}
-                    ${param.description ? `<div class="field-help">${param.description}</div>` : ''}
+                    <input
+                        type="text"
+                        id="${fieldId}"
+                        name="${param.name}"
+                        class="form-field"
+                        data-source="${source}"
+                        ${param.required ? 'required' : ''}
+                        placeholder="${param.description || `Enter ${param.name}`}"
+                    >
+                    ${param.description ? `<div class="form-field-help">${param.description}</div>` : ''}
                 </div>
             `;
         },
 
-        // Build input element based on parameter type
-        buildInputElement(param, fieldId) {
+        // Build request body field
+        buildRequestField(field) {
+            const fieldId = `body-${field.name}`;
+            const inputType = this.getInputType(field);
+
+            return `
+                <div class="form-field-group m-b-xs">
+                    <label for="${fieldId}" class="form-label">
+                        ${field.name}
+                        ${field.required ? '<span class="txt-danger">*</span>' : ''}
+                        <span class="txt-xs txt-hint">(${field.type})</span>
+                    </label>
+                    ${this.buildFieldInput(field, fieldId, inputType)}
+                    ${field.description ? `<div class="form-field-help">${field.description}</div>` : ''}
+                </div>
+            `;
+        },
+
+        // Get appropriate input type for field
+        getInputType(field) {
+            switch (field.type) {
+                case 'checkbox':
+                    return 'checkbox';
+                case 'textarea':
+                    return 'textarea';
+                case 'number':
+                    return 'number';
+                default:
+                    return 'text';
+            }
+        },
+
+        // Build field input HTML
+        buildFieldInput(field, fieldId, inputType) {
             const commonAttrs = `
                 id="${fieldId}"
-                name="${param.name}"
-                data-type="${param.type}"
-                data-in="${param.in}"
-                ${param.required ? 'required' : ''}
-                placeholder="${param.example || `Enter ${param.name}`}"
+                name="${field.name}"
+                class="form-field"
+                data-type="${field.type}"
+                ${field.required ? 'required' : ''}
+                ${field.pattern ? `pattern="${field.pattern}"` : ''}
+                ${field.minimum !== undefined ? `min="${field.minimum}"` : ''}
+                ${field.maximum !== undefined ? `max="${field.maximum}"` : ''}
             `;
 
-            switch (param.type) {
-                case 'boolean':
+            switch (inputType) {
+                case 'checkbox':
                     return `
-                        <select class="form-control" ${commonAttrs}>
-                            <option value="">Select...</option>
-                            <option value="true">true</option>
-                            <option value="false">false</option>
-                        </select>
+                        <div class="form-field-toggle">
+                            <input type="checkbox" ${commonAttrs} ${field.example === true ? 'checked' : ''}>
+                            <label for="${fieldId}">Enable ${field.name}</label>
+                        </div>
                     `;
 
-                case 'integer':
+                case 'textarea':
+                    return `
+                        <textarea ${commonAttrs} rows="3" placeholder="${field.example || `Enter ${field.name}`}">${field.example && typeof field.example === 'object' ? JSON.stringify(field.example, null, 2) : (field.example || '')}</textarea>
+                    `;
+
                 case 'number':
-                    const step = param.type === 'integer' ? '1' : 'any';
                     return `
-                        <input type="number" class="form-control" ${commonAttrs} step="${step}" />
+                        <input type="number" ${commonAttrs} placeholder="${field.example || `Enter ${field.name}`}" value="${field.example || ''}">
                     `;
 
-                case 'string':
-                    if (param.enum && param.enum.length > 0) {
-                        const options = param.enum.map(value =>
-                            `<option value="${value}">${value}</option>`
-                        ).join('');
+                default:
+                    if (field.enum) {
                         return `
-                            <select class="form-control" ${commonAttrs}>
-                                <option value="">Select...</option>
-                                ${options}
+                            <select ${commonAttrs}>
+                                <option value="">Select ${field.name}</option>
+                                ${field.enum.map(value => `
+                                    <option value="${value}" ${field.example === value ? 'selected' : ''}>${value}</option>
+                                `).join('')}
                             </select>
                         `;
                     }
 
-                    if (param.format === 'date') {
-                        return `<input type="date" class="form-control" ${commonAttrs} />`;
-                    }
-
-                    if (param.format === 'date-time') {
-                        return `<input type="datetime-local" class="form-control" ${commonAttrs} />`;
-                    }
-
-                    return `<input type="text" class="form-control" ${commonAttrs} />`;
-
-                default:
-                    return `<input type="text" class="form-control" ${commonAttrs} />`;
+                    return `
+                        <input type="text" ${commonAttrs} placeholder="${field.example || `Enter ${field.name}`}" value="${field.example || ''}">
+                    `;
             }
         },
 
-        // Build request body section with form fields
-        buildRequestBodySection(schema, method) {
+        // Add query parameter row
+        addQueryParameter(section) {
+            const nameInput = section.querySelector('.query-param-name');
+            const valueInput = section.querySelector('.query-param-value');
+            const container = section.querySelector('.added-query-params');
 
+            const name = nameInput.value.trim();
+            const value = valueInput.value.trim();
 
-            if (!schema) {
-
-                return this.buildFlexibleRequestSection();
+            if (!name) {
+                nameInput.focus();
+                return;
             }
 
-
-
-            const fields = this.generateFormFieldsFromSchema(schema);
-
-            return `
-                <div class="form-section">
-                    <div class="section-header">
-                        <h6 class="section-title">
-                            <i class="ri-code-box-line"></i>
-                            Request Body
-                            <span class="badge badge-success">Schema Detected</span>
-                        </h6>
-                        <p class="section-description">
-                            Based on request schema detected from your handler code.
-                        </p>
-                    </div>
-                    <div class="request-body-fields" id="request-body-fields">
-                        ${fields}
-                    </div>
-                    <div class="form-field mt-2">
-                        <small class="field-help">
-                            <i class="ri-information-line"></i>
-                            ${method === 'POST' ? 'Creates a new resource with the specified fields.' :
-                             method === 'PUT' ? 'Updates the entire resource with these fields.' :
-                             method === 'PATCH' ? 'Partially updates the specified fields.' :
-                             'Sends data with the detected structure.'}
-                        </small>
-                    </div>
+            // Create parameter row
+            const paramRow = document.createElement('div');
+            paramRow.className = 'query-param-added flex-fill m-b-xs';
+            paramRow.innerHTML = `
+                <div class="flex-fill">
+                    <input type="text" class="form-field" name="query-${name}" value="${value}" placeholder="Value for ${name}" readonly>
+                    <div class="form-field-help">${name}</div>
                 </div>
+                <button type="button" class="btn btn-sm btn-secondary btn-outline remove-query-param">
+                    <i class="ri-close-line"></i>
+                </button>
             `;
-        },
 
-        // Build flexible request section when no schema is available
-        buildFlexibleRequestSection() {
-            return `
-                <div class="form-section">
-                    <div class="section-header">
-                        <h6 class="section-title">
-                            <i class="ri-code-box-line"></i>
-                            Request Payload
-                            <span class="badge badge-secondary">Manual</span>
-                        </h6>
-                        <p class="section-description">
-                            No request schema detected. Use the JSON editor below to craft your request body manually.
-                        </p>
-                    </div>
-                    <div class="request-body-fields">
-                        <div class="form-field raw-json-field">
-                            <label class="form-label">JSON Payload</label>
-                            <textarea class="form-control"
-                                      id="raw-json-payload"
-                                      rows="10"
-                                      placeholder='{\n  "field": "value",\n  "nested": {\n    "property": "example"\n  }\n}'
-                                      style="font-family: monospace;">{}</textarea>
-                            <div class="field-help">
-                                <i class="ri-information-line"></i>
-                                Enter valid JSON data for the request body. Check your handler code for the expected structure.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        },
-
-        // Generate form fields from request schema
-        generateFormFieldsFromSchema(schema) {
-
-            if (!schema || !schema.schema || !schema.schema.properties) {
-                return this.generateRawJSONFallback();
-            }
-
-            const properties = schema.schema.properties;
-            if (Object.keys(properties).length === 0) {
-                return this.generateEmptyStateMessage();
-            }
-
-            return this.generateFieldsFromProperties(properties, schema.schema.required);
-        },
-
-        // Generate raw JSON fallback when schema is invalid
-        generateRawJSONFallback() {
-            return `
-                <div class="form-field raw-json-field">
-                    <label class="form-label">
-                        JSON Payload
-                        <span class="param-type">(schema unavailable)</span>
-                    </label>
-                    <textarea class="form-control"
-                              id="raw-json-payload"
-                              rows="10"
-                              placeholder='{\n  "field": "value",\n  "nested": {\n    "property": "example"\n  }\n}'
-                              style="font-family: monospace;">{}</textarea>
-                    <div class="field-help">
-                        <i class="ri-information-line"></i>
-                        No valid schema available. Enter your request body JSON manually.
-                    </div>
-                </div>
-            `;
-        },
-
-        // Generate empty state message when no fields are available
-        generateEmptyStateMessage() {
-            return `
-                <div class="empty-fields-state">
-                    <div class="txt-center txt-hint p-4">
-                        <i class="ri-file-search-line ri-xl"></i>
-                        <p><strong>No fields detected</strong></p>
-                        <p class="txt-sm">Schema exists but contains no detectable fields.</p>
-                        <div class="mt-3">
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="APIFormBuilder.switchToRawJSON()">
-                                <i class="ri-code-line"></i>
-                                Use Raw JSON Editor
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        },
-
-        // Switch to raw JSON input mode
-        switchToRawJSON() {
-            const container = document.getElementById('schema-form-container');
-            if (!container) return;
-
-            container.innerHTML = `
-                <div class="form-field raw-json-field">
-                    <label class="form-label">
-                        JSON Payload
-                        <span class="param-type">(raw JSON)</span>
-                    </label>
-                    <textarea class="form-control"
-                              id="raw-json-payload"
-                              rows="12"
-                              placeholder='{\n  "field": "value"\n}'
-                              style="font-family: monospace;">{}</textarea>
-                    <div class="field-help">
-                        <i class="ri-information-line"></i>
-                        Enter valid JSON data. The structure will be sent as the request body.
-                    </div>
-                </div>
-            `;
-        },
-
-        // Generate fields from properties object from request schema
-        generateFieldsFromProperties(properties, requiredFields = []) {
-
-
-            let html = '';
-            let fieldCount = 0;
-
-            Object.entries(properties).forEach(([propName, propSchema]) => {
-
-                const isRequired = requiredFields && requiredFields.includes(propName);
-                html += this.generateFormField(propName, propSchema, isRequired);
-                fieldCount++;
+            // Add remove functionality
+            paramRow.querySelector('.remove-query-param').addEventListener('click', () => {
+                paramRow.remove();
             });
 
-            if (fieldCount === 0) {
-                return this.generateEmptyStateMessage();
-            }
+            container.appendChild(paramRow);
 
-            return html;
+            // Clear inputs
+            nameInput.value = '';
+            valueInput.value = '';
+            nameInput.focus();
         },
 
-        // Generate individual form field
-        generateFormField(name, schema, isRequired = false) {
-            const fieldId = `body-field-${name}`;
-            let type = schema.type || 'string';
-            const required = isRequired || schema.required || false;
-            const example = schema.example || '';
-            const description = schema.description || '';
+        // Collect all form data
+        collectFormData() {
+            const formData = {
+                pathParameters: {},
+                queryParameters: {},
+                requestBody: {}
+            };
 
-            // Smart array detection - override type if field name suggests array
-            const arrayFieldPatterns = [
-                'tags', 'categories', 'items', 'values', 'ids', 'list', 'array',
-                'permissions', 'roles', 'groups', 'emails', 'phones', 'addresses',
-                'keywords', 'labels', 'options', 'choices', 'selections'
-            ];
-
-            const lowerName = name.toLowerCase();
-            const suggestsArray = arrayFieldPatterns.some(pattern =>
-                lowerName === pattern ||
-                lowerName.endsWith(`_${pattern}`) ||
-                lowerName.endsWith(`${pattern}`) ||
-                lowerName.includes(pattern)
-            );
-
-            if (suggestsArray && type === 'string') {
-
-                type = 'array';
-            }
-
-
-
-            let inputHtml = '';
-
-            switch (type) {
-                case 'boolean':
-                    inputHtml = `
-                        <select class="form-control" id="${fieldId}" name="${name}">
-                            <option value="">Select...</option>
-                            <option value="true">true</option>
-                            <option value="false">false</option>
-                        </select>
-                        <div class="input-hint">
-                            <i class="ri-toggle-line"></i>
-                            Select true or false
-                        </div>
-                    `;
-                    break;
-
-                case 'integer':
-                case 'number':
-                    inputHtml = `
-                        <input type="number"
-                               class="form-control"
-                               id="${fieldId}"
-                               name="${name}"
-                               step="${type === 'integer' ? '1' : 'any'}"
-                               placeholder="${example || `Enter ${name}`}" />
-                        <div class="input-hint">
-                            <i class="ri-hashtag"></i>
-                            ${type === 'integer' ? 'Whole numbers only' : 'Decimal numbers allowed'}
-                        </div>
-                    `;
-                    break;
-
-                case 'string':
-                    if (name.toLowerCase().includes('content') || name.toLowerCase().includes('description')) {
-                        inputHtml = `
-                            <textarea class="form-control"
-                                      id="${fieldId}"
-                                      name="${name}"
-                                      rows="4"
-                                      placeholder="${example || `Enter ${name}`}"></textarea>
-                        `;
-                    } else if (schema.format === 'date') {
-                        inputHtml = `
-                            <input type="date"
-                                   class="form-control"
-                                   id="${fieldId}"
-                                   name="${name}" />
-                            <div class="input-hint">
-                                <i class="ri-calendar-line"></i>
-                                Date format: YYYY-MM-DD
-                            </div>
-                        `;
-                    } else if (schema.format === 'date-time') {
-                        inputHtml = `
-                            <input type="datetime-local"
-                                   class="form-control"
-                                   id="${fieldId}"
-                                   name="${name}" />
-                            <div class="input-hint">
-                                <i class="ri-calendar-2-line"></i>
-                                Date and time format
-                            </div>
-                        `;
-                    } else {
-                        inputHtml = `
-                            <input type="text"
-                                   class="form-control"
-                                   id="${fieldId}"
-                                   name="${name}"
-                                   placeholder="${example || `Enter ${name}`}" />
-                        `;
-                    }
-                    break;
-
-                case 'array':
-                    const arrayPlaceholder = example || `tag1, tag2, tag3`;
-                    inputHtml = `
-                        <input type="text"
-                               class="form-control"
-                               id="${fieldId}"
-                               name="${name}"
-                               data-type="array"
-                               placeholder="${arrayPlaceholder}" />
-                        <div class="input-hint">
-                            <i class="ri-information-line"></i>
-                            Enter comma-separated values
-                        </div>
-                    `;
-                    break;
-
-                default:
-                    inputHtml = `
-                        <input type="text"
-                               class="form-control"
-                               id="${fieldId}"
-                               name="${name}"
-                               placeholder="${example || `Enter ${name}`}" />
-                    `;
-            }
-
-            return `
-                <div class="form-field body-field" data-body-field="${name}">
-                    <label class="form-label" for="${fieldId}">
-                        ${name}
-                        ${required ? '<span class="txt-danger">*</span>' : ''}
-                        <span class="param-type">(${type})</span>
-                    </label>
-                    ${inputHtml}
-                    ${description ? `<div class="field-help">${description}</div>` : ''}
-                </div>
-            `;
-        },
-
-        // Generate default form fields when no schema available
-        generateDefaultFormFields() {
-            return `
-                <div class="form-field">
-                    <label class="form-label">JSON Data</label>
-                    <textarea class="form-control"
-                              id="request-body-json"
-                              name="request-body-json"
-                              rows="10"
-                              placeholder='{\n  "field1": "value1",\n  "field2": "value2"\n}'></textarea>
-                    <small class="field-help">Enter your data in JSON format</small>
-                </div>
-            `;
-        },
-
-        // Get no parameters message with manual query parameter section
-        getNoParametersMessage(method) {
-            const needsBody = ['POST', 'PUT', 'PATCH'].includes(method);
-
-            let noParamsMessage = '';
-            if (needsBody) {
-                noParamsMessage = `
-                    <div class="form-section">
-                        <div class="txt-center txt-hint p-4">
-                            <i class="ri-file-search-line ri-xl"></i>
-                            <p><strong>No parameters detected</strong></p>
-                            <p>This ${method} endpoint doesn't have defined parameters or request body schema.</p>
-                            <div class="mt-3">
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="APIFormBuilder.switchToRawJSON()">
-                                    <i class="ri-code-line"></i>
-                                    Add JSON Payload
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                noParamsMessage = `
-                    <div class="form-section">
-                        <div class="txt-center txt-hint p-4">
-                            <i class="ri-checkbox-circle-line ri-xl"></i>
-                            <p><strong>No schema parameters</strong></p>
-                            <p>This ${method} endpoint doesn't have defined parameters in its schema.</p>
-                            <p class="txt-sm">You can still add query parameters manually below.</p>
-                        </div>
-                    </div>
-                `;
-            }
-
-            // Always include manual query parameter section
-            return noParamsMessage + this.buildManualQueryParamSection(method);
-        },
-
-        // Build manual query parameter section
-        buildManualQueryParamSection(method) {
-            return `
-                <div class="form-section manual-query-params">
-                    <div class="section-header">
-                        <h6 class="section-title">
-                            <i class="ri-search-line"></i>
-                            Query Parameters
-                        </h6>
-                        <p class="section-description">
-                            Add query parameters that will be appended to the URL
-                        </p>
-                    </div>
-                    <div class="query-param-fields" id="query-param-fields">
-                    </div>
-                    <div class="query-param-actions">
-                        <button type="button" class="btn btn-sm btn-secondary" id="add-query-param">
-                            <i class="ri-add-line"></i>
-                            Add Parameter
-                        </button>
-                        <button type="button" class="btn btn-sm btn-transparent" id="clear-query-params">
-                            <i class="ri-delete-bin-line"></i>
-                            Clear All
-                        </button>
-                    </div>
-                    <div class="query-param-preview">
-                        <small class="field-help">
-                            <i class="ri-eye-line"></i>
-                            Preview: <code id="query-preview">No parameters</code>
-                        </small>
-                    </div>
-                </div>
-            `;
-        },
-
-        // Initialize manual query parameter handlers
-        initializeQueryParamHandlers() {
-            // Remove any existing listeners to avoid duplicates
-            this.removeQueryParamHandlers();
-
-            // Add parameter button
-            document.addEventListener('click', this.handleQueryParamClicks);
-
-            // Update preview on input
-            document.addEventListener('input', this.handleQueryParamInput);
-
-            // Initialize preview with current state
-            this.updateQueryPreview();
-        },
-
-        // Remove existing event handlers to prevent duplicates
-        removeQueryParamHandlers() {
-            document.removeEventListener('click', this.handleQueryParamClicks);
-            document.removeEventListener('input', this.handleQueryParamInput);
-        },
-
-        // Bound click handler for query parameters
-        handleQueryParamClicks: function(e) {
-            if (e.target.closest('#add-query-param')) {
-                APIFormBuilder.addQueryParamField();
-                APIFormBuilder.updateQueryPreview();
-            }
-
-            // Remove parameter button
-            if (e.target.closest('.remove-query-param')) {
-                const entry = e.target.closest('.query-param-entry');
-                entry.remove();
-                APIFormBuilder.updateQueryPreview();
-            }
-
-            // Clear all parameters
-            if (e.target.closest('#clear-query-params')) {
-                const container = document.getElementById('query-param-fields');
-                if (container) {
-                    container.innerHTML = '';
-                    APIFormBuilder.updateQueryPreview();
-                }
-            }
-        },
-
-        // Bound input handler for query parameters
-        handleQueryParamInput: function(e) {
-            if (e.target.matches('.query-param-key, .query-param-value')) {
-                APIFormBuilder.updateQueryPreview();
-            }
-        },
-
-        // Add new query parameter field
-        addQueryParamField() {
-            const container = document.getElementById('query-param-fields');
-            const newEntry = document.createElement('div');
-            newEntry.className = 'query-param-entry';
-            newEntry.innerHTML = `
-                <div class="query-param-pair">
-                    <input type="text"
-                           class="form-control query-param-key"
-                           placeholder="Parameter name"
-                           data-param-type="key">
-                    <input type="text"
-                           class="form-control query-param-value"
-                           placeholder="Parameter value"
-                           data-param-type="value">
-                    <button type="button" class="btn btn-sm btn-transparent remove-query-param" title="Remove parameter">
-                        <i class="ri-close-line"></i>
-                    </button>
-                </div>
-            `;
-            container.appendChild(newEntry);
-        },
-
-        // Update query parameter preview
-        updateQueryPreview() {
-            const entries = document.querySelectorAll('.query-param-entry');
-            const params = [];
-
-            entries.forEach(entry => {
-                const keyInput = entry.querySelector('.query-param-key');
-                const valueInput = entry.querySelector('.query-param-value');
-
-                if (keyInput && valueInput) {
-                    const key = keyInput.value.trim();
-                    const value = valueInput.value.trim();
-                    if (key) {
-                        params.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-                    }
+            // Collect path parameters
+            document.querySelectorAll('[data-source="path"]').forEach(input => {
+                if (input.value.trim()) {
+                    formData.pathParameters[input.name] = input.value.trim();
                 }
             });
 
-            const preview = document.getElementById('query-preview');
-            if (preview) {
-                if (params.length > 0) {
-                    preview.textContent = `?${params.join('&')}`;
+            // Collect query parameters
+            document.querySelectorAll('[name^="query-"]').forEach(input => {
+                const paramName = input.name.replace('query-', '');
+                if (input.value.trim()) {
+                    formData.queryParameters[paramName] = input.value.trim();
+                }
+            });
+
+            // Collect request body fields
+            document.querySelectorAll('[data-type]').forEach(input => {
+                const fieldType = input.getAttribute('data-type');
+                let value;
+
+                switch (fieldType) {
+                    case 'boolean':
+                        value = input.type === 'checkbox' ? input.checked : (input.value === 'true');
+                        break;
+                    case 'integer':
+                        value = input.value ? parseInt(input.value, 10) : null;
+                        break;
+                    case 'number':
+                        value = input.value ? parseFloat(input.value) : null;
+                        break;
+                    case 'object':
+                        try {
+                            value = input.value ? JSON.parse(input.value) : null;
+                        } catch (e) {
+                            value = input.value;
+                        }
+                        break;
+                    default:
+                        value = input.value || null;
+                }
+
+                if (value !== null && value !== '') {
+                    formData.requestBody[input.name] = value;
+                }
+            });
+
+            return formData;
+        },
+
+        // Validate form data
+        validateForm(endpoint) {
+            const formData = this.collectFormData();
+            const errors = [];
+
+            // Validate path parameters
+            const pathParams = APISchemaManager.extractPathParameters(endpoint.path);
+            pathParams.forEach(param => {
+                if (param.required && !formData.pathParameters[param.name]) {
+                    errors.push(`Path parameter '${param.name}' is required`);
+                }
+            });
+
+            // Validate request body
+            if (endpoint.request) {
+                const validation = APISchemaManager.validateRequestData(endpoint, formData.requestBody);
+                errors.push(...validation.errors);
+            }
+
+            return {
+                valid: errors.length === 0,
+                errors: errors,
+                data: formData
+            };
+        },
+
+        // Clear all form fields
+        clearForm() {
+            document.querySelectorAll('.form-field').forEach(field => {
+                if (field.type === 'checkbox') {
+                    field.checked = false;
                 } else {
-                    preview.textContent = 'No parameters';
+                    field.value = '';
                 }
-            }
+            });
+
+            // Remove added query parameters
+            document.querySelectorAll('.query-param-added').forEach(param => {
+                param.remove();
+            });
         }
     };
-
-    // Query parameter handlers are now initialized after form generation
-    // to ensure proper timing and avoid DOM ready race conditions
 {{end}}

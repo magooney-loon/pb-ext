@@ -1,293 +1,577 @@
 {{define "api_state_js"}}
     // =============================================================================
-    // API STATE MANAGEMENT
+    // API STATE MANAGEMENT - SIMPLIFIED WITHOUT DEPENDENCIES
     // =============================================================================
 
     const APIState = {
+        // Core data
         openApiSchema: null,
         apiStats: null,
-        apiComponents: null,
         allEndpoints: [],
         filteredEndpoints: [],
         availableVersions: [],
         currentVersion: null,
-        schemaConfig: null,
 
-        reset() {
-            this.openApiSchema = null;
-            this.apiStats = null;
-            this.apiComponents = null;
-            this.allEndpoints = [];
-            this.filteredEndpoints = [];
-            this.schemaConfig = null;
+        // State observers for reactive updates
+        _observers: new Map(),
+
+        // Initialize state management
+        init() {
+            console.log('Initializing API State...');
+            this.reset();
         },
 
-        setEndpoints(endpoints) {
-            this.allEndpoints = this.validateEndpoints(endpoints);
-            this.filteredEndpoints = [...this.allEndpoints];
-        },
-
-        validateEndpoints(endpoints) {
-            if (!Array.isArray(endpoints)) {
-                console.warn('Expected endpoints array, got:', typeof endpoints, endpoints);
-                return [];
+        // Add observer for state changes
+        addObserver(event, callback) {
+            if (!this._observers.has(event)) {
+                this._observers.set(event, new Set());
             }
+            this._observers.get(event).add(callback);
 
-            return endpoints.map((endpoint, index) => {
-                const validated = {
-                    method: endpoint.method || 'GET',
-                    path: endpoint.path || '/',
-                    handler_name: endpoint.handler_name || `endpoint_${index}`,
-                    description: endpoint.description || 'No description available',
-                    tags: Array.isArray(endpoint.tags) ? endpoint.tags : [],
-                    auth: this.validateAuthInfo(endpoint.auth),
-                    request: endpoint.request || null,
-                    response: endpoint.response || null
-                };
+            // Return unsubscribe function
+            return () => this._observers.get(event)?.delete(callback);
+        },
 
-                // Log validation warnings for debugging AST issues
-                if (!endpoint.path) {
-                    console.warn(`Endpoint ${index}: Missing path, using default`);
+        // Notify observers of state changes
+        _notify(event, data = {}) {
+            const observers = this._observers.get(event);
+            if (!observers) return;
+
+            observers.forEach(callback => {
+                try {
+                    callback(data);
+                } catch (error) {
+                    console.error(`Observer callback failed for event '${event}':`, error);
                 }
-                if (!endpoint.method) {
-                    console.warn(`Endpoint ${index}: Missing method, using GET`);
-                }
-
-                return validated;
             });
         },
 
-        validateAuthInfo(auth) {
-            if (!auth) return { required: false };
+        // Reset all state data
+        reset() {
+            console.log('Resetting API state...');
+
+            const prevState = {
+                schema: this.openApiSchema,
+                endpoints: this.allEndpoints.length,
+                version: this.currentVersion
+            };
+
+            this.openApiSchema = null;
+            this.apiStats = null;
+            this.allEndpoints = [];
+            this.filteredEndpoints = [];
+            this.currentVersion = null;
+
+            this._notify('reset', { previousState: prevState });
+        },
+
+        // Set API schema with validation
+        setSchema(schema) {
+            try {
+                const validatedSchema = this._validateSchema(schema);
+                this.openApiSchema = validatedSchema;
+                this._notify('schema:updated', { schema: validatedSchema });
+
+                console.log('API schema updated successfully');
+                return validatedSchema;
+            } catch (error) {
+                console.error('Invalid API schema:', error);
+                throw error;
+            }
+        },
+
+        // Set endpoints with comprehensive validation
+        setEndpoints(endpoints) {
+            try {
+                const validatedEndpoints = this.validateEndpoints(endpoints);
+                const previousCount = this.allEndpoints.length;
+
+                this.allEndpoints = validatedEndpoints;
+                this.filteredEndpoints = [...validatedEndpoints];
+
+                // Update statistics
+                this._updateStats();
+
+                this._notify('endpoints:updated', {
+                    endpoints: validatedEndpoints,
+                    count: validatedEndpoints.length,
+                    previousCount
+                });
+
+                console.log(`Updated endpoints: ${validatedEndpoints.length} total (was ${previousCount})`);
+                return validatedEndpoints;
+            } catch (error) {
+                console.error('Failed to set endpoints:', error);
+                throw error;
+            }
+        },
+
+        // Set available versions with validation
+        setVersions(versions, defaultVersion = null) {
+            try {
+                const validatedVersions = this._validateVersions(versions);
+
+                this.availableVersions = validatedVersions;
+
+                // Set default version if provided and valid
+                if (defaultVersion && validatedVersions.some(v => v.version === defaultVersion)) {
+                    this.currentVersion = defaultVersion;
+                } else if (validatedVersions.length > 0) {
+                    this.currentVersion = validatedVersions[0].version;
+                }
+
+                this._notify('versions:updated', {
+                    versions: validatedVersions,
+                    currentVersion: this.currentVersion,
+                    count: validatedVersions.length
+                });
+
+                console.log(`Updated versions: ${validatedVersions.length} available, current: ${this.currentVersion}`);
+                return validatedVersions;
+            } catch (error) {
+                console.error('Failed to set versions:', error);
+                throw error;
+            }
+        },
+
+        // Set current version with validation
+        setCurrentVersion(version) {
+            const versionData = this.availableVersions.find(v => v.version === version);
+
+            if (!versionData) {
+                throw new Error(`Version '${version}' not found in available versions`);
+            }
+
+            const previousVersion = this.currentVersion;
+            this.currentVersion = version;
+
+            this._notify('version:changed', {
+                currentVersion: version,
+                previousVersion,
+                versionData
+            });
+
+            console.log(`Current version changed: ${previousVersion} -> ${version}`);
+            return versionData;
+        },
+
+        // Validate endpoints array
+        validateEndpoints(endpoints) {
+            if (!Array.isArray(endpoints)) {
+                throw new Error(`Expected endpoints array, got: ${typeof endpoints}`);
+            }
+
+            return endpoints.map((endpoint, index) => {
+                try {
+                    return this._validateEndpoint(endpoint, index);
+                } catch (error) {
+                    console.warn(`Endpoint validation warning at index ${index}:`, error.message);
+                    // Return a minimal valid endpoint rather than failing completely
+                    return this._createFallbackEndpoint(endpoint, index, error);
+                }
+            }).filter(Boolean); // Remove any null endpoints
+        },
+
+        // Validate single endpoint
+        _validateEndpoint(endpoint, index = 0) {
+            if (!endpoint || typeof endpoint !== 'object') {
+                throw new Error(`Invalid endpoint object at index ${index}`);
+            }
+
+            const validated = {
+                method: this._validateMethod(endpoint.method, index),
+                path: this._validatePath(endpoint.path, index),
+                handler: this._sanitizeString(endpoint.handler || `endpoint_${index}`),
+                description: this._sanitizeString(endpoint.description || 'No description available'),
+                tags: this._validateTags(endpoint.tags),
+                auth: this._validateAuthInfo(endpoint.auth),
+                request: this._validateSchema(endpoint.request, false),
+                response: this._validateSchema(endpoint.response, false),
+                // Additional metadata
+                _validated: true,
+                _index: index
+            };
+
+            return validated;
+        },
+
+        // Create fallback endpoint for failed validation
+        _createFallbackEndpoint(original, index, error) {
+            return {
+                method: 'GET',
+                path: original.path || `/_unknown_${index}`,
+                handler: `fallback_endpoint_${index}`,
+                description: `Endpoint with validation issues: ${error.message}`,
+                tags: ['validation-error'],
+                auth: { required: false },
+                request: null,
+                response: null,
+                _validated: false,
+                _validationError: error.message,
+                _index: index,
+                _original: original
+            };
+        },
+
+        // Validate HTTP method
+        _validateMethod(method, index) {
+            if (!method || typeof method !== 'string') {
+                throw new Error(`Invalid method at index ${index}: ${method}`);
+            }
+
+            const normalizedMethod = method.toUpperCase();
+            const validMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+
+            if (!validMethods.includes(normalizedMethod)) {
+                throw new Error(`Unsupported HTTP method '${method}' at index ${index}`);
+            }
+
+            return normalizedMethod;
+        },
+
+        // Validate API path
+        _validatePath(path, index) {
+            if (!path || typeof path !== 'string') {
+                throw new Error(`Invalid path at index ${index}: ${path}`);
+            }
+
+            // Basic path validation
+            const trimmedPath = path.trim();
+            if (!trimmedPath.startsWith('/')) {
+                return `/${trimmedPath}`;
+            }
+
+            return trimmedPath;
+        },
+
+        // Validate tags array
+        _validateTags(tags) {
+            if (!tags) return [];
+            if (!Array.isArray(tags)) return [];
+
+            return tags
+                .filter(tag => tag && typeof tag === 'string')
+                .map(tag => this._sanitizeString(tag))
+                .filter(tag => tag.length > 0)
+                .slice(0, 10); // Limit number of tags
+        },
+
+        // Validate authentication info
+        _validateAuthInfo(auth) {
+            if (!auth || typeof auth !== 'object') {
+                return { required: false };
+            }
 
             return {
                 required: Boolean(auth.required),
-                type: auth.type || 'unknown',
-                description: auth.description || 'Authentication required',
-                icon: auth.icon || '🔐',
-                collections: Array.isArray(auth.collections) ? auth.collections : [],
-                owner_param: auth.owner_param || null
+                type: this._sanitizeString(auth.type || 'none'),
+                description: this._sanitizeString(auth.description || 'No authentication required'),
+                icon: auth.icon && typeof auth.icon === 'string' ? auth.icon : (auth.required ? '🔐' : '🔓')
             };
         },
 
-        // Configuration cache with version-specific storage
-        configCache: new Map(),
-        configLoadPromises: new Map(),
-
-        // Load schema configuration from server with enhanced caching
-        async loadSchemaConfig(forceReload = false) {
-            const version = this.currentVersion || 'v1';
-            const cacheKey = `config_${version}`;
-
-            // Return cached config if available and not forcing reload
-            if (!forceReload && this.configCache.has(cacheKey)) {
-                this.schemaConfig = this.configCache.get(cacheKey);
-                console.log(`Using cached schema configuration for version ${version}`);
-                return this.schemaConfig;
+        // Validate schema object
+        _validateSchema(schema, required = true) {
+            if (!schema) {
+                return required ? null : null;
             }
 
-            // If there's already a loading promise for this version, wait for it
-            if (this.configLoadPromises.has(cacheKey)) {
-                console.log(`Waiting for existing config load for version ${version}`);
-                return await this.configLoadPromises.get(cacheKey);
-            }
-
-            // Create loading promise
-            const loadPromise = this._loadSchemaConfigFromServer(version, cacheKey);
-            this.configLoadPromises.set(cacheKey, loadPromise);
-
-            try {
-                const config = await loadPromise;
-                this.schemaConfig = config;
-                return config;
-            } finally {
-                // Clean up promise regardless of success/failure
-                this.configLoadPromises.delete(cacheKey);
-            }
-        },
-
-        // Internal method to load config from server
-        async _loadSchemaConfigFromServer(version, cacheKey) {
-            try {
-                console.log(`Loading schema configuration for version ${version}...`);
-
-                const response = await fetch(`/api/${version}/schema/config`);
-
-                if (!response.ok) {
-                    throw new Error(`Failed to load schema config: ${response.status} ${response.statusText}`);
-                }
-
-                const data = await response.json();
-
-                // Validate response structure
-                if (!data.success || !data.config) {
-                    throw new Error('Invalid schema configuration response format');
-                }
-
-                // Cache the configuration
-                this.configCache.set(cacheKey, data.config);
-                console.log(`Schema configuration loaded and cached for version ${version}:`, data.config);
-
-                return data.config;
-            } catch (error) {
-                console.error(`Failed to load schema configuration for version ${version}:`, error);
-
-                // Check if we have a fallback in cache from previous version
-                const fallbackConfig = this._getFallbackConfig();
-
-                if (fallbackConfig) {
-                    console.warn('Using fallback configuration from cache');
-                    return fallbackConfig;
-                }
-
-                // Last resort: hardcoded defaults
-                const defaultConfig = {
-                    system_fields: ['id', 'created_at', 'updated_at'],
-                    default_parameter_type: 'string',
-                    default_parameter_in: 'query',
-                    default_content_type: 'application/json',
-                    description_templates: {
-                        path: 'Path parameter: {name}',
-                        query: 'Query parameter: {name}',
-                        header: 'Header parameter: {name}',
-                        body: 'Request body parameter: {name}'
-                    },
-                    supported_content_types: ['application/json']
-                };
-
-                console.warn('Using hardcoded fallback configuration');
-                return defaultConfig;
-            }
-        },
-
-        // Get fallback configuration from cache
-        _getFallbackConfig() {
-            // Try to find any cached config as fallback
-            for (const [key, config] of this.configCache.entries()) {
-                if (config && typeof config === 'object') {
-                    console.log(`Using cached config from ${key} as fallback`);
-                    return config;
+            if (typeof schema === 'string') {
+                // Try to parse as JSON
+                try {
+                    return JSON.parse(schema);
+                } catch {
+                    return schema; // Return as string if not valid JSON
                 }
             }
+
+            if (typeof schema === 'object') {
+                return this._deepClone(schema);
+            }
+
             return null;
         },
 
-        // Clear configuration cache
-        clearConfigCache() {
-            this.configCache.clear();
-            this.configLoadPromises.clear();
-            this.schemaConfig = null;
-            console.log('Schema configuration cache cleared');
+        // Validate versions array
+        _validateVersions(versions) {
+            if (!Array.isArray(versions)) {
+                throw new Error(`Expected versions array, got: ${typeof versions}`);
+            }
+
+            return versions.map((version, index) => {
+                if (typeof version === 'string') {
+                    return { version, status: 'stable', created_at: null };
+                }
+
+                if (typeof version === 'object' && version.version) {
+                    return {
+                        version: this._sanitizeString(version.version),
+                        status: this._sanitizeString(version.status || 'stable'),
+                        created_at: version.created_at || null,
+                        description: this._sanitizeString(version.description || '')
+                    };
+                }
+
+                throw new Error(`Invalid version object at index ${index}`);
+            });
         },
 
-        // Get system fields list
-        getSystemFields() {
-            return this.schemaConfig?.system_fields || ['id', 'created_at', 'updated_at'];
+        // Update internal statistics
+        _updateStats() {
+            try {
+                this.apiStats = this._calculateStats();
+                this._notify('stats:updated', { stats: this.apiStats });
+            } catch (error) {
+                console.error('Failed to update statistics:', error);
+            }
         },
 
-        // Get default parameter type
-        getDefaultParameterType() {
-            return this.schemaConfig?.default_parameter_type || 'string';
-        },
-
-        // Get default parameter location
-        getDefaultParameterIn() {
-            return this.schemaConfig?.default_parameter_in || 'query';
-        },
-
-        // Get default content type
-        getDefaultContentType() {
-            return this.schemaConfig?.default_content_type || 'application/json';
-        },
-
-        // Get description template for parameter type
-        getDescriptionTemplate(paramType, paramName) {
-            const templates = this.schemaConfig?.description_templates || {};
-            const template = templates[paramType] || `${paramType} parameter: {name}`;
-            return template.replace('{name}', paramName);
-        },
-
-        // Debug and status methods
-        getConfigurationStatus() {
-            const version = this.currentVersion || 'unknown';
-            const cacheKey = `config_${version}`;
-
-            return {
-                version: version,
-                configLoaded: !!this.schemaConfig,
-                configCached: this.configCache.has(cacheKey),
-                cacheSize: this.configCache.size,
-                loadingInProgress: this.configLoadPromises.has(cacheKey),
-                availableVersions: this.availableVersions.map(v => v.version),
-                endpointsLoaded: this.allEndpoints.length,
-                filteredEndpoints: this.filteredEndpoints.length,
-                componentsLoaded: Object.keys(this.apiComponents || {}).length
+        // Calculate endpoint statistics
+        _calculateStats() {
+            const endpoints = this.allEndpoints;
+            const stats = {
+                totalEndpoints: endpoints.length,
+                methodCounts: {},
+                authTypes: {},
+                authRequired: 0,
+                uniqueTags: 0,
+                tags: {},
+                validationErrors: 0,
+                lastUpdated: new Date().toISOString()
             };
+
+            const tagSet = new Set();
+
+            endpoints.forEach(endpoint => {
+                // Count methods
+                const method = endpoint.method;
+                stats.methodCounts[method] = (stats.methodCounts[method] || 0) + 1;
+
+                // Count auth types and requirements
+                if (endpoint.auth?.required) {
+                    stats.authRequired++;
+                    const authType = endpoint.auth.type || 'required';
+                    stats.authTypes[authType] = (stats.authTypes[authType] || 0) + 1;
+                } else {
+                    stats.authTypes['none'] = (stats.authTypes['none'] || 0) + 1;
+                }
+
+                // Count tags
+                endpoint.tags.forEach(tag => {
+                    tagSet.add(tag);
+                    stats.tags[tag] = (stats.tags[tag] || 0) + 1;
+                });
+
+                // Count validation errors
+                if (!endpoint._validated) {
+                    stats.validationErrors++;
+                }
+            });
+
+            stats.uniqueTags = tagSet.size;
+            return stats;
         },
 
-        // Get detailed debug information
-        getDebugInfo() {
-            const status = this.getConfigurationStatus();
-
-            return {
-                ...status,
-                schemaConfig: this.schemaConfig,
-                cacheKeys: Array.from(this.configCache.keys()),
-                loadingPromises: Array.from(this.configLoadPromises.keys()),
-                stats: this.apiStats,
-                lastError: this._lastError || null
-            };
+        // Get filtered endpoints (reactive to filter changes)
+        getFilteredEndpoints() {
+            return [...this.filteredEndpoints]; // Return copy to prevent mutation
         },
 
-        // Log current state for debugging
-        logStatus() {
-            const status = this.getConfigurationStatus();
-            console.group('APIState Status');
-            console.log('Configuration Status:', status);
-            console.log('Schema Config:', this.schemaConfig);
-            console.log('Cache Contents:', Array.from(this.configCache.entries()));
-            console.groupEnd();
+        // Set filtered endpoints (typically called by FilterController)
+        setFilteredEndpoints(filteredEndpoints) {
+            const previousCount = this.filteredEndpoints.length;
+            this.filteredEndpoints = [...filteredEndpoints];
+
+            this._notify('filter:applied', {
+                filtered: this.filteredEndpoints.length,
+                total: this.allEndpoints.length,
+                previousCount
+            });
+
+            return this.filteredEndpoints;
         },
 
-        // Health check method
+        // Find endpoint by method and path
+        findEndpoint(method, path) {
+            try {
+                const normalizedMethod = method.toUpperCase();
+                return this.allEndpoints.find(ep =>
+                    ep.method === normalizedMethod && ep.path === path
+                );
+            } catch (error) {
+                console.error('Failed to find endpoint:', error);
+                return null;
+            }
+        },
+
+        // Get all unique tags from endpoints
+        getAllTags() {
+            const tagCounts = this.apiStats?.tags || {};
+            return Object.keys(tagCounts).sort();
+        },
+
+        // Get endpoints by tag
+        getEndpointsByTag(tag) {
+            return this.allEndpoints.filter(endpoint =>
+                endpoint.tags.includes(tag)
+            );
+        },
+
+        // Get endpoints by method
+        getEndpointsByMethod(method) {
+            const normalizedMethod = method.toUpperCase();
+            return this.allEndpoints.filter(endpoint =>
+                endpoint.method === normalizedMethod
+            );
+        },
+
+        // Health check with detailed diagnostics
         isHealthy() {
+            const issues = this._getHealthIssues();
+
             return {
-                healthy: !!(this.schemaConfig && this.currentVersion && this.availableVersions.length > 0),
-                issues: this._getHealthIssues()
+                healthy: issues.length === 0,
+                issues,
+                score: this._calculateHealthScore(),
+                lastCheck: new Date().toISOString()
             };
         },
 
-        // Get health issues
+        // Calculate health score (0-100)
+        _calculateHealthScore() {
+            let score = 100;
+            const issues = this._getHealthIssues();
+
+            // Deduct points for each issue type
+            issues.forEach(issue => {
+                switch (issue.severity) {
+                    case 'critical': score -= 30; break;
+                    case 'major': score -= 20; break;
+                    case 'minor': score -= 10; break;
+                    case 'warning': score -= 5; break;
+                }
+            });
+
+            return Math.max(0, score);
+        },
+
+        // Get health issues with severity levels
         _getHealthIssues() {
             const issues = [];
 
-            if (!this.schemaConfig) {
-                issues.push('Schema configuration not loaded');
-            }
-
             if (!this.currentVersion) {
-                issues.push('No current API version selected');
+                issues.push({
+                    type: 'version',
+                    severity: 'critical',
+                    message: 'No current API version selected',
+                    suggestion: 'Select an API version to continue'
+                });
             }
 
             if (!this.availableVersions || this.availableVersions.length === 0) {
-                issues.push('No API versions available');
+                issues.push({
+                    type: 'versions',
+                    severity: 'critical',
+                    message: 'No API versions available',
+                    suggestion: 'Check API version configuration'
+                });
             }
 
-            if (this.configLoadPromises.size > 0) {
-                issues.push('Configuration loads still in progress');
+            if (!this.allEndpoints || this.allEndpoints.length === 0) {
+                issues.push({
+                    type: 'endpoints',
+                    severity: 'major',
+                    message: 'No endpoints loaded',
+                    suggestion: 'Verify API endpoint discovery'
+                });
+            }
+
+            // Check for validation errors
+            const validationErrors = this.apiStats?.validationErrors || 0;
+            if (validationErrors > 0) {
+                issues.push({
+                    type: 'validation',
+                    severity: 'minor',
+                    message: `${validationErrors} endpoints have validation issues`,
+                    suggestion: 'Review endpoint definitions for errors'
+                });
             }
 
             return issues;
+        },
+
+        // Get comprehensive debug information
+        getDebugInfo() {
+            return {
+                // Basic state
+                version: this.currentVersion,
+                availableVersions: this.availableVersions.map(v => ({
+                    version: v.version,
+                    status: v.status
+                })),
+
+                // Endpoint info
+                endpointsLoaded: this.allEndpoints.length,
+                filteredEndpoints: this.filteredEndpoints.length,
+                validationErrors: this.allEndpoints.filter(ep => !ep._validated).length,
+
+                // Statistics
+                stats: this.apiStats,
+                uniqueTags: this.getAllTags(),
+
+                // Health
+                health: this.isHealthy(),
+
+                // Observers
+                observerCount: Array.from(this._observers.values())
+                    .reduce((count, observers) => count + observers.size, 0),
+
+                // Timestamps
+                lastUpdated: new Date().toISOString()
+            };
+        },
+
+        // =============================================================================
+        // UTILITY METHODS (simplified versions without external dependencies)
+        // =============================================================================
+
+        // Simple string sanitization
+        _sanitizeString(str) {
+            if (typeof str !== 'string') return '';
+
+            return str
+                .trim()
+                .replace(/[<>]/g, '') // Remove potential HTML tags
+                .replace(/javascript:/gi, '') // Remove javascript: protocols
+                .slice(0, 1000); // Limit length
+        },
+
+        // Simple deep clone
+        _deepClone(obj) {
+            if (obj === null || typeof obj !== 'object') return obj;
+            if (obj instanceof Date) return new Date(obj.getTime());
+            if (obj instanceof Array) return obj.map(item => this._deepClone(item));
+            if (obj instanceof Object) {
+                const cloned = {};
+                Object.keys(obj).forEach(key => {
+                    cloned[key] = this._deepClone(obj[key]);
+                });
+                return cloned;
+            }
         }
     };
 
-    // Expose global debug utilities
+    // Initialize on load
+    APIState.init();
+
+    // Global debug utilities
     window.APIStateDebug = {
-        getStatus: () => APIState.getConfigurationStatus(),
-        getDebugInfo: () => APIState.getDebugInfo(),
-        logStatus: () => APIState.logStatus(),
+        getStatus: () => APIState.getDebugInfo(),
         healthCheck: () => APIState.isHealthy(),
-        clearCache: () => APIState.clearConfigCache(),
-        reloadConfig: () => APIState.loadSchemaConfig(true)
+        reset: () => APIState.reset(),
+        addObserver: (event, callback) => APIState.addObserver(event, callback)
     };
+
+    // Expose APIState globally
+    window.APIState = APIState;
 {{end}}

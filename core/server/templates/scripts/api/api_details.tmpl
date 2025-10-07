@@ -1,20 +1,14 @@
 {{define "api_details_js"}}
 <script>
-
-
 document.addEventListener('DOMContentLoaded', function() {
 
     {{template "api_state_js" .}}
 
-    {{template "api_error_handler_js" .}}
-
-    {{template "api_status_manager_js" .}}
+    {{template "api_error_status_manager_js" .}}
 
     {{template "api_schema_processor_js" .}}
 
-    {{template "api_tab_controller_js" .}}
-
-    {{template "api_filter_controller_js" .}}
+    {{template "api_ui_controller_js" .}}
 
     {{template "api_endpoint_renderer_js" .}}
 
@@ -31,7 +25,6 @@ document.addEventListener('DOMContentLoaded', function() {
     {{template "api_loader_js" .}}
 
     {{template "api_init_js" .}}
-
 
 });
 </script>

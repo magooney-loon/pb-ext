@@ -1,204 +1,269 @@
 {{define "api_schema_manager_js"}}
     // =============================================================================
-    // API SCHEMA MANAGER - SCHEMA EXTRACTION AND PROCESSING
+    // API SCHEMA MANAGER - SIMPLIFIED FOR AST-BASED SCHEMAS
     // =============================================================================
 
     const APISchemaManager = {
-        initialized: false,
-        configValidated: false,
-
-        // Initialize with schema configuration
-        async init() {
-            if (this.initialized) {
-                return true;
+        // Extract request form fields from exact AST schema
+        extractRequestFields(endpoint) {
+            if (!endpoint || !endpoint.request || !endpoint.request.properties) {
+                return [];
             }
 
-            try {
-                await APIState.loadSchemaConfig();
-                this.validateConfiguration();
-                this.initialized = true;
-                console.log('APISchemaManager initialized successfully');
-                return true;
-            } catch (error) {
-                console.error('APISchemaManager initialization failed:', error);
-                throw error;
+            const fields = [];
+            const schema = endpoint.request;
+            const properties = schema.properties;
+            const required = schema.required || [];
+
+            for (const [fieldName, fieldSchema] of Object.entries(properties)) {
+                fields.push({
+                    name: fieldName,
+                    type: this.mapSchemaType(fieldSchema.type),
+                    required: required.includes(fieldName),
+                    description: fieldSchema.description || `${fieldName} field`,
+                    example: fieldSchema.example || this.generateExample(fieldSchema.type),
+                    format: fieldSchema.format,
+                    enum: fieldSchema.enum,
+                    minimum: fieldSchema.minimum,
+                    maximum: fieldSchema.maximum,
+                    pattern: fieldSchema.pattern
+                });
             }
+
+            return fields;
         },
 
-        // Validate loaded schema configuration
-        validateConfiguration() {
-            const config = APIState.schemaConfig;
-
-            if (!config) {
-                throw new Error('Schema configuration is not loaded');
-            }
-
-            // Validate required fields
-            const requiredFields = ['system_fields', 'default_parameter_type', 'default_content_type'];
-            for (const field of requiredFields) {
-                if (!config[field]) {
-                    console.warn(`Schema configuration missing required field: ${field}`);
-                }
-            }
-
-            // Validate system fields array
-            if (!Array.isArray(config.system_fields) || config.system_fields.length === 0) {
-                console.warn('Schema configuration has invalid or empty system_fields array');
-            }
-
-            // Validate supported content types
-            if (config.supported_content_types && !Array.isArray(config.supported_content_types)) {
-                console.warn('Schema configuration has invalid supported_content_types');
-            }
-
-            this.configValidated = true;
-        },
-
-        // Check if configuration is ready for use
-        isReady() {
-            return this.initialized && this.configValidated && APIState.schemaConfig;
-        },
-
-        // Extract parameter schema from endpoint data
-        extractParameterSchema(endpoint) {
-
-            const schema = {
-                pathParameters: [],
-                queryParameters: [],
-                headerParameters: [],
-                requestBody: null
-            };
-
-            // Extract from OpenAPI endpoint data if available
-            if (endpoint.data) {
-                const endpointData = endpoint.data;
-
-
-                // Extract path parameters from the path itself if not explicitly defined
-                const pathParams = this.extractPathParameters(endpoint.path);
-                if (pathParams.length > 0 && (!endpointData.parameters || endpointData.parameters.length === 0)) {
-                    schema.pathParameters = pathParams;
-                }
-
-                // Extract parameters
-                if (endpointData.parameters && Array.isArray(endpointData.parameters)) {
-
-                    endpointData.parameters.forEach((param, index) => {
-
-                        const normalizedParam = this.normalizeParameter(param);
-
-                        switch (param.in) {
-                            case 'path':
-                                schema.pathParameters.push(normalizedParam);
-                                break;
-                            case 'query':
-                                schema.queryParameters.push(normalizedParam);
-                                break;
-                            case 'header':
-                                schema.headerParameters.push(normalizedParam);
-                                break;
-                        }
-                    });
-                }
-
-                // For POST/PUT/PATCH methods, use only actual request schema
-                if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
-                    // Only use actual request schema from AST analysis
-                    if (endpointData.request) {
-                        schema.requestBody = {
-                            schema: endpointData.request,
-                            required: true,
-                            contentType: APIState.getDefaultContentType()
-                        };
-                    }
-                    // No fallback - if no request schema, no form fields will be generated
-                }
-
-
-            } else {
-
-            }
-
-            return schema;
-        },
-
-        // Extract path parameters from URL path
+        // Extract path parameters from endpoint path
         extractPathParameters(path) {
             const params = [];
-            const regex = /{([^}]+)}/g;
+            const pathParamRegex = /\{([^}]+)\}/g;
             let match;
 
-            while ((match = regex.exec(path)) !== null) {
+            while ((match = pathParamRegex.exec(path)) !== null) {
                 params.push({
                     name: match[1],
-                    type: APIState.getDefaultParameterType(),
+                    type: 'string',
                     required: true,
-                    description: APIState.getDescriptionTemplate('path', match[1]),
-                    enum: null,
-                    format: null,
-                    in: 'path'
+                    in: 'path',
+                    description: `Path parameter: ${match[1]}`
                 });
             }
 
             return params;
         },
 
-        // Normalize parameter object
-        normalizeParameter(param) {
+        // Build complete parameter schema for forms
+        buildParameterSchema(endpoint) {
+            const pathParams = this.extractPathParameters(endpoint.path);
+            const requestFields = this.extractRequestFields(endpoint);
 
-
-            const normalized = {
-                name: param.name || 'unknown',
-                type: param.schema?.type || param.type || APIState.getDefaultParameterType(),
-                required: param.required || false,
-                description: param.description || APIState.getDescriptionTemplate(param.in || 'query', param.name || 'unknown'),
-                enum: param.schema?.enum || param.enum || null,
-                format: param.schema?.format || param.format || null,
-                in: param.in || APIState.getDefaultParameterIn()
+            return {
+                pathParameters: pathParams,
+                bodyParameters: requestFields,
+                queryParameters: [] // Can be manually added by user
             };
-
-
-            return normalized;
         },
 
+        // Map JSON schema types to form input types
+        mapSchemaType(schemaType) {
+            const typeMap = {
+                'string': 'text',
+                'integer': 'number',
+                'number': 'number',
+                'boolean': 'checkbox',
+                'array': 'text',
+                'object': 'textarea'
+            };
 
+            return typeMap[schemaType] || 'text';
+        },
 
+        // Generate example value for schema type
+        generateExample(schemaType) {
+            const examples = {
+                'string': 'example text',
+                'integer': 42,
+                'number': 3.14,
+                'boolean': true,
+                'array': '[]',
+                'object': '{}'
+            };
 
+            return examples[schemaType] || '';
+        },
 
-        // Clean schema for request by removing server-generated fields
-        cleanSchemaForRequest(schema) {
-            if (!schema) return schema;
-
-            // Get system fields from configuration instead of hardcoding
-            const excludeFields = APIState.getSystemFields();
-
-            // If schema has properties, filter them
-            if (schema.properties) {
-                const cleanedProperties = {};
-
-                Object.entries(schema.properties).forEach(([key, value]) => {
-                    const lowerKey = key.toLowerCase();
-                    const shouldExclude = excludeFields.some(field =>
-                        lowerKey === field ||
-                        lowerKey === `${field}_id` ||
-                        lowerKey.endsWith(`_${field}`)
-                    );
-
-                    if (!shouldExclude) {
-                        cleanedProperties[key] = value;
-                    }
-                });
-
+        // Extract response schema info for display
+        extractResponseInfo(endpoint) {
+            if (!endpoint || !endpoint.response) {
                 return {
-                    ...schema,
-                    properties: cleanedProperties,
-                    required: schema.required ? schema.required.filter(field =>
-                        !excludeFields.some(exclude => field.toLowerCase() === exclude)
-                    ) : []
+                    hasSchema: false,
+                    contentType: 'application/json',
+                    description: 'No response schema available'
                 };
             }
 
-            return schema;
+            const schema = endpoint.response;
+
+            return {
+                hasSchema: true,
+                contentType: 'application/json',
+                description: 'Response as defined by handler',
+                schema: schema,
+                required: schema.required || [],
+                properties: schema.properties || {}
+            };
+        },
+
+        // Validate request data against schema
+        validateRequestData(endpoint, data) {
+            const errors = [];
+
+            if (!endpoint || !endpoint.request) {
+                return { valid: true, errors: [] };
+            }
+
+            const schema = endpoint.request;
+            const required = schema.required || [];
+            const properties = schema.properties || {};
+
+            // Check required fields
+            for (const field of required) {
+                if (!data || !data.hasOwnProperty(field) || data[field] === '' || data[field] === null) {
+                    errors.push(`Required field '${field}' is missing or empty`);
+                }
+            }
+
+            // Check field types
+            for (const [fieldName, value] of Object.entries(data || {})) {
+                const fieldSchema = properties[fieldName];
+                if (fieldSchema && value !== '' && value !== null) {
+                    const typeError = this.validateFieldType(fieldName, value, fieldSchema);
+                    if (typeError) {
+                        errors.push(typeError);
+                    }
+                }
+            }
+
+            return {
+                valid: errors.length === 0,
+                errors: errors
+            };
+        },
+
+        // Validate individual field type
+        validateFieldType(fieldName, value, fieldSchema) {
+            const type = fieldSchema.type;
+
+            switch (type) {
+                case 'boolean':
+                    if (typeof value !== 'boolean' && value !== 'true' && value !== 'false') {
+                        return `Field '${fieldName}' must be a boolean (true/false)`;
+                    }
+                    break;
+
+                case 'integer':
+                case 'number':
+                    const num = Number(value);
+                    if (isNaN(num)) {
+                        return `Field '${fieldName}' must be a number`;
+                    }
+                    if (type === 'integer' && !Number.isInteger(num)) {
+                        return `Field '${fieldName}' must be an integer`;
+                    }
+                    if (fieldSchema.minimum !== undefined && num < fieldSchema.minimum) {
+                        return `Field '${fieldName}' must be at least ${fieldSchema.minimum}`;
+                    }
+                    if (fieldSchema.maximum !== undefined && num > fieldSchema.maximum) {
+                        return `Field '${fieldName}' must be at most ${fieldSchema.maximum}`;
+                    }
+                    break;
+
+                case 'string':
+                    if (typeof value !== 'string') {
+                        return `Field '${fieldName}' must be a string`;
+                    }
+                    if (fieldSchema.pattern) {
+                        const regex = new RegExp(fieldSchema.pattern);
+                        if (!regex.test(value)) {
+                            return `Field '${fieldName}' does not match required pattern`;
+                        }
+                    }
+                    break;
+            }
+
+            return null;
+        },
+
+        // Format response for display
+        formatResponse(responseData) {
+            if (!responseData) {
+                return 'No response data';
+            }
+
+            if (typeof responseData === 'string') {
+                try {
+                    responseData = JSON.parse(responseData);
+                } catch (e) {
+                    return responseData;
+                }
+            }
+
+            return JSON.stringify(responseData, null, 2);
+        },
+
+        // Get content type for request
+        getRequestContentType(endpoint) {
+            if (!endpoint || !endpoint.request) {
+                return 'application/json';
+            }
+
+            // Always use JSON for our AST-generated schemas
+            return 'application/json';
+        },
+
+        // Build URL with path parameters
+        buildUrl(endpoint, pathParams = {}) {
+            let url = endpoint.path;
+
+            // Replace path parameters
+            for (const [key, value] of Object.entries(pathParams)) {
+                url = url.replace(`{${key}}`, encodeURIComponent(value));
+            }
+
+            return url;
+        },
+
+        // Prepare request body from form data
+        prepareRequestBody(endpoint, formData) {
+            if (!endpoint || !endpoint.request || !formData) {
+                return null;
+            }
+
+            const body = {};
+            const properties = endpoint.request.properties || {};
+
+            for (const [fieldName, fieldSchema] of Object.entries(properties)) {
+                if (formData.hasOwnProperty(fieldName)) {
+                    let value = formData[fieldName];
+
+                    // Convert types based on schema
+                    switch (fieldSchema.type) {
+                        case 'boolean':
+                            body[fieldName] = value === 'true' || value === true;
+                            break;
+                        case 'integer':
+                            body[fieldName] = parseInt(value, 10);
+                            break;
+                        case 'number':
+                            body[fieldName] = parseFloat(value);
+                            break;
+                        default:
+                            body[fieldName] = value;
+                    }
+                }
+            }
+
+            return body;
         }
     };
 {{end}}

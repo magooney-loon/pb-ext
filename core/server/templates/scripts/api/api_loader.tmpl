@@ -1,15 +1,15 @@
 {{define "api_loader_js"}}
     // =============================================================================
-    // DATA LOADING AND INITIALIZATION
+    // API LOADER - SIMPLIFIED FOR AST-BASED VERSIONED SYSTEM
     // =============================================================================
 
     const APILoader = {
         loadingState: {
             versions: false,
-            schema: false,
-            config: false
+            endpoints: false
         },
 
+        // Load available API versions
         async loadVersions() {
             if (this.loadingState.versions) {
                 console.log('Versions already loading, skipping duplicate request');
@@ -19,7 +19,11 @@
             this.loadingState.versions = true;
 
             try {
-                StatusManager.updateStatus('loading', 'Loading API versions...');
+                if (typeof ErrorStatusManager !== 'undefined') {
+                    ErrorStatusManager.updateStatus('loading', 'Loading API versions...');
+                } else if (typeof StatusManager !== 'undefined') {
+                    StatusManager.updateStatus('loading', 'Loading API versions...');
+                }
 
                 const response = await fetch('/api/docs/versions');
                 if (!response.ok) {
@@ -40,417 +44,380 @@
 
                 this.populateVersionSelector();
 
-                // Load the current version
+                // Load the current version's endpoints
                 if (APIState.currentVersion && APIState.availableVersions.length > 0) {
-                    await this.loadSchema();
+                    await this.loadEndpoints();
                 } else {
                     throw new Error('No API versions available');
                 }
 
             } catch (error) {
-                console.error('Failed to load versions:', error);
-                ErrorHandler.handleApiError(error, 'Failed to load API versions');
-
-                // Update version selector to show error state
-                const selector = document.getElementById('version-selector');
-                if (selector) {
-                    selector.innerHTML = '<option value="">Error loading versions</option>';
-                }
-
-                StatusManager.updateStatus('error', 'Failed to load versions');
+                console.error('Failed to load API versions:', error);
+                throw error;
             } finally {
                 this.loadingState.versions = false;
             }
         },
 
-        async loadSchema() {
-            if (!APIState.currentVersion) {
-                throw new Error('No API version selected');
-            }
-
-            if (this.loadingState.schema) {
-                console.log('Schema already loading, skipping duplicate request');
+        // Load endpoints for current version
+        async loadEndpoints() {
+            if (this.loadingState.endpoints) {
+                console.log('Endpoints already loading, skipping duplicate request');
                 return;
             }
 
-            this.loadingState.schema = true;
-            this.loadingState.config = true;
+            this.loadingState.endpoints = true;
 
             try {
-                StatusManager.updateStatus('loading', 'Loading schema configuration...');
-
-                // Initialize schema configuration first with better error handling
-                try {
-                    await APISchemaManager.init();
-                    console.log('Schema configuration loaded successfully');
-                } catch (configError) {
-                    console.warn('Schema configuration load failed, using fallbacks:', configError);
-                    // Continue with schema loading even if config fails
+                const version = APIState.currentVersion;
+                if (!version) {
+                    throw new Error('No current version selected');
                 }
 
-                StatusManager.updateStatus('loading', 'Loading API schema...');
+                if (typeof ErrorStatusManager !== 'undefined') {
+                    ErrorStatusManager.updateStatus('loading', `Loading endpoints for version ${version}...`);
+                } else if (typeof StatusManager !== 'undefined') {
+                    StatusManager.updateStatus('loading', `Loading endpoints for version ${version}...`);
+                }
 
-                const url = `/api/docs/${APIState.currentVersion}`;
-                console.log(`Loading schema from: ${url}`);
-
-                const response = await fetch(url);
+                const response = await fetch(`/api/docs/${version}`);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                const schemaData = await response.json();
+                const data = await response.json();
 
                 // Validate response structure
-                if (!schemaData || typeof schemaData !== 'object') {
-                    throw new Error('Invalid schema data received');
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Invalid response format from endpoints API');
                 }
 
-                console.log(`Schema loaded for version ${APIState.currentVersion}:`, {
-                    endpoints: schemaData.endpoints?.length || 0,
-                    components: Object.keys(schemaData.components || {}).length
-                });
+                // Set schema and endpoints data
+                APIState.openApiSchema = data;
+                APIState.allEndpoints = data.endpoints || [];
+                APIState.setEndpoints(data.endpoints || []);
 
-                // Validate and process the schema
-                this.processSchema(schemaData);
-
-                StatusManager.updateStatus('success', 'Schema loaded successfully');
-                StatusManager.updateVersionBadge();
-
-                // Update UI
-                this.populateOverview();
-                this.updateRawContent();
-                this.showFilters();
-
-            } catch (error) {
-                console.error('Schema loading failed:', error);
-                ErrorHandler.handleApiError(error, 'Failed to load API schema');
-                StatusManager.updateStatus('error', `Failed to load schema: ${error.message}`);
-                throw error;
-            } finally {
-                this.loadingState.schema = false;
-                this.loadingState.config = false;
-            }
-        },
-
-        processSchema(schemaData) {
-            try {
-                StatusManager.updateStatus('loading', 'Processing schema data...');
-
-                // Reset state
-                APIState.reset();
-
-                // Store schema
-                APIState.openApiSchema = schemaData;
-
-                // Extract and validate endpoints
-                const endpoints = schemaData.endpoints || [];
-                console.log(`Processing ${endpoints.length} endpoints`);
-
-                // Validate endpoints structure
-                const validEndpoints = endpoints.filter(endpoint => {
-                    if (!endpoint || !endpoint.method || !endpoint.path) {
-                        console.warn('Invalid endpoint detected:', endpoint);
-                        return false;
-                    }
-                    return true;
-                });
-
-                if (validEndpoints.length !== endpoints.length) {
-                    console.warn(`Filtered out ${endpoints.length - validEndpoints.length} invalid endpoints`);
-                }
-
-                APIState.setEndpoints(validEndpoints);
-
-                // Extract components
-                APIState.apiComponents = schemaData.components || {};
-                console.log(`Loaded ${Object.keys(APIState.apiComponents).length} schema components`);
-
-                // Calculate statistics
-                APIState.apiStats = SchemaProcessor.calculateStats(APIState.allEndpoints);
-                console.log('Schema statistics:', APIState.apiStats);
+                console.log(`Loaded ${APIState.allEndpoints.length} endpoints for version ${version}`);
 
                 // Update UI components
-                this.updateStats();
-                FilterController.populateFilterOptions(APIState.apiStats);
-                EndpointRenderer.render();
-                FilterController.updateFilterSummary();
+                this.updateEndpointsList();
+                this.updateStatsDisplay();
 
-                console.log('Schema processing completed successfully');
+                // Update version display and description
+                this.updateVersionDisplay();
+
+                // Initialize filter options and update UI
+                if (typeof UIController !== 'undefined') {
+                    const stats = this.calculateStats();
+                    if (UIController.populateFilterOptions) {
+                        UIController.populateFilterOptions(stats);
+                    }
+                    // Ensure statistics are updated
+                    if (UIController._updateStatistics) {
+                        UIController._updateStatistics();
+                    }
+                    // Show the filters section
+                    const filtersSection = document.getElementById('api-filters');
+                    if (filtersSection) {
+                        filtersSection.style.display = 'block';
+                    }
+                } else if (typeof FilterController !== 'undefined' && FilterController.populateFilterOptions) {
+                    // Fallback for backward compatibility
+                    const stats = this.calculateStats();
+                    FilterController.populateFilterOptions(stats);
+                }
 
             } catch (error) {
-                console.error('Schema processing failed:', error);
-                throw new Error(`Schema processing failed: ${error.message}`);
+                console.error('Failed to load endpoints:', error);
+                throw error;
+            } finally {
+                this.loadingState.endpoints = false;
             }
         },
 
+        // Populate version selector dropdown
         populateVersionSelector() {
-            const selector = document.getElementById('version-selector');
-            if (!selector) return;
+            const versionSelect = document.getElementById('version-select');
+            if (!versionSelect || !APIState.availableVersions.length) {
+                return;
+            }
 
-            selector.innerHTML = APIState.availableVersions.map(version => {
-                const statusBadge = version.status ? ` [${version.status}]` : '';
-                const title = version.config?.title || version.version;
-                const semanticVersion = version.config?.version || 'unknown';
-                const displayText = `${title} (${semanticVersion})${statusBadge}`;
-                const isDefault = version.version === APIState.currentVersion ? ' - default' : '';
+            // Clear existing options
+            versionSelect.innerHTML = '';
 
-                return `<option value="${version.version}" ${version.version === APIState.currentVersion ? 'selected' : ''}>
-                    ${displayText}${isDefault}
-                </option>`;
-            }).join('');
+            // Add version options with correct version info
+            APIState.availableVersions.forEach(versionInfo => {
+                const option = document.createElement('option');
+                option.value = versionInfo.version;
 
-            // Remove any existing event listeners by cloning the element
-            const newSelector = selector.cloneNode(true);
-            selector.parentNode.replaceChild(newSelector, selector);
+                // Use the version info from the versions API, not current schema
+                const apiTitle = versionInfo.config?.title || 'API';
+                const apiVersion = versionInfo.config?.version || versionInfo.version;
+                const status = versionInfo.status || 'stable';
 
-            newSelector.addEventListener('change', async (e) => {
-                if (e.target.value && e.target.value !== APIState.currentVersion) {
-                    const previousVersion = APIState.currentVersion;
-                    APIState.currentVersion = e.target.value;
+                option.textContent = `${apiTitle} v${apiVersion} (${status})`;
+                option.selected = versionInfo.version === APIState.currentVersion;
+                versionSelect.appendChild(option);
+            });
 
-                    console.log(`Switching API version from ${previousVersion} to ${APIState.currentVersion}`);
-
-                    // Clear filters when version changes
-                    FilterController.clearFilters();
-
-                    // Show loading state
-                    StatusManager.updateStatus('loading', `Switching to version ${APIState.currentVersion}...`);
-
-                    try {
-                        // Reset schema configuration for new version
-                        APIState.schemaConfig = null;
-                        APISchemaManager.initialized = false;
-                        APISchemaManager.configValidated = false;
-
-                        await this.loadSchema();
-                    } catch (error) {
-                        console.error('Failed to load schema for version:', APIState.currentVersion, error);
-                        ErrorHandler.handleApiError(error, `Failed to load schema for version ${APIState.currentVersion}`);
-
-                        // Revert to previous version on failure
-                        APIState.currentVersion = previousVersion;
-                        e.target.value = previousVersion;
-                    }
+            // Add change listener
+            versionSelect.addEventListener('change', async (e) => {
+                const newVersion = e.target.value;
+                if (newVersion !== APIState.currentVersion) {
+                    await this.switchVersion(newVersion);
                 }
             });
         },
 
-        populateOverview() {
-            const schema = APIState.openApiSchema;
-            if (!schema) return;
-
-            // Update title and description
-            const title = document.getElementById('api-title');
-            const headerTitle = document.getElementById('api-header-title');
-            const description = document.getElementById('api-description');
-
-            if (title) title.textContent = schema.title || 'API Documentation';
-            if (headerTitle) headerTitle.textContent = schema.title || 'API Documentation';
-            if (description) description.textContent = schema.description || 'No description available';
-
-            // Show overview section
-            const overview = document.getElementById('api-overview');
-            if (overview) overview.style.display = 'block';
-        },
-
-        updateStats() {
-            if (!APIState.apiStats) return;
-
-            const stats = APIState.apiStats;
-
-            // Update endpoint count
-            const endpointCount = document.getElementById('api-endpoints-count');
-            if (endpointCount) endpointCount.textContent = stats.total_endpoints;
-
-            // Update detailed stats if elements exist
-            const authRequired = document.getElementById('stats-auth-required');
-            const uniquePaths = document.getElementById('stats-unique-paths');
-            const totalTags = document.getElementById('stats-total-tags');
-
-            if (authRequired) authRequired.textContent = stats.auth_required_count;
-            if (uniquePaths) uniquePaths.textContent = stats.unique_paths_count;
-            if (totalTags) totalTags.textContent = stats.total_tags || 0;
-        },
-
-        updateRawContent() {
-            this.updateRawSchema('json');
-            this.updateComponents('json');
-        },
-
-        updateRawSchema(format) {
-            const content = document.getElementById('raw-schema-content');
-            if (!content) {
-                console.warn('Raw schema content element not found');
-                return;
-            }
-
-            if (!APIState.openApiSchema) {
-                content.textContent = 'No schema data available. Try refreshing the page or selecting a different version.';
+        // Switch to different API version
+        async switchVersion(newVersion) {
+            if (!newVersion || newVersion === APIState.currentVersion) {
                 return;
             }
 
             try {
-                if (format === 'yaml') {
-                    content.textContent = SchemaProcessor.jsonToYaml(APIState.openApiSchema);
-                } else {
-                    content.innerHTML = SchemaProcessor.syntaxHighlight(APIState.openApiSchema);
+                if (typeof ErrorStatusManager !== 'undefined') {
+                    ErrorStatusManager.updateStatus('loading', `Switching to version ${newVersion}...`);
+                } else if (typeof StatusManager !== 'undefined') {
+                    StatusManager.updateStatus('loading', `Switching to version ${newVersion}...`);
                 }
 
-                // Ensure content is visible
-                if (!content.textContent && !content.innerHTML) {
-                    content.textContent = 'Failed to render schema content. Please try switching formats or refreshing.';
+                // Reset state first
+                APIState.reset();
+
+                // Then update current version
+                APIState.currentVersion = newVersion;
+
+                // Load new version's endpoints
+                await this.loadEndpoints();
+
+                console.log(`Switched to API version ${newVersion}`);
+
+            } catch (error) {
+                console.error('Failed to switch version:', error);
+
+                // Revert version selector
+                const versionSelect = document.getElementById('version-select');
+                if (versionSelect) {
+                    versionSelect.value = APIState.currentVersion;
+                }
+            }
+        },
+
+        // Update endpoints list in UI
+        updateEndpointsList() {
+            // Render endpoints using EndpointRenderer
+            if (typeof EndpointRenderer !== 'undefined' && EndpointRenderer.render) {
+                EndpointRenderer.render();
+            }
+
+            // Update endpoint count display and statistics
+            if (typeof UIController !== 'undefined' && UIController._updateStatistics) {
+                UIController._updateStatistics();
+            } else {
+                // Fallback: direct update
+                const countElement = document.getElementById('api-endpoints-count');
+                if (countElement) {
+                    countElement.textContent = APIState.filteredEndpoints.length;
+                }
+            }
+
+            // Update version info display
+            this.updateVersionInfo();
+        },
+
+        // Update version information display
+        updateVersionInfo() {
+            // Update version selector display with detailed info
+            const versionSelect = document.getElementById('version-select');
+            if (versionSelect && APIState.availableVersions.length > 0) {
+                // Clear and repopulate with detailed version info
+                versionSelect.innerHTML = '';
+
+                APIState.availableVersions.forEach(versionData => {
+                    const option = document.createElement('option');
+                    option.value = versionData.version;
+
+                    // Create detailed version display
+                    const statusText = versionData.status ? ` (${versionData.status})` : '';
+                    const endpointCount = versionData.endpoints || 0;
+                    option.textContent = `${versionData.version}${statusText} - ${endpointCount} endpoints`;
+
+                    option.selected = versionData.version === APIState.currentVersion;
+                    versionSelect.appendChild(option);
+                });
+            }
+
+            // Update version selector and description display
+            this.updateVersionDisplay();
+        },
+
+        // Update version display and description
+        updateVersionDisplay() {
+            // Update version selector options to include full API info
+            this.populateVersionSelector();
+
+            // Display API description separately
+            this.displayAPIDescription();
+        },
+
+        // Display API description
+        displayAPIDescription() {
+            // Look for or create description container
+            let descContainer = document.getElementById('api-description-display');
+
+            if (!descContainer) {
+                // Create container after version selector
+                const versionSelect = document.getElementById('version-select');
+                if (versionSelect && versionSelect.parentElement && versionSelect.parentElement.parentElement) {
+                    descContainer = document.createElement('div');
+                    descContainer.id = 'api-description-display';
+                    descContainer.className = 'api-description-inline';
+                    versionSelect.parentElement.parentElement.appendChild(descContainer);
+                }
+            }
+
+            if (descContainer && APIState.openApiSchema) {
+                const description = APIState.openApiSchema.description;
+                if (description && description.trim()) {
+                    descContainer.textContent = description;
+                    descContainer.style.display = 'block';
+                } else {
+                    descContainer.style.display = 'none';
+                }
+            }
+        },
+
+        // Get CSS class for version status badge
+        getStatusBadgeClass(status) {
+            switch (status) {
+                case 'stable': return 'success';
+                case 'testing': return 'warning';
+                case 'development': return 'info';
+                case 'deprecated': return 'danger';
+                default: return 'secondary';
+            }
+        },
+
+        // Update raw schema content using SchemaProcessor
+        updateRawSchema(format = 'json') {
+            const rawContent = document.getElementById('raw-schema-content');
+            if (!rawContent || !APIState.openApiSchema) {
+                if (rawContent) {
+                    rawContent.innerHTML = '<div class="code-block"><span class="json-null">No schema data available</span></div>';
+                }
+                return;
+            }
+
+            try {
+                if (typeof SchemaProcessor !== 'undefined') {
+                    SchemaProcessor.updateElement('raw-schema-content', APIState.openApiSchema, format);
+                } else {
+                    // Fallback if SchemaProcessor is not available
+                    const content = format === 'yaml'
+                        ? this._basicYamlConvert(APIState.openApiSchema)
+                        : JSON.stringify(APIState.openApiSchema, null, 2);
+                    rawContent.innerHTML = `<div class="code-block"><pre><code>${this._escapeHtml(content)}</code></pre></div>`;
                 }
             } catch (error) {
-                console.error('Error formatting schema:', error);
-                content.textContent = `Error formatting schema: ${error.message}`;
+                rawContent.innerHTML = `<div class="code-block"><span class="error">Error formatting schema: ${error.message}</span></div>`;
+                console.error('Failed to update raw schema:', error);
             }
         },
 
-        updateComponents(format) {
-            const content = document.getElementById('components-content');
-            if (!content) {
-                console.warn('Components content element not found');
-                return;
-            }
-
-            const components = APIState.apiComponents || {};
+        // Update components content using SchemaProcessor
+        updateComponents(format = 'json') {
+            const componentsContent = document.getElementById('components-content');
+            if (!componentsContent) return;
 
             try {
+                const components = APIState.openApiSchema?.components || {};
+
                 if (Object.keys(components).length === 0) {
-                    content.textContent = 'No components defined in this API schema.';
+                    componentsContent.innerHTML = '<div class="code-block"><span class="json-null">No components available in this API schema</span></div>';
                     return;
                 }
 
-                if (format === 'yaml') {
-                    content.textContent = SchemaProcessor.jsonToYaml(components);
+                if (typeof SchemaProcessor !== 'undefined') {
+                    SchemaProcessor.updateElement('components-content', components, format);
                 } else {
-                    content.innerHTML = SchemaProcessor.syntaxHighlight(components);
-                }
-
-                // Ensure content is visible
-                if (!content.textContent && !content.innerHTML) {
-                    content.textContent = 'Failed to render components content. Please try switching formats or refreshing.';
+                    // Fallback if SchemaProcessor is not available
+                    const content = format === 'yaml'
+                        ? this._basicYamlConvert(components)
+                        : JSON.stringify(components, null, 2);
+                    componentsContent.innerHTML = `<div class="code-block"><pre><code>${this._escapeHtml(content)}</code></pre></div>`;
                 }
             } catch (error) {
-                console.error('Error formatting components:', error);
-                content.textContent = `Error formatting components: ${error.message}`;
+                componentsContent.innerHTML = `<div class="code-block"><span class="error">Error formatting components: ${error.message}</span></div>`;
+                console.error('Failed to update components:', error);
             }
         },
 
-        showFilters() {
-            const filtersDiv = document.getElementById('api-filters');
-            if (filtersDiv) filtersDiv.style.display = 'block';
-        }
-    };
-
-    // =============================================================================
-    // FORMAT SWITCHING CONTROLLERS
-    // =============================================================================
-
-    const FormatController = {
-        init() {
-            this.initSchemaFormatSwitchers();
-            this.initComponentsFormatSwitchers();
-            this.initCopyButtons();
-        },
-
-        initSchemaFormatSwitchers() {
-            const jsonBtn = document.getElementById('json-format-btn');
-            const yamlBtn = document.getElementById('yaml-format-btn');
-
-            if (jsonBtn && yamlBtn) {
-                jsonBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (jsonBtn.classList.contains('active')) return;
-                    this.switchFormat(jsonBtn, yamlBtn, 'json', 'raw');
-                });
-
-                yamlBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (yamlBtn.classList.contains('active')) return;
-                    this.switchFormat(yamlBtn, jsonBtn, 'yaml', 'raw');
-                });
+        // Basic YAML conversion fallback
+        _basicYamlConvert(obj) {
+            try {
+                return JSON.stringify(obj, null, 2).replace(/"/g, '').replace(/,\n/g, '\n').replace(/{\n/g, ':\n').replace(/}/g, '');
+            } catch (error) {
+                return JSON.stringify(obj, null, 2);
             }
         },
 
-        initComponentsFormatSwitchers() {
-            const jsonBtn = document.getElementById('components-json-format-btn');
-            const yamlBtn = document.getElementById('components-yaml-format-btn');
-
-            if (jsonBtn && yamlBtn) {
-                jsonBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (jsonBtn.classList.contains('active')) return;
-                    this.switchFormat(jsonBtn, yamlBtn, 'json', 'components');
-                });
-
-                yamlBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (yamlBtn.classList.contains('active')) return;
-                    this.switchFormat(yamlBtn, jsonBtn, 'yaml', 'components');
-                });
-            }
+        // HTML escape utility
+        _escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         },
 
-        initCopyButtons() {
-            const rawCopyBtn = document.getElementById('copy-raw-schema-btn');
-            const componentsCopyBtn = document.getElementById('copy-components-btn');
+        // Update statistics display
+        updateStatsDisplay() {
+            const statsContainer = document.getElementById('api-stats');
+            if (!statsContainer) return;
 
-            if (rawCopyBtn) {
-                rawCopyBtn.addEventListener('click', () => {
-                    this.copyToClipboard('raw-schema-content', rawCopyBtn);
-                });
-            }
+            const stats = this.calculateStats();
 
-            if (componentsCopyBtn) {
-                componentsCopyBtn.addEventListener('click', () => {
-                    this.copyToClipboard('components-content', componentsCopyBtn);
-                });
-            }
+            statsContainer.innerHTML = `
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-value">${stats.endpoints}</span>
+                        <span class="stat-label">Endpoints</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value">${stats.methods}</span>
+                        <span class="stat-label">Methods</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value">${stats.auth}</span>
+                        <span class="stat-label">Auth Required</span>
+                    </div>
+                </div>
+            `;
         },
 
-        switchFormat(activeBtn, inactiveBtn, format, type) {
-            // Update button states
-            activeBtn.classList.add('active');
-            inactiveBtn.classList.remove('active');
+        // Calculate statistics
+        calculateStats() {
+            const endpoints = APIState.allEndpoints;
 
-            // Update content
-            if (type === 'raw') {
-                APILoader.updateRawSchema(format);
-            } else if (type === 'components') {
-                APILoader.updateComponents(format);
-            }
+            return {
+                endpoints: endpoints.length,
+                methods: new Set(endpoints.map(ep => ep.method)).size,
+                auth: endpoints.filter(ep => ep.auth?.required).length
+            };
         },
 
-        copyToClipboard(contentElementId, buttonElement) {
-            const content = document.getElementById(contentElementId);
-            if (!content) return;
+        // Refresh all data
+        refresh() {
+            return this.loadVersions();
+        },
 
-            const text = content.textContent || content.innerText;
-            navigator.clipboard.writeText(text).then(() => {
-                const originalHtml = buttonElement.innerHTML;
-                buttonElement.innerHTML = '<i class="ri-check-line"></i> Copied!';
-                buttonElement.classList.add('btn-success');
-                buttonElement.classList.remove('btn-secondary');
+        // Check if loader is ready
+        isReady() {
+            return !this.loadingState.versions && !this.loadingState.endpoints && APIState.allEndpoints.length > 0;
+        },
 
-                setTimeout(() => {
-                    buttonElement.innerHTML = originalHtml;
-                    buttonElement.classList.remove('btn-success');
-                    buttonElement.classList.add('btn-secondary');
-                }, 2000);
-            }).catch(err => {
-                console.error('Failed to copy content:', err);
-                const originalHtml = buttonElement.innerHTML;
-                buttonElement.innerHTML = '<i class="ri-close-line"></i> Failed';
-                buttonElement.classList.add('btn-danger');
-                buttonElement.classList.remove('btn-secondary');
-
-                setTimeout(() => {
-                    buttonElement.innerHTML = originalHtml;
-                    buttonElement.classList.remove('btn-danger');
-                    buttonElement.classList.add('btn-secondary');
-                }, 2000);
-            });
+        // Check if loader is loading
+        isLoading() {
+            return this.loadingState.versions || this.loadingState.endpoints;
         }
     };
 {{end}}
