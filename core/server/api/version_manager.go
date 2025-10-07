@@ -416,24 +416,16 @@ func (vm *APIVersionManager) GetVersionSchemaConfig(c *core.RequestEvent, versio
 	}
 
 	// Return schema configuration
-	config := DefaultSchemaConfig()
-	// Use dynamic system fields from PocketBase types
-	config.SystemFields = GetSystemFields()
-
+	// Only return minimal config - no system fields or generic schemas
 	return c.JSON(http.StatusOK, map[string]any{
-		"config":  config,
+		"message": "Schema config disabled - using exact AST data only",
 		"success": true,
-		"version": version,
 	})
 }
 
-// GetSystemFields returns the list of system-generated field names
+// GetSystemFields disabled - no system fields added
 func GetSystemFields() []string {
-	return []string{
-		"id",
-		"created_at",
-		"updated_at",
-	}
+	return []string{}
 }
 
 // =============================================================================

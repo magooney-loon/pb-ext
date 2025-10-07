@@ -35,15 +35,9 @@ func (sg *SchemaGenerator) AnalyzeRequestSchema(endpoint *APIEndpoint) (map[stri
 	var schema map[string]interface{}
 
 	// Try AST-based analysis first
+	// Only use AST-based generation - no fallbacks
 	if sg.astParser != nil {
-		if astSchema := sg.generateRequestSchemaFromAST(endpoint); astSchema != nil {
-			schema = astSchema
-		}
-	}
-
-	// Fallback to path-based analysis
-	if schema == nil {
-		schema = sg.generateRequestSchemaFromPath(endpoint.Method, endpoint.Path)
+		schema = sg.generateRequestSchemaFromAST(endpoint)
 	}
 
 	// Cache the result
@@ -68,15 +62,9 @@ func (sg *SchemaGenerator) AnalyzeResponseSchema(endpoint *APIEndpoint) (map[str
 	var schema map[string]interface{}
 
 	// Try AST-based analysis first
+	// Only use AST-based generation - no fallbacks
 	if sg.astParser != nil {
-		if astSchema := sg.generateResponseSchemaFromAST(endpoint); astSchema != nil {
-			schema = astSchema
-		}
-	}
-
-	// Fallback to path-based analysis
-	if schema == nil {
-		schema = sg.generateResponseSchemaFromPath(endpoint.Method, endpoint.Path)
+		schema = sg.generateResponseSchemaFromAST(endpoint)
 	}
 
 	// Cache the result
@@ -94,15 +82,7 @@ func (sg *SchemaGenerator) AnalyzeSchemaFromPath(method, path string) (*SchemaAn
 		Warnings: []string{},
 	}
 
-	// Generate request schema
-	if reqSchema := sg.generateRequestSchemaFromPath(method, path); reqSchema != nil {
-		result.RequestSchema = reqSchema
-	}
-
-	// Generate response schema
-	if respSchema := sg.generateResponseSchemaFromPath(method, path); respSchema != nil {
-		result.ResponseSchema = respSchema
-	}
+	// Only provide schemas if we have AST data - no generic fallbacks
 
 	return result, nil
 }
@@ -113,10 +93,7 @@ func (sg *SchemaGenerator) GenerateComponentSchemas() map[string]interface{} {
 	defer sg.mu.RUnlock()
 
 	components := map[string]interface{}{
-		"schemas":         sg.generateStructSchemas(),
-		"responses":       sg.generateCommonResponses(),
-		"parameters":      sg.generateCommonParameters(),
-		"securitySchemes": sg.generateSecuritySchemes(),
+		"schemas": sg.generateStructSchemas(),
 	}
 
 	return components
@@ -188,11 +165,7 @@ func (sg *SchemaGenerator) generateStructSchemas() map[string]interface{} {
 		}
 	}
 
-	// Add common schemas
-	schemas["ErrorResponse"] = sg.generateErrorResponseSchema()
-	schemas["SuccessResponse"] = sg.generateSuccessResponseSchema()
-	schemas["PaginatedResponse"] = sg.generatePaginatedResponseSchema()
-
+	// Only return actual parsed schemas - no generic ones
 	return schemas
 }
 
@@ -200,43 +173,14 @@ func (sg *SchemaGenerator) generateStructSchemas() map[string]interface{} {
 // Path-Based Schema Generation
 // =============================================================================
 
-// generateRequestSchemaFromPath generates request schema based on URL path patterns
+// generateRequestSchemaFromPath is disabled - only use AST-based generation
 func (sg *SchemaGenerator) generateRequestSchemaFromPath(method, path string) map[string]interface{} {
-	method = strings.ToUpper(method)
-
-	// GET and DELETE typically don't have request bodies
-	if method == "GET" || method == "DELETE" {
-		return nil
-	}
-
-	// Check against known patterns
-	for _, pattern := range sg.getSchemaPatterns() {
-		if pattern.PathMatch != nil && pattern.PathMatch(path) {
-			if pattern.RequestGen != nil {
-				return pattern.RequestGen()
-			}
-		}
-	}
-
-	// Generate generic request schema based on path
-	return sg.generateGenericRequestSchema(method, path)
+	return nil
 }
 
-// generateResponseSchemaFromPath generates response schema based on URL path patterns
+// generateResponseSchemaFromPath is disabled - only use AST-based generation
 func (sg *SchemaGenerator) generateResponseSchemaFromPath(method, path string) map[string]interface{} {
-	method = strings.ToUpper(method)
-
-	// Check against known patterns
-	for _, pattern := range sg.getSchemaPatterns() {
-		if pattern.PathMatch != nil && pattern.PathMatch(path) {
-			if pattern.ResponseGen != nil {
-				return pattern.ResponseGen()
-			}
-		}
-	}
-
-	// Generate generic response schema based on method
-	return sg.generateGenericResponseSchema(method, path)
+	return nil
 }
 
 // getSchemaPatterns returns predefined schema patterns for common endpoints
@@ -310,38 +254,14 @@ func (sg *SchemaGenerator) getSchemaPatterns() []*SchemaPattern {
 // Generic Schema Generators
 // =============================================================================
 
-// generateGenericRequestSchema generates a generic request schema
+// generateGenericRequestSchema is disabled - only use exact AST data
 func (sg *SchemaGenerator) generateGenericRequestSchema(method, path string) map[string]interface{} {
-	switch method {
-	case "POST":
-		if strings.Contains(path, "auth") {
-			return sg.generateLoginRequestSchema()
-		}
-		return sg.generateGenericCreateSchema()
-	case "PUT", "PATCH":
-		return sg.generateGenericUpdateSchema()
-	default:
-		return nil
-	}
+	return nil
 }
 
-// generateGenericResponseSchema generates a generic response schema
+// generateGenericResponseSchema is disabled - only use exact AST data
 func (sg *SchemaGenerator) generateGenericResponseSchema(method, path string) map[string]interface{} {
-	switch method {
-	case "GET":
-		if sg.isListEndpoint(path) {
-			return sg.generatePaginatedResponseSchema()
-		}
-		return sg.generateSingleRecordSchema()
-	case "POST":
-		return sg.generateSingleRecordSchema()
-	case "PUT", "PATCH":
-		return sg.generateSingleRecordSchema()
-	case "DELETE":
-		return sg.generateDeleteResponseSchema()
-	default:
-		return sg.generateSuccessResponseSchema()
-	}
+	return nil
 }
 
 // isListEndpoint determines if a path represents a list endpoint
@@ -600,140 +520,25 @@ func (sg *SchemaGenerator) generateDeleteResponseSchema() map[string]interface{}
 	}
 }
 
-// generateGenericCreateSchema generates a generic creation request schema
-func (sg *SchemaGenerator) generateGenericCreateSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type":                 "object",
-		"description":          "Data for creating a new resource",
-		"additionalProperties": true,
-	}
-}
-
-// generateGenericUpdateSchema generates a generic update request schema
-func (sg *SchemaGenerator) generateGenericUpdateSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type":                 "object",
-		"description":          "Data for updating an existing resource",
-		"additionalProperties": true,
-	}
-}
+// Generic schemas disabled - only use exact AST data
 
 // =============================================================================
 // OpenAPI Component Generators
 // =============================================================================
 
-// generateCommonResponses generates common response definitions
+// generateCommonResponses disabled - only use exact schemas
 func (sg *SchemaGenerator) generateCommonResponses() map[string]interface{} {
-	return map[string]interface{}{
-		"ErrorResponse": map[string]interface{}{
-			"description": "Error response",
-			"content": map[string]interface{}{
-				"application/json": map[string]interface{}{
-					"schema": map[string]interface{}{
-						"$ref": "#/components/schemas/ErrorResponse",
-					},
-				},
-			},
-		},
-		"SuccessResponse": map[string]interface{}{
-			"description": "Success response",
-			"content": map[string]interface{}{
-				"application/json": map[string]interface{}{
-					"schema": map[string]interface{}{
-						"$ref": "#/components/schemas/SuccessResponse",
-					},
-				},
-			},
-		},
-		"PaginatedResponse": map[string]interface{}{
-			"description": "Paginated response",
-			"content": map[string]interface{}{
-				"application/json": map[string]interface{}{
-					"schema": map[string]interface{}{
-						"$ref": "#/components/schemas/PaginatedResponse",
-					},
-				},
-			},
-		},
-	}
+	return map[string]interface{}{}
 }
 
-// generateCommonParameters generates common parameter definitions
+// generateCommonParameters disabled - only use exact parameter data
 func (sg *SchemaGenerator) generateCommonParameters() map[string]interface{} {
-	return map[string]interface{}{
-		"PageParam": map[string]interface{}{
-			"name":        "page",
-			"in":          "query",
-			"description": "Page number for pagination",
-			"schema": map[string]interface{}{
-				"type":    "integer",
-				"minimum": 1,
-				"default": 1,
-			},
-		},
-		"PerPageParam": map[string]interface{}{
-			"name":        "perPage",
-			"in":          "query",
-			"description": "Number of items per page",
-			"schema": map[string]interface{}{
-				"type":    "integer",
-				"minimum": 1,
-				"maximum": 500,
-				"default": 30,
-			},
-		},
-		"RecordIdParam": map[string]interface{}{
-			"name":        "id",
-			"in":          "path",
-			"required":    true,
-			"description": "Record identifier",
-			"schema": map[string]interface{}{
-				"type": "string",
-			},
-		},
-		"CollectionParam": map[string]interface{}{
-			"name":        "collection",
-			"in":          "path",
-			"required":    true,
-			"description": "Collection name",
-			"schema": map[string]interface{}{
-				"type": "string",
-			},
-		},
-		"FilterParam": map[string]interface{}{
-			"name":        "filter",
-			"in":          "query",
-			"description": "Filter expression",
-			"schema": map[string]interface{}{
-				"type": "string",
-			},
-		},
-		"SortParam": map[string]interface{}{
-			"name":        "sort",
-			"in":          "query",
-			"description": "Sort expression",
-			"schema": map[string]interface{}{
-				"type": "string",
-			},
-		},
-	}
+	return map[string]interface{}{}
 }
 
-// generateSecuritySchemes generates security scheme definitions
+// generateSecuritySchemes disabled - no generic security schemes
 func (sg *SchemaGenerator) generateSecuritySchemes() map[string]interface{} {
-	return map[string]interface{}{
-		"bearerAuth": map[string]interface{}{
-			"type":         "http",
-			"scheme":       "bearer",
-			"bearerFormat": "JWT",
-			"description":  "JWT token authentication",
-		},
-		"apiKeyAuth": map[string]interface{}{
-			"type": "apiKey",
-			"in":   "header",
-			"name": "X-API-Key",
-		},
-	}
+	return map[string]interface{}{}
 }
 
 // =============================================================================
