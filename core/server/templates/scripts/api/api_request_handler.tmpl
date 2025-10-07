@@ -6,7 +6,7 @@
     const APIRequestHandler = {
 
         // Send HTTP request using simplified form data
-        async sendRequest(endpoint) {
+        async sendRequest(endpoint, authToken = null) {
             if (!endpoint) {
                 console.error('No endpoint provided for request');
                 return;
@@ -32,7 +32,7 @@
                 const formData = validation.data;
 
                 // Build request configuration
-                const requestConfig = this.buildRequestConfig(endpoint, formData);
+                const requestConfig = this.buildRequestConfig(endpoint, formData, authToken);
 
                 // Execute request
                 const response = await this.executeRequest(requestConfig);
@@ -64,7 +64,7 @@
         },
 
         // Build request configuration from form data
-        buildRequestConfig(endpoint, formData) {
+        buildRequestConfig(endpoint, formData, authToken = null) {
             // Build URL with path parameters
             let url = endpoint.path;
             for (const [key, value] of Object.entries(formData.pathParameters)) {
@@ -85,6 +85,12 @@
                     'Content-Type': 'application/json'
                 }
             };
+
+            // Add Authorization header if auth token is provided
+            if (authToken) {
+                config.headers['Authorization'] = `Bearer ${authToken}`;
+                console.log('Added Authorization header to request');
+            }
 
             // Add request body for methods that support it
             if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) &&
@@ -317,8 +323,8 @@
         },
 
         // Build cURL command for the request
-        generateCurlCommand(endpoint, formData) {
-            const config = this.buildRequestConfig(endpoint, formData);
+        generateCurlCommand(endpoint, formData, authToken = null) {
+            const config = this.buildRequestConfig(endpoint, formData, authToken);
 
             let curl = `curl -X ${config.method}`;
 

@@ -114,7 +114,9 @@
             const closeBtn = this._getElementById('close-tester-btn');
             const copyBtn = this._getElementById('copy-response-btn');
             const copySchemaBtn = this._getElementById('copy-schema-btn');
-            const sendBtn = this._getElementById('send-request-btn');
+            const sendAdminBtn = this._getElementById('send-request-admin-btn');
+            const sendAuthBtn = this._getElementById('send-request-auth-btn');
+            const sendGuestBtn = this._getElementById('send-request-guest-btn');
             const resetBtn = this._getElementById('reset-form-btn');
 
             if (closeBtn) {
@@ -132,8 +134,18 @@
                 if (cleanup) this._eventCleanup.push(cleanup);
             }
 
-            if (sendBtn) {
-                const cleanup = this._addListener(sendBtn, 'click', () => this._sendRequest());
+            if (sendAdminBtn) {
+                const cleanup = this._addListener(sendAdminBtn, 'click', () => this._sendRequest('admin'));
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            if (sendAuthBtn) {
+                const cleanup = this._addListener(sendAuthBtn, 'click', () => this._sendRequest('auth'));
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            if (sendGuestBtn) {
+                const cleanup = this._addListener(sendGuestBtn, 'click', () => this._sendRequest('guest'));
                 if (cleanup) this._eventCleanup.push(cleanup);
             }
 
@@ -1016,19 +1028,42 @@
             console.log('API Tester Sidebar destroyed');
         },
 
-        // Send request using APIRequestHandler
-        async _sendRequest() {
+        // Send request using APIRequestHandler with auth mode
+        async _sendRequest(authMode = 'guest') {
             if (!this.currentEndpoint) {
                 console.error('No endpoint selected for request');
                 return;
             }
 
             try {
-                console.log('Sending request for endpoint:', this.currentEndpoint.data);
+                console.log(`Sending request for endpoint as ${authMode}:`, this.currentEndpoint.data);
+
+                // Get auth token based on mode
+                let authToken = null;
+                if (authMode === 'admin') {
+                    const adminAuth = localStorage.getItem('__pb_superuser_auth__');
+                    if (adminAuth) {
+                        const parsed = JSON.parse(adminAuth);
+                        authToken = parsed.token;
+                        console.log('Using admin token for request');
+                    } else {
+                        console.warn('No admin token found in localStorage');
+                    }
+                } else if (authMode === 'auth') {
+                    const userAuth = localStorage.getItem('pocketbase_auth');
+                    if (userAuth) {
+                        const parsed = JSON.parse(userAuth);
+                        authToken = parsed.token;
+                        console.log('Using user token for request');
+                    } else {
+                        console.warn('No user token found in localStorage');
+                    }
+                }
+                // guest mode uses no token (authToken stays null)
 
                 // Use APIRequestHandler to send the request
                 if (typeof APIRequestHandler !== 'undefined') {
-                    await APIRequestHandler.sendRequest(this.currentEndpoint.data);
+                    await APIRequestHandler.sendRequest(this.currentEndpoint.data, authToken);
                 } else {
                     console.error('APIRequestHandler not available');
                 }

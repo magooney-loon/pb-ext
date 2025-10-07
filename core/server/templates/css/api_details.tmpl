@@ -348,6 +348,67 @@ textarea.form-control {
     color: var(--primaryColor, #3b82f6);
 }
 
+/* Send Request Buttons */
+.send-request-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.send-request-buttons .btn {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    text-align: center;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.send-request-buttons .btn i {
+    font-size: 14px;
+}
+
+/* Different colors for each auth mode */
+#send-request-admin-btn {
+    background: var(--dangerColor, #ef4444);
+    border-color: var(--dangerColor, #ef4444);
+    color: white;
+}
+
+#send-request-admin-btn:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+#send-request-auth-btn {
+    background: var(--primaryColor, #3b82f6);
+    border-color: var(--primaryColor, #3b82f6);
+    color: white;
+}
+
+#send-request-auth-btn:hover {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+
+#send-request-guest-btn {
+    background: var(--baseAlt2Color, #e5e5e5);
+    border-color: var(--baseAlt2Color, #e5e5e5);
+    color: var(--txtPrimaryColor, #333);
+}
+
+#send-request-guest-btn:hover {
+    background: var(--baseAlt3Color, #d1d5db);
+    border-color: var(--baseAlt3Color, #d1d5db);
+}
+
 /* Card styles for form sections */
 .card {
     background: var(--baseColor, #ffffff);

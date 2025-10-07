@@ -90,10 +90,20 @@
 
     <!-- Send Request Section -->
     <div class="tester-actions">
-        <button id="send-request-btn" class="btn btn-primary btn-block">
-            <i class="ri-send-plane-line"></i>
-            Send Request
-        </button>
+        <div class="send-request-buttons">
+            <button id="send-request-admin-btn" class="btn btn-primary btn-sm" data-auth-mode="admin">
+                <i class="ri-shield-user-line"></i>
+                As Admin
+            </button>
+            <button id="send-request-auth-btn" class="btn btn-primary btn-sm" data-auth-mode="auth">
+                <i class="ri-user-line"></i>
+                As Auth
+            </button>
+            <button id="send-request-guest-btn" class="btn btn-primary btn-sm" data-auth-mode="guest">
+                <i class="ri-user-unfollow-line"></i>
+                As Guest
+            </button>
+        </div>
 
         <button id="reset-form-btn" class="btn btn-secondary btn-sm btn-block mt-2">
             <i class="ri-refresh-line"></i>
