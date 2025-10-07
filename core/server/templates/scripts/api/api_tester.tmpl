@@ -143,8 +143,12 @@
 
         // Public API for opening sidebar (for endpoint renderer integration)
         openSidebar(method, path, endpoint) {
-            if (typeof APITesterSidebar !== 'undefined') {
-                console.log('Opening tester sidebar:', method, path);
+            // Try multiple ways to access the sidebar
+            const sidebar = window.APITesterSidebar || window.APITester;
+
+            if (sidebar && typeof sidebar.openSidebar === 'function' && sidebar !== this) {
+                sidebar.openSidebar(method, path, endpoint);
+            } else if (typeof APITesterSidebar !== 'undefined' && APITesterSidebar.openSidebar) {
                 APITesterSidebar.openSidebar(method, path, endpoint);
             } else {
                 console.error('APITesterSidebar not available');
@@ -204,6 +208,15 @@
         }
     };
 
-    // Make APITester globally available
-    window.APITester = APITester;
+    // Make APITester globally available, but don't overwrite existing APITester (APITesterSidebar)
+    if (!window.APITester) {
+        window.APITester = APITester;
+    } else {
+        // Merge functionality if needed
+        if (typeof window.APITester.processEndpoint !== 'function') {
+            window.APITester.processEndpoint = APITester.processEndpoint.bind(APITester);
+            window.APITester.sendRequest = APITester.sendRequest.bind(APITester);
+            window.APITester.resetForm = APITester.resetForm.bind(APITester);
+        }
+    }
 {{end}}

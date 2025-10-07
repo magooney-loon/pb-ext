@@ -8,6 +8,9 @@
             const container = document.getElementById('endpoints-list');
             if (!container) return;
 
+            // Clean up existing listeners before re-rendering
+            this.cleanup();
+
             if (!APIState.filteredEndpoints || APIState.filteredEndpoints.length === 0) {
                 this.renderEmpty(container);
                 return;
@@ -41,6 +44,9 @@
         },
 
         renderEmpty(container) {
+            // Clean up listeners when rendering empty state
+            this.cleanup();
+
             const message = APIState.allEndpoints.length === 0
                 ? 'No API endpoints discovered yet'
                 : 'No endpoints match your current filters';
@@ -186,39 +192,14 @@
         },
 
         attachEventListeners(container) {
-            // Remove any existing listeners by cloning the container
-            const newContainer = container.cloneNode(true);
-            container.parentNode.replaceChild(newContainer, container);
+            // Remove any existing event listeners from this renderer
+            if (this._clickHandler) {
+                container.removeEventListener('click', this._clickHandler);
+            }
 
-            // Update reference to new container
-            const endpointsList = document.getElementById('endpoints-list');
-
-            // Use a single delegated click handler on the fresh container
-            endpointsList.addEventListener('click', (e) => {
-                // Handle endpoint toggle
-                const header = e.target.closest('.api-endpoint-header[data-toggle="endpoint"]');
-                if (header) {
-                    // Don't toggle if clicking on buttons
-                    if (e.target.closest('.test-endpoint-btn') || e.target.closest('.copy-schema-btn')) {
-                        return;
-                    }
-
-                    e.preventDefault();
-                    e.stopPropagation();
-
-                    const content = header.parentElement.querySelector('.api-endpoint-content');
-                    if (content) {
-                        const wasActive = content.classList.contains('active');
-                        content.classList.toggle('active');
-
-                        // Log for debugging
-                        const endpointPath = header.querySelector('.txt-mono')?.textContent || 'unknown';
-                        console.log(`Endpoint ${endpointPath} ${wasActive ? 'collapsed' : 'expanded'}`);
-                    }
-                    return;
-                }
-
-                // Handle test button clicks
+            // Create new click handler bound to this instance
+            this._clickHandler = (e) => {
+                // Handle test button clicks FIRST (highest priority)
                 const testBtn = e.target.closest('.test-endpoint-btn');
                 if (testBtn) {
                     e.preventDefault();
@@ -249,7 +230,17 @@
                             });
                         }
                     } else {
-                        console.error('APITester not available');
+                        console.error('APITester not available or missing openSidebar method');
+
+                        // Try fallback to APITesterSidebar directly
+                        if (window.APITesterSidebar && window.APITesterSidebar.openSidebar) {
+                            try {
+                                const endpoint = JSON.parse(endpointData);
+                                window.APITesterSidebar.openSidebar(method, path, endpoint);
+                            } catch (error) {
+                                console.error('Fallback also failed:', error);
+                            }
+                        }
                     }
                     return;
                 }
@@ -262,7 +253,32 @@
                     this.copySchemaToClipboard(copyBtn);
                     return;
                 }
-            });
+
+                // Handle endpoint toggle (lowest priority)
+                const header = e.target.closest('.api-endpoint-header[data-toggle="endpoint"]');
+                if (header) {
+                    // Don't toggle if clicking on buttons (redundant safety check)
+                    if (e.target.closest('.test-endpoint-btn') || e.target.closest('.copy-schema-btn')) {
+                        return;
+                    }
+
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const content = header.parentElement.querySelector('.api-endpoint-content');
+                    if (content) {
+                        const wasActive = content.classList.contains('active');
+                        content.classList.toggle('active');
+
+                        const endpointPath = header.querySelector('.txt-mono')?.textContent || 'unknown';
+                        console.log(`Endpoint ${endpointPath} ${wasActive ? 'collapsed' : 'expanded'}`);
+                    }
+                    return;
+                }
+            };
+
+            // Attach the new handler
+            container.addEventListener('click', this._clickHandler);
         },
 
         copySchemaToClipboard(button) {
@@ -314,6 +330,15 @@
                     button.classList.add('btn-secondary');
                 }, 2000);
             });
+        },
+
+        // Cleanup method to remove event listeners
+        cleanup() {
+            const container = document.getElementById('endpoints-list');
+            if (container && this._clickHandler) {
+                container.removeEventListener('click', this._clickHandler);
+                this._clickHandler = null;
+            }
         }
     };
 {{end}}

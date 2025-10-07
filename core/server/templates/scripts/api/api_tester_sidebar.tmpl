@@ -878,14 +878,14 @@
         }
     };
 
+    // Expose globally for endpoint renderer integration BEFORE auto-initialization
+    window.APITesterSidebar = APITesterSidebar;
+    window.APITester = APITesterSidebar; // Backward compatibility
+
     // Auto-initialize when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => APITesterSidebar.init());
     } else {
         APITesterSidebar.init();
     }
-
-    // Expose globally for endpoint renderer integration
-    window.APITesterSidebar = APITesterSidebar;
-    window.APITester = APITesterSidebar; // Backward compatibility
 {{end}}
