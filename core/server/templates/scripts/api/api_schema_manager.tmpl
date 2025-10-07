@@ -5,6 +5,10 @@
 
     const APISchemaManager = {
 
+        // Initialize with schema configuration
+        async init() {
+            await APIState.loadSchemaConfig();
+        },
 
         // Extract parameter schema from endpoint data
         extractParameterSchema(endpoint) {
@@ -55,7 +59,7 @@
                         schema.requestBody = {
                             schema: endpointData.request,
                             required: true,
-                            contentType: 'application/json'
+                            contentType: APIState.getDefaultContentType()
                         };
                     }
                     // No fallback - if no request schema, no form fields will be generated
@@ -78,9 +82,9 @@
             while ((match = regex.exec(path)) !== null) {
                 params.push({
                     name: match[1],
-                    type: 'string',
+                    type: APIState.getDefaultParameterType(),
                     required: true,
-                    description: `Path parameter: ${match[1]}`,
+                    description: APIState.getDescriptionTemplate('path', match[1]),
                     enum: null,
                     format: null,
                     in: 'path'
@@ -96,12 +100,12 @@
 
             const normalized = {
                 name: param.name || 'unknown',
-                type: param.schema?.type || param.type || 'string',
+                type: param.schema?.type || param.type || APIState.getDefaultParameterType(),
                 required: param.required || false,
-                description: param.description || `${param.in} parameter`,
+                description: param.description || APIState.getDescriptionTemplate(param.in || 'query', param.name || 'unknown'),
                 enum: param.schema?.enum || param.enum || null,
                 format: param.schema?.format || param.format || null,
-                in: param.in || 'query'
+                in: param.in || APIState.getDefaultParameterIn()
             };
 
 
@@ -116,13 +120,8 @@
         cleanSchemaForRequest(schema) {
             if (!schema) return schema;
 
-            // Expanded list of server-generated fields to exclude
-            const excludeFields = [
-                'id',
-                'created_at',
-                'updated_at',
-
-            ];
+            // Get system fields from configuration instead of hardcoding
+            const excludeFields = APIState.getSystemFields();
 
             // If schema has properties, filter them
             if (schema.properties) {

@@ -361,6 +361,38 @@ type APIDocsConfig struct {
 	AutoDiscovery *AutoDiscoveryConfig `json:"auto_discovery,omitempty"`
 }
 
+// SchemaConfig holds configuration for schema processing and form generation
+type SchemaConfig struct {
+	SystemFields          []string          `json:"system_fields"`
+	DefaultParameterType  string            `json:"default_parameter_type"`
+	DefaultParameterIn    string            `json:"default_parameter_in"`
+	DefaultContentType    string            `json:"default_content_type"`
+	DescriptionTemplates  map[string]string `json:"description_templates"`
+	SupportedContentTypes []string          `json:"supported_content_types"`
+}
+
+// DefaultSchemaConfig returns a default schema configuration
+func DefaultSchemaConfig() *SchemaConfig {
+	return &SchemaConfig{
+		SystemFields:         []string{"id", "created_at", "updated_at"},
+		DefaultParameterType: "string",
+		DefaultParameterIn:   "query",
+		DefaultContentType:   "application/json",
+		DescriptionTemplates: map[string]string{
+			"path":   "Path parameter: {name}",
+			"query":  "Query parameter: {name}",
+			"header": "Header parameter: {name}",
+			"body":   "Request body parameter: {name}",
+		},
+		SupportedContentTypes: []string{
+			"application/json",
+			"application/x-www-form-urlencoded",
+			"multipart/form-data",
+			"text/plain",
+		},
+	}
+}
+
 // DefaultAPIDocsConfig returns a default configuration
 func DefaultAPIDocsConfig() *APIDocsConfig {
 	return &APIDocsConfig{

@@ -47,6 +47,9 @@
             try {
                 StatusManager.updateStatus('loading', 'Loading schema...');
 
+                // Initialize schema configuration first
+                await APISchemaManager.init();
+
                 const url = `/api/docs/${APIState.currentVersion}`;
 
                 const response = await fetch(url);

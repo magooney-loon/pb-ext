@@ -78,7 +78,7 @@
         },
 
         // Process endpoint schema and generate form
-        processEndpointSchema() {
+        async processEndpointSchema() {
             const container = document.getElementById('schema-form-container');
             if (!container) {
                 console.error('Schema form container not found');
@@ -88,6 +88,9 @@
             try {
                 // Show loading state
                 this.showLoadingState(container);
+
+                // Ensure schema configuration is loaded
+                await APIState.loadSchemaConfig();
 
                 // Extract parameter schema from endpoint data using APISchemaManager
                 this.parameterSchema = APISchemaManager.extractParameterSchema(this.currentEndpoint);

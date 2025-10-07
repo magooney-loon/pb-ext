@@ -333,6 +333,17 @@ func (r *APIRegistry) RegisterAPIDocsRoutes(app core.App) {
 			return c.JSON(http.StatusOK, stats)
 		})
 
+		// Automatically register schema configuration endpoint
+		e.Router.GET("/api/docs/schema/config", func(c *core.RequestEvent) error {
+			config := DefaultSchemaConfig()
+			// Use dynamic system fields from PocketBase types
+			config.SystemFields = GetSystemFields()
+			return c.JSON(http.StatusOK, map[string]any{
+				"config":  config,
+				"success": true,
+			})
+		})
+
 		return e.Next()
 	})
 }

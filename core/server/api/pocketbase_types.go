@@ -325,13 +325,18 @@ func GetRecordGetterMethodMapping() map[string]map[string]interface{} {
 	return mapping
 }
 
-// IsSystemField checks if a field name represents a system-generated field - exact matches only
-func IsSystemField(fieldName string) bool {
-	systemFields := []string{
+// GetSystemFields returns the list of system-generated field names
+func GetSystemFields() []string {
+	return []string{
 		"id",
 		"created_at",
 		"updated_at",
 	}
+}
+
+// IsSystemField checks if a field name represents a system-generated field - exact matches only
+func IsSystemField(fieldName string) bool {
+	systemFields := GetSystemFields()
 
 	// Only exact matches - no case conversion or pattern matching
 	for _, sysField := range systemFields {

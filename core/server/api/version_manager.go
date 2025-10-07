@@ -311,6 +311,12 @@ func (vm *APIVersionManager) RegisterWithServer(app core.App) {
 			e.Router.GET(versionPath, func(c *core.RequestEvent) error {
 				return vm.GetVersionOpenAPI(c, version)
 			})
+
+			// Version-specific schema configuration endpoints
+			schemaConfigPath := fmt.Sprintf("/api/%s/schema/config", version)
+			e.Router.GET(schemaConfigPath, func(c *core.RequestEvent) error {
+				return vm.GetVersionSchemaConfig(c, version)
+			})
 		}
 
 		return e.Next()
@@ -348,6 +354,27 @@ func (vm *APIVersionManager) GetVersionOpenAPI(c *core.RequestEvent, version str
 	docs := registry.GetDocsWithComponents()
 
 	return c.JSON(http.StatusOK, docs)
+}
+
+// GetVersionSchemaConfig returns the schema configuration for a specific version
+func (vm *APIVersionManager) GetVersionSchemaConfig(c *core.RequestEvent, version string) error {
+	// Verify version exists
+	if _, err := vm.GetVersionConfig(version); err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": fmt.Sprintf("Version %s not found", version),
+		})
+	}
+
+	// Return schema configuration
+	config := DefaultSchemaConfig()
+	// Use dynamic system fields from PocketBase types
+	config.SystemFields = GetSystemFields()
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"config":  config,
+		"success": true,
+		"version": version,
+	})
 }
 
 // =============================================================================

@@ -11,6 +11,7 @@
         filteredEndpoints: [],
         availableVersions: [],
         currentVersion: null,
+        schemaConfig: null,
 
         reset() {
             this.openApiSchema = null;
@@ -18,6 +19,7 @@
             this.apiComponents = null;
             this.allEndpoints = [];
             this.filteredEndpoints = [];
+            this.schemaConfig = null;
         },
 
         setEndpoints(endpoints) {
@@ -66,6 +68,74 @@
                 collections: Array.isArray(auth.collections) ? auth.collections : [],
                 owner_param: auth.owner_param || null
             };
+        },
+
+        // Load schema configuration from server
+        async loadSchemaConfig() {
+            if (this.schemaConfig) {
+                return this.schemaConfig;
+            }
+
+            try {
+                const version = this.currentVersion || 'v1';
+                const response = await fetch(`/api/${version}/schema/config`);
+
+                if (!response.ok) {
+                    throw new Error(`Failed to load schema config: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                this.schemaConfig = data.config;
+
+                console.log('Schema configuration loaded:', this.schemaConfig);
+                return this.schemaConfig;
+            } catch (error) {
+                console.error('Failed to load schema configuration:', error);
+
+                // Fallback to hardcoded defaults
+                this.schemaConfig = {
+                    system_fields: ['id', 'created_at', 'updated_at'],
+                    default_parameter_type: 'string',
+                    default_parameter_in: 'query',
+                    default_content_type: 'application/json',
+                    description_templates: {
+                        path: 'Path parameter: {name}',
+                        query: 'Query parameter: {name}',
+                        header: 'Header parameter: {name}',
+                        body: 'Request body parameter: {name}'
+                    },
+                    supported_content_types: ['application/json']
+                };
+
+                return this.schemaConfig;
+            }
+        },
+
+        // Get system fields list
+        getSystemFields() {
+            return this.schemaConfig?.system_fields || ['id', 'created_at', 'updated_at'];
+        },
+
+        // Get default parameter type
+        getDefaultParameterType() {
+            return this.schemaConfig?.default_parameter_type || 'string';
+        },
+
+        // Get default parameter location
+        getDefaultParameterIn() {
+            return this.schemaConfig?.default_parameter_in || 'query';
+        },
+
+        // Get default content type
+        getDefaultContentType() {
+            return this.schemaConfig?.default_content_type || 'application/json';
+        },
+
+        // Get description template for parameter type
+        getDescriptionTemplate(paramType, paramName) {
+            const templates = this.schemaConfig?.description_templates || {};
+            const template = templates[paramType] || `${paramType} parameter: {name}`;
+            return template.replace('{name}', paramName);
         }
     };
 {{end}}
