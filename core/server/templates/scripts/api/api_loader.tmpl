@@ -498,19 +498,32 @@
 
         // Link component schemas to endpoints based on path patterns
         _linkSchemasToEndpoints(endpoints, componentSchemas) {
-            const linkedEndpoints = endpoints.map(endpoint => {
+            const linkedEndpoints = endpoints.map((endpoint, index) => {
+                console.log(`Processing endpoint ${index + 1}/${endpoints.length}:`, {
+                    method: endpoint.method,
+                    path: endpoint.path,
+                    handler_name: endpoint.handler_name,
+                    description: endpoint.description
+                });
+
                 const linkedEndpoint = { ...endpoint };
 
                 // Try to find matching request schema
                 const requestSchema = this._findMatchingSchema(endpoint, componentSchemas, 'request');
                 if (requestSchema) {
                     linkedEndpoint.request = requestSchema;
+                    console.log(`✅ Linked request schema to ${endpoint.path}`);
+                } else {
+                    console.log(`❌ No request schema found for ${endpoint.path}`);
                 }
 
                 // Try to find matching response schema
                 const responseSchema = this._findMatchingSchema(endpoint, componentSchemas, 'response');
                 if (responseSchema) {
                     linkedEndpoint.response = responseSchema;
+                    console.log(`✅ Linked response schema to ${endpoint.path}`);
+                } else {
+                    console.log(`❌ No response schema found for ${endpoint.path}`);
                 }
 
                 // Ensure auth structure exists
@@ -532,7 +545,11 @@
 
         // Find matching schema for endpoint using generic fuzzy matching
         _findMatchingSchema(endpoint, componentSchemas, type) {
+            console.log(`Looking for ${type} schema for endpoint:`, endpoint.path);
+            console.log('Available schemas:', Object.keys(componentSchemas));
+
             if (!componentSchemas || Object.keys(componentSchemas).length === 0) {
+                console.log('No component schemas available');
                 return null;
             }
 
@@ -549,6 +566,7 @@
                 .map(word => word.replace(/[^a-z]/g, ''));
 
             const allEndpointWords = [...pathWords, ...descriptionWords];
+            console.log('Endpoint words extracted:', allEndpointWords);
 
             // For request schemas only (responses are typically dynamic)
             if (type === 'request') {
@@ -561,19 +579,26 @@
                     }));
 
                 // Find best match by checking word overlap
+                console.log('Request schemas to check:', requestSchemas.map(s => ({name: s.name, baseWord: s.baseWord})));
+
                 for (const {name, schema, baseWord} of requestSchemas) {
                     const matchScore = allEndpointWords.reduce((score, word) => {
-                        if (baseWord.includes(word) || word.includes(baseWord)) {
+                        const hasMatch = baseWord.includes(word) || word.includes(baseWord);
+                        console.log(`  Checking '${word}' vs '${baseWord}': ${hasMatch ? 'MATCH' : 'no match'}`);
+                        if (hasMatch) {
                             return score + word.length; // Longer matches score higher
                         }
                         return score;
                     }, 0);
 
+                    console.log(`Schema '${name}' match score: ${matchScore}`);
                     if (matchScore > 0) {
-                        console.log(`Matched schema '${name}' to endpoint ${endpoint.path} (score: ${matchScore})`);
+                        console.log(`🎯 Matched schema '${name}' to endpoint ${endpoint.path} (score: ${matchScore})`);
                         return schema;
                     }
                 }
+
+                console.log('No matching request schema found');
             }
 
             return null;
