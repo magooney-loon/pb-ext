@@ -422,7 +422,13 @@
 
         // Convert AST data format to expected endpoints format
         convertASTToEndpoints(astData) {
-            // Check if this is already in endpoints format
+            // Check if this is OpenAPI format (backend-transformed)
+            if (astData.endpoints && Array.isArray(astData.endpoints) && astData.components) {
+                console.log('Detected OpenAPI format, linking component schemas to endpoints...');
+                return this._linkSchemasToEndpoints(astData.endpoints, astData.components.schemas || {});
+            }
+
+            // Check if this is already in endpoints format (legacy)
             if (astData.endpoints && Array.isArray(astData.endpoints)) {
                 return astData.endpoints;
             }
@@ -488,6 +494,95 @@
 
             console.log(`Converted ${Object.keys(handlers).length} handlers to ${endpoints.length} endpoints`);
             return endpoints;
+        },
+
+        // Link component schemas to endpoints based on path patterns
+        _linkSchemasToEndpoints(endpoints, componentSchemas) {
+            const linkedEndpoints = endpoints.map(endpoint => {
+                const linkedEndpoint = { ...endpoint };
+
+                // Try to find matching request schema
+                const requestSchema = this._findMatchingSchema(endpoint, componentSchemas, 'request');
+                if (requestSchema) {
+                    linkedEndpoint.request = requestSchema;
+                }
+
+                // Try to find matching response schema
+                const responseSchema = this._findMatchingSchema(endpoint, componentSchemas, 'response');
+                if (responseSchema) {
+                    linkedEndpoint.response = responseSchema;
+                }
+
+                // Ensure auth structure exists
+                if (!linkedEndpoint.auth) {
+                    linkedEndpoint.auth = {
+                        required: false,
+                        type: 'none',
+                        description: 'No authentication required',
+                        icon: '🌐'
+                    };
+                }
+
+                return linkedEndpoint;
+            });
+
+            console.log(`Linked schemas to ${linkedEndpoints.length} endpoints`);
+            return linkedEndpoints;
+        },
+
+        // Find matching schema for endpoint based on path patterns
+        _findMatchingSchema(endpoint, componentSchemas, type) {
+            if (!componentSchemas || Object.keys(componentSchemas).length === 0) {
+                return null;
+            }
+
+            // Extract operation from path for pattern matching
+            const pathParts = endpoint.path.split('/').filter(p => p && p !== 'api');
+            const operation = pathParts.join('');
+
+            // Common patterns to try
+            const patterns = [
+                // Direct matches
+                `${operation}Request`,
+                `${operation}Response`,
+                // Capitalized
+                `${operation.charAt(0).toUpperCase() + operation.slice(1)}Request`,
+                `${operation.charAt(0).toUpperCase() + operation.slice(1)}Response`,
+                // Common request patterns
+                `${type}Request`,
+                `${type}Response`,
+                // Path-based patterns
+                ...pathParts.map(part => `${part}Request`),
+                ...pathParts.map(part => `${part}Response`),
+                // Method + operation patterns
+                `${endpoint.method.toLowerCase()}${operation.charAt(0).toUpperCase() + operation.slice(1)}Request`,
+                `${endpoint.method.toLowerCase()}${operation.charAt(0).toUpperCase() + operation.slice(1)}Response`
+            ];
+
+            // For request schemas, look for *Request patterns
+            // For response schemas, we'll return null since responses are typically dynamic
+            if (type === 'request') {
+                for (const pattern of patterns) {
+                    if (pattern.includes('Request') && componentSchemas[pattern]) {
+                        console.log(`Found ${type} schema '${pattern}' for endpoint ${endpoint.path}`);
+                        return componentSchemas[pattern];
+                    }
+                }
+            }
+
+            // Special case: look for exact schema name matches in endpoint description or handler_name
+            for (const [schemaName, schema] of Object.entries(componentSchemas)) {
+                if (type === 'request' && schemaName.toLowerCase().includes('request')) {
+                    // Check if schema name relates to the endpoint path
+                    const schemaBase = schemaName.replace(/Request$/i, '').toLowerCase();
+                    if (pathParts.some(part => part.toLowerCase().includes(schemaBase) || schemaBase.includes(part.toLowerCase()))) {
+                        console.log(`Found ${type} schema '${schemaName}' for endpoint ${endpoint.path} via path matching`);
+                        return schema;
+                    }
+                }
+            }
+
+            return null;
         },
 
         // Parse handler name to extract HTTP method, path, and metadata
