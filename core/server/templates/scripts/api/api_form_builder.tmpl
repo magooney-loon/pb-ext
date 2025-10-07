@@ -216,12 +216,11 @@
 
             switch (inputType) {
                 case 'checkbox':
-
                     return `
-                        <div class="form-control-toggle">
-                            <input type="checkbox" ${commonAttrs} ${field.example === true ? 'checked' : ''}>
-                            <label for="${fieldId}">${field.name}</label>
-                        </div>
+                        <select ${commonAttrs}>
+                            <option value="true" ${field.example === true ? 'selected' : ''}>true</option>
+                            <option value="false" ${field.example === false ? 'selected' : ''}>false</option>
+                        </select>
                     `;
 
                 case 'textarea':
@@ -330,8 +329,7 @@
 
                 switch (fieldType) {
                     case 'boolean':
-                        value = input.type === 'checkbox' ? input.checked : (input.value === 'true');
-
+                        value = input.value === 'true' ? true : (input.value === 'false' ? false : null);
                         break;
                     case 'integer':
                         value = input.value ? parseInt(input.value, 10) : null;
@@ -390,7 +388,7 @@
             const sidebar = document.getElementById('api-tester-sidebar');
             if (!sidebar) return;
 
-            sidebar.querySelectorAll('.form-control, input[type="checkbox"][data-type]').forEach(field => {
+            sidebar.querySelectorAll('.form-control').forEach(field => {
                 // Skip if this field is part of API version selection or other global controls
                 if (field.closest('.api-version-selector') ||
                     field.closest('#api-tester-sidebar .endpoint-info') ||
@@ -398,11 +396,7 @@
                     return;
                 }
 
-                if (field.type === 'checkbox') {
-                    field.checked = false;
-                } else {
-                    field.value = '';
-                }
+                field.value = '';
             });
 
             // Remove added query parameters only within the sidebar
