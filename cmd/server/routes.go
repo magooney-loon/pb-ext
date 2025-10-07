@@ -35,7 +35,7 @@ func registerRoutes(pbApp core.App) {
 		},
 	}
 
-	// Initialize version manager with only v1
+	// Initialize version manager with configs
 	versions := map[string]*api.APIDocsConfig{
 		"v1": v1Config,
 		"v2": v2Config,
