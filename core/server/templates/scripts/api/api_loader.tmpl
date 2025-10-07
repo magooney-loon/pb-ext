@@ -530,53 +530,47 @@
             return linkedEndpoints;
         },
 
-        // Find matching schema for endpoint based on path patterns
+        // Find matching schema for endpoint using generic fuzzy matching
         _findMatchingSchema(endpoint, componentSchemas, type) {
             if (!componentSchemas || Object.keys(componentSchemas).length === 0) {
                 return null;
             }
 
-            // Extract operation from path for pattern matching
-            const pathParts = endpoint.path.split('/').filter(p => p && p !== 'api');
-            const operation = pathParts.join('');
+            // Extract words from endpoint path and description for matching
+            const pathWords = endpoint.path.toLowerCase()
+                .split(/[\/\-_]/)
+                .filter(word => word && word !== 'api')
+                .map(word => word.replace(/[^a-z]/g, ''));
 
-            // Common patterns to try
-            const patterns = [
-                // Direct matches
-                `${operation}Request`,
-                `${operation}Response`,
-                // Capitalized
-                `${operation.charAt(0).toUpperCase() + operation.slice(1)}Request`,
-                `${operation.charAt(0).toUpperCase() + operation.slice(1)}Response`,
-                // Common request patterns
-                `${type}Request`,
-                `${type}Response`,
-                // Path-based patterns
-                ...pathParts.map(part => `${part}Request`),
-                ...pathParts.map(part => `${part}Response`),
-                // Method + operation patterns
-                `${endpoint.method.toLowerCase()}${operation.charAt(0).toUpperCase() + operation.slice(1)}Request`,
-                `${endpoint.method.toLowerCase()}${operation.charAt(0).toUpperCase() + operation.slice(1)}Response`
-            ];
+            const descriptionWords = (endpoint.description || '')
+                .toLowerCase()
+                .split(/[\s\-_]/)
+                .filter(word => word && word.length > 2)
+                .map(word => word.replace(/[^a-z]/g, ''));
 
-            // For request schemas, look for *Request patterns
-            // For response schemas, we'll return null since responses are typically dynamic
+            const allEndpointWords = [...pathWords, ...descriptionWords];
+
+            // For request schemas only (responses are typically dynamic)
             if (type === 'request') {
-                for (const pattern of patterns) {
-                    if (pattern.includes('Request') && componentSchemas[pattern]) {
-                        console.log(`Found ${type} schema '${pattern}' for endpoint ${endpoint.path}`);
-                        return componentSchemas[pattern];
-                    }
-                }
-            }
+                const requestSchemas = Object.entries(componentSchemas)
+                    .filter(([name]) => name.toLowerCase().includes('request'))
+                    .map(([name, schema]) => ({
+                        name,
+                        schema,
+                        baseWord: name.replace(/request$/i, '').toLowerCase()
+                    }));
 
-            // Special case: look for exact schema name matches in endpoint description or handler_name
-            for (const [schemaName, schema] of Object.entries(componentSchemas)) {
-                if (type === 'request' && schemaName.toLowerCase().includes('request')) {
-                    // Check if schema name relates to the endpoint path
-                    const schemaBase = schemaName.replace(/Request$/i, '').toLowerCase();
-                    if (pathParts.some(part => part.toLowerCase().includes(schemaBase) || schemaBase.includes(part.toLowerCase()))) {
-                        console.log(`Found ${type} schema '${schemaName}' for endpoint ${endpoint.path} via path matching`);
+                // Find best match by checking word overlap
+                for (const {name, schema, baseWord} of requestSchemas) {
+                    const matchScore = allEndpointWords.reduce((score, word) => {
+                        if (baseWord.includes(word) || word.includes(baseWord)) {
+                            return score + word.length; // Longer matches score higher
+                        }
+                        return score;
+                    }, 0);
+
+                    if (matchScore > 0) {
+                        console.log(`Matched schema '${name}' to endpoint ${endpoint.path} (score: ${matchScore})`);
                         return schema;
                     }
                 }
