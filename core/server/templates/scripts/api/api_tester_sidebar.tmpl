@@ -209,8 +209,9 @@
                 const headersContent = this._getElementById('response-headers');
                 const emptyState = this._getElementById('response-empty-state');
 
-                // Only show response content if we actually have a response
-                const hasResponse = bodyContent && bodyContent.querySelector('code').textContent.trim();
+                // Check if we have response content in a more robust way
+                const hasResponse = bodyContent && bodyContent.textContent.trim() &&
+                    !bodyContent.textContent.includes('No response yet');
 
                 if (!hasResponse) {
                     // Show empty state, hide content

@@ -143,25 +143,35 @@
             const emptyState = document.getElementById('response-empty-state');
             if (emptyState) emptyState.style.display = 'none';
 
-            // Update response body
+            // Update response body with proper formatting
             const responseBody = document.getElementById('response-body');
             if (responseBody) {
                 responseBody.style.display = 'block';
-                const codeElement = responseBody.querySelector('code');
-                if (codeElement) {
-                    codeElement.textContent = this.formatJSON(response.data);
+                if (typeof SchemaProcessor !== 'undefined') {
+                    const formatted = SchemaProcessor.formatForDisplay(response.data, 'json');
+                    responseBody.innerHTML = formatted;
+                } else {
+                    const codeElement = responseBody.querySelector('code');
+                    if (codeElement) {
+                        codeElement.textContent = this.formatJSON(response.data);
+                    }
                 }
             }
 
-            // Update response headers
+            // Update response headers with proper formatting
             const responseHeaders = document.getElementById('response-headers');
             if (responseHeaders) {
-                const codeElement = responseHeaders.querySelector('code');
-                if (codeElement) {
-                    const headersText = Object.entries(response.headers)
-                        .map(([key, value]) => `${key}: ${value}`)
-                        .join('\n');
-                    codeElement.textContent = headersText;
+                if (typeof SchemaProcessor !== 'undefined') {
+                    const formatted = SchemaProcessor.formatForDisplay(response.headers || {}, 'json');
+                    responseHeaders.innerHTML = formatted;
+                } else {
+                    const codeElement = responseHeaders.querySelector('code');
+                    if (codeElement) {
+                        const headersText = Object.entries(response.headers || {})
+                            .map(([key, value]) => `${key}: ${value}`)
+                            .join('\n');
+                        codeElement.textContent = headersText;
+                    }
                 }
             }
 
@@ -178,21 +188,27 @@
             const emptyState = document.getElementById('response-empty-state');
             if (emptyState) emptyState.style.display = 'none';
 
-            // Show error in response body
+            // Show error in response body with proper formatting
             const responseBody = document.getElementById('response-body');
             if (responseBody) {
                 responseBody.style.display = 'block';
-                const codeElement = responseBody.querySelector('code');
-                if (codeElement) {
-                    const errorInfo = {
-                        error: error.message || 'Unknown error occurred',
-                        ...(error.response && {
-                            status: error.response.status,
-                            statusText: error.response.statusText,
-                            response: error.response.data
-                        })
-                    };
-                    codeElement.textContent = this.formatJSON(errorInfo);
+                const errorInfo = {
+                    error: error.message || 'Unknown error occurred',
+                    ...(error.response && {
+                        status: error.response.status,
+                        statusText: error.response.statusText,
+                        response: error.response.data
+                    })
+                };
+
+                if (typeof SchemaProcessor !== 'undefined') {
+                    const formatted = SchemaProcessor.formatForDisplay(errorInfo, 'json');
+                    responseBody.innerHTML = formatted;
+                } else {
+                    const codeElement = responseBody.querySelector('code');
+                    if (codeElement) {
+                        codeElement.textContent = this.formatJSON(errorInfo);
+                    }
                 }
             }
 
