@@ -97,7 +97,5 @@ go run cmd/scripts/main.go --run-only
 
 See `**/*/README.md` for detailed docs.
 
-Having issues with your API Docs?
+Having issues with Your API Docs?
 `/api/docs/debug/ast`
-
-
