@@ -98,4 +98,4 @@ go run cmd/scripts/main.go --run-only
 See `**/*/README.md` for detailed docs.
 
 Having issues with Your API Docs?
-`/api/docs/debug/ast`
+`127.0.0.1:8090/api/docs/debug/ast`
