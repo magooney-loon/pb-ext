@@ -805,9 +805,18 @@
         // Copy response content
         _copyResponse() {
             try {
-                const activeContent = this._safeQuery('.response-tab-content.active code');
-                if (!activeContent?.textContent) {
+                // Try multiple selectors to find active response content
+                let activeContent = this._safeQuery('.response-tab-content.active .code-block');
+                if (!activeContent) {
+                    activeContent = this._safeQuery('.response-tab-content.active code');
+                }
+                if (!activeContent) {
+                    activeContent = this._safeQuery('.response-tab-content.active');
+                }
+
+                if (!activeContent?.textContent || activeContent.textContent.trim() === '') {
                     console.warn('No response content to copy');
+                    this._showCopyFailure('copy-response-btn');
                     return;
                 }
 
@@ -820,6 +829,7 @@
 
             } catch (error) {
                 console.warn('Failed to copy response:', error);
+                this._showCopyFailure('copy-response-btn');
             }
         },
 
@@ -1078,8 +1088,18 @@
             const responseHeaders = this._getElementById('response-headers');
 
             if (emptyState) emptyState.style.display = 'block';
-            if (responseBody) responseBody.style.display = 'none';
-            if (responseHeaders) responseHeaders.style.display = 'none';
+
+            if (responseBody) {
+                responseBody.style.display = 'none';
+                // Clear the content completely
+                responseBody.innerHTML = '<pre class="code-block"><code></code></pre>';
+            }
+
+            if (responseHeaders) {
+                responseHeaders.style.display = 'none';
+                // Clear the content completely
+                responseHeaders.innerHTML = '<pre class="code-block"><code></code></pre>';
+            }
 
             // Reset status
             this._updateResponseStatus('Ready', 'Send a request', 0);
