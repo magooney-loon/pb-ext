@@ -37,6 +37,9 @@
                 }
             });
 
+            // Initialize URL updating functionality
+            setTimeout(() => this.initUrlUpdating(), 100);
+
             // If no sections, show helpful message
             if (sections.length === 0) {
                 container.innerHTML = `
@@ -256,15 +259,17 @@
                 return;
             }
 
-            // Create parameter row
+            // Create compact parameter display
             const paramRow = document.createElement('div');
-            paramRow.className = 'query-param-added flex-fill m-b-xs';
+            paramRow.className = 'query-param-added';
             paramRow.innerHTML = `
-                <div class="flex-fill">
-                    <input type="text" class="form-control" name="query-${name}" value="${value}" placeholder="Value for ${name}" readonly>
-                    <div class="field-help">${name}</div>
+                <div class="param-display">
+                    <span class="param-name">${name}</span>
+                    <span>=</span>
+                    <span class="param-value" title="${value}">${value || '<empty>'}</span>
                 </div>
-                <button type="button" class="btn btn-sm btn-secondary btn-outline remove-query-param">
+                <input type="hidden" name="query-${name}" value="${value}">
+                <button type="button" class="btn btn-xs btn-transparent remove-query-param" title="Remove parameter">
                     <i class="ri-close-line"></i>
                 </button>
             `;
@@ -272,6 +277,7 @@
             // Add remove functionality
             paramRow.querySelector('.remove-query-param').addEventListener('click', () => {
                 paramRow.remove();
+                this.updateUrlDisplay();
             });
 
             container.appendChild(paramRow);
@@ -280,6 +286,9 @@
             nameInput.value = '';
             valueInput.value = '';
             nameInput.focus();
+
+            // Update URL display
+            this.updateUrlDisplay();
         },
 
         // Collect all form data
@@ -379,6 +388,71 @@
             document.querySelectorAll('.query-param-added').forEach(param => {
                 param.remove();
             });
+
+            // Update URL display
+            this.updateUrlDisplay();
+        },
+
+        // Update the URL display with current query parameters
+        updateUrlDisplay() {
+            const pathEl = document.getElementById('tester-path');
+            if (!pathEl || !window.APITesterSidebar || !window.APITesterSidebar.currentEndpoint) {
+                return;
+            }
+
+            const basePath = window.APITesterSidebar.currentEndpoint.path;
+            const formData = this.collectFormData();
+
+            // Build URL with path parameters
+            let displayUrl = basePath;
+            for (const [key, value] of Object.entries(formData.pathParameters)) {
+                displayUrl = displayUrl.replace(`{${key}}`, value || `{${key}}`);
+            }
+
+            // Add query parameters
+            const queryParams = new URLSearchParams();
+            for (const [key, value] of Object.entries(formData.queryParameters)) {
+                if (value.trim()) {
+                    queryParams.append(key, value);
+                }
+            }
+
+            if (queryParams.toString()) {
+                displayUrl += '?' + queryParams.toString();
+            }
+
+            pathEl.textContent = displayUrl;
+        },
+
+        // Initialize URL updating for existing elements
+        initUrlUpdating() {
+            // Add event listeners to path parameter inputs
+            document.addEventListener('input', (e) => {
+                if (e.target.matches('[data-source="path"]')) {
+                    this.updateUrlDisplay();
+                }
+            });
+
+            // Add event listeners to query parameter inputs
+            const addBtn = document.querySelector('.add-query-param');
+            if (addBtn) {
+                const nameInput = addBtn.closest('.query-parameters').querySelector('.query-param-name');
+                const valueInput = addBtn.closest('.query-parameters').querySelector('.query-param-value');
+
+                if (nameInput && valueInput) {
+                    nameInput.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter' && nameInput.value.trim()) {
+                            this.addQueryParameter(addBtn.closest('.form-section'));
+                        }
+                    });
+
+                    valueInput.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter' && nameInput.value.trim()) {
+                            this.addQueryParameter(addBtn.closest('.form-section'));
+                        }
+                    });
+                }
+            }
         }
     };
 {{end}}

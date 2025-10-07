@@ -354,33 +354,69 @@ textarea.form-control {
 
 .query-param-row {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .query-param-name,
 .query-param-value {
     flex: 1;
+    min-width: 0;
+}
+
+.query-param-name {
+    max-width: 140px;
+}
+
+.query-param-value {
+    max-width: 180px;
 }
 
 .add-query-param {
     flex-shrink: 0;
+    padding: 6px 8px;
+    min-width: 32px;
 }
 
 .added-query-params {
-    margin-top: 12px;
+    margin-top: 8px;
 }
 
 .query-param-added {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    padding: 8px;
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 8px;
     background: var(--baseAlt1Color, #f8f9fa);
     border: 1px solid var(--baseAlt2Color, #e5e5e5);
-    border-radius: 6px;
-    margin-bottom: 8px;
+    border-radius: 16px;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+
+.query-param-added .param-display {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.query-param-added .param-name {
+    font-weight: 500;
+    color: var(--txtPrimaryColor, #333);
+}
+
+.query-param-added .param-value {
+    color: var(--txtHintColor, #666);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.query-param-added input[name^="query-"] {
+    display: none;
 }
 
 .remove-query-param {

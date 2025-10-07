@@ -456,6 +456,13 @@
 
                 if (pathEl) {
                     pathEl.textContent = this.currentEndpoint.path;
+
+                    // Initialize URL updating after a brief delay to ensure form is built
+                    setTimeout(() => {
+                        if (window.APIFormBuilder && window.APIFormBuilder.updateUrlDisplay) {
+                            window.APIFormBuilder.updateUrlDisplay();
+                        }
+                    }, 200);
                 }
 
                 if (descEl) {
