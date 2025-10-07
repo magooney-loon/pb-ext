@@ -106,7 +106,7 @@ func GenerateTestSummary(rootDir, reportsDir string, duration time.Duration, sta
 	defer summaryFile.Close()
 
 	// Write test summary
-	fmt.Fprintf(summaryFile, "pb-deployer Test Suite Summary\n")
+	fmt.Fprintf(summaryFile, "%s Test Suite Summary\n", AppName)
 	fmt.Fprintf(summaryFile, "==============================\n\n")
 	fmt.Fprintf(summaryFile, "Execution Time: %s\n", time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(summaryFile, "Duration: %v\n", duration.Round(time.Millisecond))

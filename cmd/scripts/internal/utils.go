@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// Application constants
+const (
+	AppName = "pb-cli"
+)
+
 // Color constants for terminal output
 const (
 	Reset  = "\033[0m"
@@ -22,7 +27,7 @@ const (
 
 // PrintBanner displays the application banner with operation type
 func PrintBanner(operation string) {
-	fmt.Printf("\n%s▲ pb-deployer%s %sv1.0.0%s\n", Bold, Reset, Gray, Reset)
+	fmt.Printf("\n%s▲ %s%s %sv1.0.0%s\n", Bold, AppName, Reset, Gray, Reset)
 	fmt.Printf("%s%s%s\n\n", Gray, strings.ToLower(operation), Reset)
 }
 
@@ -100,7 +105,7 @@ func PrintTestSummary(duration time.Duration) {
 
 // ShowHelp displays the help information
 func ShowHelp() {
-	fmt.Printf("\n%s▲ pb-deployer%s %sv1.0.0%s\n", Bold, Reset, Gray, Reset)
+	fmt.Printf("\n%s▲ %s%s %sv1.0.0%s\n", Bold, AppName, Reset, Gray, Reset)
 	fmt.Printf("%sModern deployment automation tool%s\n\n", Gray, Reset)
 
 	fmt.Printf("%sUSAGE:%s\n", Bold, Reset)
@@ -135,8 +140,5 @@ func ShowHelp() {
 	fmt.Printf("  %s# Custom dist directory%s\n", Gray, Reset)
 	fmt.Printf("  go run ./cmd/scripts --production --dist release\n\n")
 
-	fmt.Printf("%sMORE INFO:%s\n", Bold, Reset)
-	fmt.Printf("  Documentation: %shttps://github.com/your-org/pb-deployer%s\n", Cyan, Reset)
-	fmt.Printf("  Report issues: %shttps://github.com/your-org/pb-deployer/issues%s\n", Cyan, Reset)
 	fmt.Println()
 }

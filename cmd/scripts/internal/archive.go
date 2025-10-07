@@ -15,7 +15,7 @@ func CreateProjectArchive(rootDir, outputDir string) error {
 	PrintStep("📦", "Creating production build archive...")
 
 	timestamp := time.Now().Format("20060102-150405")
-	archiveName := fmt.Sprintf("pb-deployer-production-%s.zip", timestamp)
+	archiveName := fmt.Sprintf("%s-production-%s.zip", AppName, timestamp)
 	// Create zip file outside dist directory first to avoid infinite loop
 	tempArchivePath := filepath.Join(rootDir, archiveName)
 
@@ -132,7 +132,7 @@ func GeneratePackageMetadata(rootDir, outputDir string) error {
 	}
 	defer buildInfoFile.Close()
 
-	fmt.Fprintf(buildInfoFile, "pb-deployer Production Build\n")
+	fmt.Fprintf(buildInfoFile, "%s Production Build\n", AppName)
 	fmt.Fprintf(buildInfoFile, "============================\n\n")
 	fmt.Fprintf(buildInfoFile, "Build Time: %s\n", buildTime)
 	fmt.Fprintf(buildInfoFile, "Build Type: Production\n\n")
@@ -150,7 +150,7 @@ func GeneratePackageMetadata(rootDir, outputDir string) error {
 	}
 
 	fmt.Fprintf(buildInfoFile, "\nContents:\n")
-	fmt.Fprintf(buildInfoFile, "  - pb-deployer server binary\n")
+	fmt.Fprintf(buildInfoFile, "  - %s server binary\n", AppName)
 	fmt.Fprintf(buildInfoFile, "  - Frontend static files (pb_public/)\n")
 	fmt.Fprintf(buildInfoFile, "  - Build metadata and reports\n")
 
@@ -163,7 +163,7 @@ func GeneratePackageMetadata(rootDir, outputDir string) error {
 	defer metadataFile.Close()
 
 	jsonMetadata := fmt.Sprintf(`{
-  "name": "pb-deployer",
+  "name": "%s",
   "version": "1.0.0",
   "buildTime": "%s",
   "buildType": "production",
@@ -182,7 +182,7 @@ func GeneratePackageMetadata(rootDir, outputDir string) error {
     "frontend assets",
     "build metadata"
   ]
-}`, buildTime, goVersion, nodeVersion, npmVersion, gitBranch, gitCommit, gitTag)
+}`, AppName, buildTime, goVersion, nodeVersion, npmVersion, gitBranch, gitCommit, gitTag)
 
 	if _, err := metadataFile.WriteString(jsonMetadata); err != nil {
 		return fmt.Errorf("failed to write metadata: %w", err)
@@ -216,7 +216,7 @@ func ValidateArchive(archivePath string) error {
 	}
 
 	// Check for required files
-	requiredFiles := []string{"pb-deployer", "pb-deployer.exe"}
+	requiredFiles := []string{AppName, AppName + ".exe"}
 	hasServerBinary := false
 
 	for _, file := range reader.File {

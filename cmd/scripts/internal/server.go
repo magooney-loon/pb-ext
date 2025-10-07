@@ -83,7 +83,7 @@ func CheckServerHealth(rootDir string) error {
 
 	// Check if we can compile the server
 	PrintStep("🔨", "Testing server compilation...")
-	cmd := exec.Command("go", "build", "-o", "/tmp/pb-deployer-test", "./cmd/server")
+	cmd := exec.Command("go", "build", "-o", "/tmp/"+AppName+"-test", "./cmd/server")
 	cmd.Dir = rootDir
 
 	if err := cmd.Run(); err != nil {
@@ -91,7 +91,7 @@ func CheckServerHealth(rootDir string) error {
 	}
 
 	// Clean up test binary
-	os.Remove("/tmp/pb-deployer-test")
+	os.Remove("/tmp/" + AppName + "-test")
 
 	PrintSuccess("Server health check passed")
 	return nil

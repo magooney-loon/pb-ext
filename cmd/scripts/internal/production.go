@@ -95,7 +95,7 @@ func printProductionSummary(outputDir string, duration time.Duration) {
 	fmt.Printf("\n%sGenerated Files:%s\n", Gray, Reset)
 
 	// Check for server binary
-	binaryPaths := []string{"pb-deployer", "pb-deployer.exe"}
+	binaryPaths := []string{AppName, AppName + ".exe"}
 	for _, binary := range binaryPaths {
 		binaryPath := filepath.Join(outputDir, binary)
 		if _, err := os.Stat(binaryPath); err == nil {
@@ -158,7 +158,7 @@ func ValidateProductionBuild(outputDir string) error {
 
 	// Check for server binary
 	binaryFound := false
-	binaryPaths := []string{"pb-deployer", "pb-deployer.exe"}
+	binaryPaths := []string{AppName, AppName + ".exe"}
 	for _, binary := range binaryPaths {
 		binaryPath := filepath.Join(outputDir, binary)
 		if _, err := os.Stat(binaryPath); err == nil {

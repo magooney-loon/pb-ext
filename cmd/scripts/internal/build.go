@@ -121,7 +121,7 @@ func CopyFrontendToDist(rootDir, outputDir string) error {
 func BuildServerBinary(rootDir, outputDir string) error {
 	PrintStep("🏗️", "Building server binary...")
 
-	binaryName := "pb-deployer"
+	binaryName := AppName
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}
