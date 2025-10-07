@@ -55,15 +55,19 @@ func registerRoutes(pbApp core.App) {
 			return err
 		}
 
+		// API prefixes
+		v1Prefix := "/api/v1"
+		v2Prefix := "/api/v2"
+
 		// v1 Example Todo CRUD routes
-		v1Router.GET("/api/v1/todos", getTodosHandler)
-		v1Router.POST("/api/v1/todos", createTodoHandler).Bind(apis.RequireAuth())
-		v1Router.GET("/api/v1/todos/{id}", getTodoHandler)
-		v1Router.PATCH("/api/v1/todos/{id}", updateTodoHandler).Bind(apis.RequireAuth())
-		v1Router.DELETE("/api/v1/todos/{id}", deleteTodoHandler).Bind(apis.RequireAuth())
+		v1Router.GET(v1Prefix+"/todos", getTodosHandler)
+		v1Router.POST(v1Prefix+"/todos", createTodoHandler).Bind(apis.RequireAuth())
+		v1Router.GET(v1Prefix+"/todos/{id}", getTodoHandler)
+		v1Router.PATCH(v1Prefix+"/todos/{id}", updateTodoHandler).Bind(apis.RequireAuth())
+		v1Router.DELETE(v1Prefix+"/todos/{id}", deleteTodoHandler).Bind(apis.RequireAuth())
 
 		// Version 2 routes
-		v2Router.GET("/api/v2/time", timeHandler)
+		v2Router.GET(v2Prefix+"/time", timeHandler)
 
 		return e.Next()
 	})
