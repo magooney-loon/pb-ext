@@ -56,14 +56,14 @@
         // Build path parameters section
         buildPathParametersSection(pathParams) {
             const section = document.createElement('div');
-            section.className = 'card card-body m-b-sm';
+            section.className = 'card card-body';
             section.innerHTML = `
                 <div class="form-section">
                     <h6 class="form-section-title">
                         <i class="ri-route-line"></i>
                         Path Parameters
                     </h6>
-                    <p class="txt-hint txt-xs m-b-sm">These parameters are part of the URL path and are required.</p>
+                    <p class="txt-hint txt-xs">These parameters are part of the URL path and are required.</p>
                     <div class="path-parameters">
                         ${pathParams.map(param => this.buildParameterField(param, 'path')).join('')}
                     </div>
@@ -75,7 +75,7 @@
         // Build request body section from AST schema
         buildRequestBodySection(requestFields) {
             const section = document.createElement('div');
-            section.className = 'card card-body m-b-sm';
+            section.className = 'card card-body';
 
             const requiredFields = requestFields.filter(field => field.required);
             const optionalFields = requestFields.filter(field => !field.required);
@@ -87,7 +87,7 @@
                         Request Body
                         <span class="txt-xs txt-hint">(application/json)</span>
                     </h6>
-                    <p class="txt-hint txt-xs m-b-sm">Data to be sent in the request body.</p>
+                    <p class="txt-hint txt-xs">Data to be sent in the request body.</p>
 
                     ${requiredFields.length > 0 ? `
                         <div class="required-fields">
@@ -110,7 +110,7 @@
         // Build manual query parameters section
         buildManualQuerySection() {
             const section = document.createElement('div');
-            section.className = 'card card-body m-b-sm';
+            section.className = 'card card-body';
             section.innerHTML = `
                 <div class="form-section">
                     <h6 class="form-section-title">
