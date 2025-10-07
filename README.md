@@ -94,3 +94,10 @@ func initApp(devMode bool) {
 go mod tidy
 go run cmd/scripts/main.go --run-only
 ```
+
+See `**/*/README.md` for detailed docs.
+
+Having issues with your API Docs?
+`/api/docs/debug/ast`
+
+
