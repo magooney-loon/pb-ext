@@ -13,10 +13,30 @@
                 return;
             }
 
-            const html = APIState.filteredEndpoints.map(endpoint => this.renderEndpoint(endpoint)).join('');
-            container.innerHTML = html;
+            try {
+                const html = APIState.filteredEndpoints.map(endpoint => this.renderEndpoint(endpoint)).join('');
+                container.innerHTML = html;
 
-            this.attachEventListeners(container);
+                this.attachEventListeners(container);
+
+                console.log(`Rendered ${APIState.filteredEndpoints.length} endpoints`);
+            } catch (error) {
+                console.error('Failed to render endpoints:', error);
+                this.renderError(container, error);
+            }
+        },
+
+        renderError(container, error) {
+            container.innerHTML = `
+                <div class="txt-center txt-danger p-4">
+                    <i class="ri-error-warning-line ri-2x mb-2"></i>
+                    <h4>Failed to render endpoints</h4>
+                    <p class="txt-sm">${error.message}</p>
+                    <button onclick="location.reload()" class="btn btn-sm btn-outline mt-2">
+                        <i class="ri-refresh-line"></i> Reload Page
+                    </button>
+                </div>
+            `;
         },
 
         renderEmpty(container) {
@@ -136,17 +156,52 @@
         renderSchemaSection(title, schema, id) {
             if (!schema) return '';
 
+            // Get supported content types from schema config for enhanced display
+            const supportedTypes = APIState.schemaConfig?.supported_content_types || ['application/json'];
+            const defaultContentType = APIState.getDefaultContentType();
+
             return `
                 <div class="mb-2">
                     <div class="flex justify-between align-center mb-1">
                         <strong>${title} Schema:</strong>
-                        <button class="btn btn-xs btn-secondary copy-schema-btn" data-copy-target="${id}">
-                            <i class="ri-file-copy-line"></i> Copy
-                        </button>
+                        <div class="flex gap-1 align-center">
+                            ${title === 'Request' && supportedTypes.length > 1 ? `
+                                <span class="txt-xs txt-hint">Content-Type: ${defaultContentType}</span>
+                            ` : ''}
+                            <button class="btn btn-xs btn-secondary copy-schema-btn" data-copy-target="${id}">
+                                <i class="ri-file-copy-line"></i> Copy
+                            </button>
+                        </div>
                     </div>
                     <pre class="code-block mt-1"><code id="${id}">${SchemaProcessor.syntaxHighlight(schema)}</code></pre>
+                    ${this.renderSchemaInfo(schema, supportedTypes)}
                 </div>
             `;
+        },
+
+        renderSchemaInfo(schema, supportedTypes) {
+            if (!schema || typeof schema !== 'object') return '';
+
+            let info = '';
+
+            // Show system fields that would be excluded from requests
+            if (schema.properties) {
+                const systemFields = APIState.getSystemFields();
+                const hasSystemFields = Object.keys(schema.properties).some(key =>
+                    systemFields.includes(key.toLowerCase())
+                );
+
+                if (hasSystemFields) {
+                    info += `
+                        <div class="txt-xs txt-hint mt-1">
+                            <i class="ri-information-line"></i>
+                            System fields (${systemFields.join(', ')}) are auto-generated and excluded from requests
+                        </div>
+                    `;
+                }
+            }
+
+            return info;
         },
 
         attachEventListeners(container) {
@@ -158,7 +213,12 @@
                     if (!e.target.closest('.test-endpoint-btn')) {
                         const content = header.parentElement.querySelector('.api-endpoint-content');
                         if (content) {
+                            const wasActive = content.classList.contains('active');
                             content.classList.toggle('active');
+
+                            // Log for debugging
+                            const endpoint = header.parentElement.querySelector('.txt-mono').textContent;
+                            console.log(`Endpoint ${endpoint} ${wasActive ? 'collapsed' : 'expanded'}`);
                         }
                     }
                 }
@@ -178,8 +238,17 @@
                         endpointData = endpointData.replace(/&apos;/g, "'").replace(/&quot;/g, '"');
                     }
 
+                    console.log(`Opening API tester for: ${method.toUpperCase()} ${path}`);
+
+                    // Check if schema configuration is ready
+                    if (!APISchemaManager.isReady()) {
+                        console.warn('Schema configuration not ready, tester may use fallback values');
+                    }
+
                     if (window.APITester && window.APITester.openSidebar) {
                         window.APITester.openSidebar(method, path, endpointData);
+                    } else {
+                        console.error('APITester not available');
                     }
                 }
             });
@@ -196,9 +265,20 @@
         copySchemaToClipboard(button) {
             const targetId = button.getAttribute('data-copy-target');
             const targetElement = document.getElementById(targetId);
-            if (!targetElement) return;
+            if (!targetElement) {
+                console.error('Copy target element not found:', targetId);
+                return;
+            }
 
             const content = targetElement.textContent || targetElement.innerText;
+
+            if (!content || content.trim() === '') {
+                console.warn('No content to copy for target:', targetId);
+                return;
+            }
+
+            console.log(`Copying schema content (${content.length} characters)`);
+
             navigator.clipboard.writeText(content).then(() => {
                 const originalHtml = button.innerHTML;
                 button.innerHTML = '<i class="ri-check-line"></i> Copied!';
@@ -210,6 +290,8 @@
                     button.classList.remove('btn-success');
                     button.classList.add('btn-secondary');
                 }, 2000);
+
+                console.log('Schema content copied to clipboard successfully');
             }).catch(err => {
                 console.error('Failed to copy schema:', err);
                 button.innerHTML = '<i class="ri-close-line"></i> Failed';
@@ -222,6 +304,17 @@
                     button.classList.add('btn-secondary');
                 }, 2000);
             });
+        },
+
+        // Get configuration-aware debug information
+        getDebugInfo() {
+            return {
+                schemaConfigReady: APISchemaManager.isReady(),
+                systemFields: APIState.getSystemFields(),
+                defaultContentType: APIState.getDefaultContentType(),
+                supportedContentTypes: APIState.schemaConfig?.supported_content_types || [],
+                endpointsCount: APIState.filteredEndpoints?.length || 0
+            };
         }
     };
 

@@ -70,30 +70,78 @@
             };
         },
 
-        // Load schema configuration from server
-        async loadSchemaConfig() {
-            if (this.schemaConfig) {
+        // Configuration cache with version-specific storage
+        configCache: new Map(),
+        configLoadPromises: new Map(),
+
+        // Load schema configuration from server with enhanced caching
+        async loadSchemaConfig(forceReload = false) {
+            const version = this.currentVersion || 'v1';
+            const cacheKey = `config_${version}`;
+
+            // Return cached config if available and not forcing reload
+            if (!forceReload && this.configCache.has(cacheKey)) {
+                this.schemaConfig = this.configCache.get(cacheKey);
+                console.log(`Using cached schema configuration for version ${version}`);
                 return this.schemaConfig;
             }
 
+            // If there's already a loading promise for this version, wait for it
+            if (this.configLoadPromises.has(cacheKey)) {
+                console.log(`Waiting for existing config load for version ${version}`);
+                return await this.configLoadPromises.get(cacheKey);
+            }
+
+            // Create loading promise
+            const loadPromise = this._loadSchemaConfigFromServer(version, cacheKey);
+            this.configLoadPromises.set(cacheKey, loadPromise);
+
             try {
-                const version = this.currentVersion || 'v1';
+                const config = await loadPromise;
+                this.schemaConfig = config;
+                return config;
+            } finally {
+                // Clean up promise regardless of success/failure
+                this.configLoadPromises.delete(cacheKey);
+            }
+        },
+
+        // Internal method to load config from server
+        async _loadSchemaConfigFromServer(version, cacheKey) {
+            try {
+                console.log(`Loading schema configuration for version ${version}...`);
+
                 const response = await fetch(`/api/${version}/schema/config`);
 
                 if (!response.ok) {
-                    throw new Error(`Failed to load schema config: ${response.statusText}`);
+                    throw new Error(`Failed to load schema config: ${response.status} ${response.statusText}`);
                 }
 
                 const data = await response.json();
-                this.schemaConfig = data.config;
 
-                console.log('Schema configuration loaded:', this.schemaConfig);
-                return this.schemaConfig;
+                // Validate response structure
+                if (!data.success || !data.config) {
+                    throw new Error('Invalid schema configuration response format');
+                }
+
+                // Cache the configuration
+                this.configCache.set(cacheKey, data.config);
+                console.log(`Schema configuration loaded and cached for version ${version}:`, data.config);
+
+                return data.config;
             } catch (error) {
-                console.error('Failed to load schema configuration:', error);
+                console.error(`Failed to load schema configuration for version ${version}:`, error);
 
-                // Fallback to hardcoded defaults
-                this.schemaConfig = {
+                // Check if we have a fallback in cache from previous version
+                const fallbackConfig = this._getFallbackConfig();
+
+                if (fallbackConfig) {
+                    console.warn('Using fallback configuration from cache');
+                    return fallbackConfig;
+                }
+
+                // Last resort: hardcoded defaults
+                const defaultConfig = {
                     system_fields: ['id', 'created_at', 'updated_at'],
                     default_parameter_type: 'string',
                     default_parameter_in: 'query',
@@ -107,8 +155,29 @@
                     supported_content_types: ['application/json']
                 };
 
-                return this.schemaConfig;
+                console.warn('Using hardcoded fallback configuration');
+                return defaultConfig;
             }
+        },
+
+        // Get fallback configuration from cache
+        _getFallbackConfig() {
+            // Try to find any cached config as fallback
+            for (const [key, config] of this.configCache.entries()) {
+                if (config && typeof config === 'object') {
+                    console.log(`Using cached config from ${key} as fallback`);
+                    return config;
+                }
+            }
+            return null;
+        },
+
+        // Clear configuration cache
+        clearConfigCache() {
+            this.configCache.clear();
+            this.configLoadPromises.clear();
+            this.schemaConfig = null;
+            console.log('Schema configuration cache cleared');
         },
 
         // Get system fields list
@@ -136,6 +205,89 @@
             const templates = this.schemaConfig?.description_templates || {};
             const template = templates[paramType] || `${paramType} parameter: {name}`;
             return template.replace('{name}', paramName);
+        },
+
+        // Debug and status methods
+        getConfigurationStatus() {
+            const version = this.currentVersion || 'unknown';
+            const cacheKey = `config_${version}`;
+
+            return {
+                version: version,
+                configLoaded: !!this.schemaConfig,
+                configCached: this.configCache.has(cacheKey),
+                cacheSize: this.configCache.size,
+                loadingInProgress: this.configLoadPromises.has(cacheKey),
+                availableVersions: this.availableVersions.map(v => v.version),
+                endpointsLoaded: this.allEndpoints.length,
+                filteredEndpoints: this.filteredEndpoints.length,
+                componentsLoaded: Object.keys(this.apiComponents || {}).length
+            };
+        },
+
+        // Get detailed debug information
+        getDebugInfo() {
+            const status = this.getConfigurationStatus();
+
+            return {
+                ...status,
+                schemaConfig: this.schemaConfig,
+                cacheKeys: Array.from(this.configCache.keys()),
+                loadingPromises: Array.from(this.configLoadPromises.keys()),
+                stats: this.apiStats,
+                lastError: this._lastError || null
+            };
+        },
+
+        // Log current state for debugging
+        logStatus() {
+            const status = this.getConfigurationStatus();
+            console.group('APIState Status');
+            console.log('Configuration Status:', status);
+            console.log('Schema Config:', this.schemaConfig);
+            console.log('Cache Contents:', Array.from(this.configCache.entries()));
+            console.groupEnd();
+        },
+
+        // Health check method
+        isHealthy() {
+            return {
+                healthy: !!(this.schemaConfig && this.currentVersion && this.availableVersions.length > 0),
+                issues: this._getHealthIssues()
+            };
+        },
+
+        // Get health issues
+        _getHealthIssues() {
+            const issues = [];
+
+            if (!this.schemaConfig) {
+                issues.push('Schema configuration not loaded');
+            }
+
+            if (!this.currentVersion) {
+                issues.push('No current API version selected');
+            }
+
+            if (!this.availableVersions || this.availableVersions.length === 0) {
+                issues.push('No API versions available');
+            }
+
+            if (this.configLoadPromises.size > 0) {
+                issues.push('Configuration loads still in progress');
+            }
+
+            return issues;
         }
+    };
+
+    // Expose global debug utilities
+    window.APIStateDebug = {
+        getStatus: () => APIState.getConfigurationStatus(),
+        getDebugInfo: () => APIState.getDebugInfo(),
+        logStatus: () => APIState.logStatus(),
+        healthCheck: () => APIState.isHealthy(),
+        clearCache: () => APIState.clearConfigCache(),
+        reloadConfig: () => APIState.loadSchemaConfig(true)
     };
 {{end}}

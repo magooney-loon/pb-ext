@@ -4,9 +4,22 @@
     // =============================================================================
 
     const APILoader = {
+        loadingState: {
+            versions: false,
+            schema: false,
+            config: false
+        },
+
         async loadVersions() {
+            if (this.loadingState.versions) {
+                console.log('Versions already loading, skipping duplicate request');
+                return;
+            }
+
+            this.loadingState.versions = true;
+
             try {
-                StatusManager.updateStatus('loading', 'Loading versions...');
+                StatusManager.updateStatus('loading', 'Loading API versions...');
 
                 const response = await fetch('/api/docs/versions');
                 if (!response.ok) {
@@ -15,8 +28,15 @@
 
                 const data = await response.json();
 
+                // Validate response structure
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Invalid response format from versions endpoint');
+                }
+
                 APIState.availableVersions = data.versions || [];
                 APIState.currentVersion = data.default_version || (APIState.availableVersions.length > 0 ? APIState.availableVersions[0].version : null);
+
+                console.log(`Loaded ${APIState.availableVersions.length} API versions, default: ${APIState.currentVersion}`);
 
                 this.populateVersionSelector();
 
@@ -36,6 +56,10 @@
                 if (selector) {
                     selector.innerHTML = '<option value="">Error loading versions</option>';
                 }
+
+                StatusManager.updateStatus('error', 'Failed to load versions');
+            } finally {
+                this.loadingState.versions = false;
             }
         },
 
@@ -44,13 +68,30 @@
                 throw new Error('No API version selected');
             }
 
-            try {
-                StatusManager.updateStatus('loading', 'Loading schema...');
+            if (this.loadingState.schema) {
+                console.log('Schema already loading, skipping duplicate request');
+                return;
+            }
 
-                // Initialize schema configuration first
-                await APISchemaManager.init();
+            this.loadingState.schema = true;
+            this.loadingState.config = true;
+
+            try {
+                StatusManager.updateStatus('loading', 'Loading schema configuration...');
+
+                // Initialize schema configuration first with better error handling
+                try {
+                    await APISchemaManager.init();
+                    console.log('Schema configuration loaded successfully');
+                } catch (configError) {
+                    console.warn('Schema configuration load failed, using fallbacks:', configError);
+                    // Continue with schema loading even if config fails
+                }
+
+                StatusManager.updateStatus('loading', 'Loading API schema...');
 
                 const url = `/api/docs/${APIState.currentVersion}`;
+                console.log(`Loading schema from: ${url}`);
 
                 const response = await fetch(url);
                 if (!response.ok) {
@@ -59,10 +100,20 @@
 
                 const schemaData = await response.json();
 
+                // Validate response structure
+                if (!schemaData || typeof schemaData !== 'object') {
+                    throw new Error('Invalid schema data received');
+                }
+
+                console.log(`Schema loaded for version ${APIState.currentVersion}:`, {
+                    endpoints: schemaData.endpoints?.length || 0,
+                    components: Object.keys(schemaData.components || {}).length
+                });
+
                 // Validate and process the schema
                 this.processSchema(schemaData);
 
-                StatusManager.updateStatus('success', 'Loaded');
+                StatusManager.updateStatus('success', 'Schema loaded successfully');
                 StatusManager.updateVersionBadge();
 
                 // Update UI
@@ -71,33 +122,65 @@
                 this.showFilters();
 
             } catch (error) {
+                console.error('Schema loading failed:', error);
                 ErrorHandler.handleApiError(error, 'Failed to load API schema');
+                StatusManager.updateStatus('error', `Failed to load schema: ${error.message}`);
                 throw error;
+            } finally {
+                this.loadingState.schema = false;
+                this.loadingState.config = false;
             }
         },
 
         processSchema(schemaData) {
-            // Reset state
-            APIState.reset();
+            try {
+                StatusManager.updateStatus('loading', 'Processing schema data...');
 
-            // Store schema
-            APIState.openApiSchema = schemaData;
+                // Reset state
+                APIState.reset();
 
-            // Extract and validate endpoints
-            const endpoints = schemaData.endpoints || [];
-            APIState.setEndpoints(endpoints);
+                // Store schema
+                APIState.openApiSchema = schemaData;
 
-            // Extract components
-            APIState.apiComponents = schemaData.components || {};
+                // Extract and validate endpoints
+                const endpoints = schemaData.endpoints || [];
+                console.log(`Processing ${endpoints.length} endpoints`);
 
-            // Calculate statistics
-            APIState.apiStats = SchemaProcessor.calculateStats(APIState.allEndpoints);
+                // Validate endpoints structure
+                const validEndpoints = endpoints.filter(endpoint => {
+                    if (!endpoint || !endpoint.method || !endpoint.path) {
+                        console.warn('Invalid endpoint detected:', endpoint);
+                        return false;
+                    }
+                    return true;
+                });
 
-            // Update UI components
-            this.updateStats();
-            FilterController.populateFilterOptions(APIState.apiStats);
-            EndpointRenderer.render();
-            FilterController.updateFilterSummary();
+                if (validEndpoints.length !== endpoints.length) {
+                    console.warn(`Filtered out ${endpoints.length - validEndpoints.length} invalid endpoints`);
+                }
+
+                APIState.setEndpoints(validEndpoints);
+
+                // Extract components
+                APIState.apiComponents = schemaData.components || {};
+                console.log(`Loaded ${Object.keys(APIState.apiComponents).length} schema components`);
+
+                // Calculate statistics
+                APIState.apiStats = SchemaProcessor.calculateStats(APIState.allEndpoints);
+                console.log('Schema statistics:', APIState.apiStats);
+
+                // Update UI components
+                this.updateStats();
+                FilterController.populateFilterOptions(APIState.apiStats);
+                EndpointRenderer.render();
+                FilterController.updateFilterSummary();
+
+                console.log('Schema processing completed successfully');
+
+            } catch (error) {
+                console.error('Schema processing failed:', error);
+                throw new Error(`Schema processing failed: ${error.message}`);
+            }
         },
 
         populateVersionSelector() {
@@ -122,16 +205,31 @@
 
             newSelector.addEventListener('change', async (e) => {
                 if (e.target.value && e.target.value !== APIState.currentVersion) {
+                    const previousVersion = APIState.currentVersion;
                     APIState.currentVersion = e.target.value;
+
+                    console.log(`Switching API version from ${previousVersion} to ${APIState.currentVersion}`);
 
                     // Clear filters when version changes
                     FilterController.clearFilters();
 
+                    // Show loading state
+                    StatusManager.updateStatus('loading', `Switching to version ${APIState.currentVersion}...`);
+
                     try {
+                        // Reset schema configuration for new version
+                        APIState.schemaConfig = null;
+                        APISchemaManager.initialized = false;
+                        APISchemaManager.configValidated = false;
+
                         await this.loadSchema();
                     } catch (error) {
                         console.error('Failed to load schema for version:', APIState.currentVersion, error);
                         ErrorHandler.handleApiError(error, `Failed to load schema for version ${APIState.currentVersion}`);
+
+                        // Revert to previous version on failure
+                        APIState.currentVersion = previousVersion;
+                        e.target.value = previousVersion;
                     }
                 }
             });

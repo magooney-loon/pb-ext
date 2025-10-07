@@ -4,10 +4,59 @@
     // =============================================================================
 
     const APISchemaManager = {
+        initialized: false,
+        configValidated: false,
 
         // Initialize with schema configuration
         async init() {
-            await APIState.loadSchemaConfig();
+            if (this.initialized) {
+                return true;
+            }
+
+            try {
+                await APIState.loadSchemaConfig();
+                this.validateConfiguration();
+                this.initialized = true;
+                console.log('APISchemaManager initialized successfully');
+                return true;
+            } catch (error) {
+                console.error('APISchemaManager initialization failed:', error);
+                throw error;
+            }
+        },
+
+        // Validate loaded schema configuration
+        validateConfiguration() {
+            const config = APIState.schemaConfig;
+
+            if (!config) {
+                throw new Error('Schema configuration is not loaded');
+            }
+
+            // Validate required fields
+            const requiredFields = ['system_fields', 'default_parameter_type', 'default_content_type'];
+            for (const field of requiredFields) {
+                if (!config[field]) {
+                    console.warn(`Schema configuration missing required field: ${field}`);
+                }
+            }
+
+            // Validate system fields array
+            if (!Array.isArray(config.system_fields) || config.system_fields.length === 0) {
+                console.warn('Schema configuration has invalid or empty system_fields array');
+            }
+
+            // Validate supported content types
+            if (config.supported_content_types && !Array.isArray(config.supported_content_types)) {
+                console.warn('Schema configuration has invalid supported_content_types');
+            }
+
+            this.configValidated = true;
+        },
+
+        // Check if configuration is ready for use
+        isReady() {
+            return this.initialized && this.configValidated && APIState.schemaConfig;
         },
 
         // Extract parameter schema from endpoint data
