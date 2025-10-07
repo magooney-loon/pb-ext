@@ -166,7 +166,9 @@
         // Build request body field
         buildRequestField(field) {
             const fieldId = `body-${field.name}`;
-            const inputType = this.getInputType(field);
+            const inputType = field.inputType || this.getInputType(field);
+
+
 
             return `
                 <div class="form-field m-b-xs">
@@ -184,6 +186,8 @@
         // Get appropriate input type for field
         getInputType(field) {
             switch (field.type) {
+                case 'boolean':
+                    return 'checkbox';
                 case 'checkbox':
                     return 'checkbox';
                 case 'textarea':
@@ -197,10 +201,12 @@
 
         // Build field input HTML
         buildFieldInput(field, fieldId, inputType) {
+
+
             const commonAttrs = `
                 id="${fieldId}"
                 name="${field.name}"
-                class="form-control"
+                ${inputType !== 'checkbox' ? 'class="form-control"' : ''}
                 data-type="${field.type}"
                 ${field.required ? 'required' : ''}
                 ${field.pattern ? `pattern="${field.pattern}"` : ''}
@@ -210,10 +216,11 @@
 
             switch (inputType) {
                 case 'checkbox':
+
                     return `
                         <div class="form-control-toggle">
                             <input type="checkbox" ${commonAttrs} ${field.example === true ? 'checked' : ''}>
-                            <label for="${fieldId}">Enable ${field.name}</label>
+                            <label for="${fieldId}">${field.name}</label>
                         </div>
                     `;
 
@@ -314,14 +321,17 @@
                 }
             });
 
-            // Collect request body fields
-            document.querySelectorAll('.form-control[data-type]').forEach(input => {
+            // Collect request body fields (including checkboxes without form-control class)
+            document.querySelectorAll('[data-type]').forEach(input => {
                 const fieldType = input.getAttribute('data-type');
                 let value;
+
+
 
                 switch (fieldType) {
                     case 'boolean':
                         value = input.type === 'checkbox' ? input.checked : (input.value === 'true');
+
                         break;
                     case 'integer':
                         value = input.value ? parseInt(input.value, 10) : null;
@@ -380,7 +390,7 @@
             const sidebar = document.getElementById('api-tester-sidebar');
             if (!sidebar) return;
 
-            sidebar.querySelectorAll('.form-control').forEach(field => {
+            sidebar.querySelectorAll('.form-control, input[type="checkbox"][data-type]').forEach(field => {
                 // Skip if this field is part of API version selection or other global controls
                 if (field.closest('.api-version-selector') ||
                     field.closest('#api-tester-sidebar .endpoint-info') ||

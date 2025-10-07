@@ -324,16 +324,34 @@ textarea.form-control {
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 8px 0;
 }
 
 .form-control-toggle input[type="checkbox"] {
     margin: 0;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--successColor, #22c55e);
+    cursor: pointer;
+    /* Override any inherited form-control styles */
+    padding: 0 !important;
+    border: 1px solid var(--baseAlt2Color, #e5e5e5) !important;
+    border-radius: 3px !important;
+    background: var(--baseColor, #ffffff) !important;
+    box-shadow: none !important;
 }
 
 .form-control-toggle label {
     margin: 0;
     cursor: pointer;
     font-size: 14px;
+    font-weight: 500;
+    color: var(--txtPrimaryColor, #333);
+    user-select: none;
+}
+
+.form-control-toggle:hover label {
+    color: var(--primaryColor, #3b82f6);
 }
 
 /* Card styles for form sections */

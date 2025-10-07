@@ -18,7 +18,8 @@
             for (const [fieldName, fieldSchema] of Object.entries(properties)) {
                 fields.push({
                     name: fieldName,
-                    type: this.mapSchemaType(fieldSchema.type),
+                    type: fieldSchema.type, // Keep original schema type
+                    inputType: this.mapSchemaType(fieldSchema.type), // Separate input type for UI
                     required: required.includes(fieldName),
                     description: fieldSchema.description || `${fieldName} field`,
                     example: fieldSchema.example || this.generateExample(fieldSchema.type),
