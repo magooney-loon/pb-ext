@@ -16,9 +16,14 @@ Enhanced PocketBase server with monitoring, logging & API docs.
 
 ## Access
 
-- Admin panel: `127.0.0.1:8090/_`
-- pb-ext dashboard: `127.0.0.1:8090/_/_`
-
+- Admin panel:
+```bash
+127.0.0.1:8090/_
+```
+- pb-ext dashboard:
+```bash
+127.0.0.1:8090/_/_
+```
 ## Quick Start
 
 > 🆕 New to Golang and/or PocketBase? [Read this beginner tutorial](TUTORIAL.md).
@@ -98,4 +103,6 @@ go run cmd/scripts/main.go --run-only
 See `**/*/README.md` for detailed docs.
 
 Having issues with Your API Docs?
-`127.0.0.1:8090/api/docs/debug/ast`
+```bash
+127.0.0.1:8090/api/docs/debug/ast
+```

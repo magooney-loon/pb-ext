@@ -1,11 +1,43 @@
 ## 📋 Command Reference
 
-| Command | Description | Example Output |
-|---------|-------------|----------------|
-| `go run cmd/scripts/main.go` | 🔄 **Development Build** | Builds frontend + starts server in dev mode |
-| `go run cmd/scripts/main.go --install` | 📦 **Install + Build** | Downloads deps + builds + runs in dev mode |
-| `go run cmd/scripts/main.go --build-only` | 🔨 **Build Only** | Just builds, doesn't run server |
-| `go run cmd/scripts/main.go --run-only` | ▶️ **Run Only** | Skips build, runs server in dev mode |
-| `go run cmd/scripts/main.go --production` | 🚀 **Production Build** | Creates optimized production binary |
-| `go run cmd/scripts/main.go --test-only` | 🧪 **Test Suite** | Runs tests and generates reports |
-| `go run cmd/scripts/main.go --help` | ❓ **Show Help** | Displays all available flags and options |
+### 🔄 Development Build
+Builds frontend + starts server in dev mode
+```bash
+go run cmd/scripts/main.go
+```
+
+### 📦 Install + Build  
+Downloads deps + builds + runs in dev mode
+```bash
+go run cmd/scripts/main.go --install
+```
+
+### 🔨 Build Only
+Just builds, doesn't run server
+```bash
+go run cmd/scripts/main.go --build-only
+```
+
+### ▶️ Run Only
+Skips build, runs server in dev mode
+```bash
+go run cmd/scripts/main.go --run-only
+```
+
+### 🚀 Production Build
+Creates optimized production binary
+```bash
+go run cmd/scripts/main.go --production
+```
+
+### 🧪 Test Suite
+Runs tests and generates reports
+```bash
+go run cmd/scripts/main.go --test-only
+```
+
+### ❓ Show Help
+Displays all available flags and options
+```bash
+go run cmd/scripts/main.go --help
+```
