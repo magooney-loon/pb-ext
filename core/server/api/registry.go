@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -320,30 +319,8 @@ func (r *APIRegistry) rebuildEndpointsList() {
 // Server Integration Methods
 // =============================================================================
 
-// RegisterAPIDocsRoutes registers the API documentation routes with a PocketBase server
+// RegisterAPIDocsRoutes is deprecated - use versioned system only
 func (r *APIRegistry) RegisterAPIDocsRoutes(app core.App) {
-	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		e.Router.GET("/api/docs/openapi", func(c *core.RequestEvent) error {
-			docs := r.GetDocsWithComponents()
-			return c.JSON(http.StatusOK, docs)
-		})
-
-		e.Router.GET("/api/docs/stats", func(c *core.RequestEvent) error {
-			stats := GetAPIStats()
-			return c.JSON(http.StatusOK, stats)
-		})
-
-		// Automatically register schema configuration endpoint
-		e.Router.GET("/api/docs/schema/config", func(c *core.RequestEvent) error {
-			config := DefaultSchemaConfig()
-			// Use dynamic system fields from PocketBase types
-			config.SystemFields = GetSystemFields()
-			return c.JSON(http.StatusOK, map[string]any{
-				"config":  config,
-				"success": true,
-			})
-		})
-
-		return e.Next()
-	})
+	// This method is deprecated and disabled
+	// Use the versioned API documentation system instead
 }

@@ -105,7 +105,6 @@ Example Usage:
 */
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -174,51 +173,26 @@ func (ads *APIDocumentationSystem) UpdateConfig(config *APIDocsConfig) {
 // Server Integration Methods
 // =============================================================================
 
-// RegisterAPIDocsRoutes registers API documentation routes with a PocketBase server
-// This is the main integration point for PocketBase applications
+// RegisterAPIDocsRoutes is deprecated - use versioned system only
 func RegisterAPIDocsRoutes(app core.App) {
-	system := GetGlobalDocumentationSystem()
-	system.RegisterWithServer(app)
+	// This method is deprecated and disabled
+	// Use InitializeVersionedSystem instead
 }
 
 // =============================================================================
-// Convenience Functions and Global Access
+// Versioned System Only - Global Functions Removed
 // =============================================================================
-
-// EnableAutoDocumentationWithConfig enables documentation with custom configuration
-func EnableAutoDocumentationWithConfig(e *core.ServeEvent, config *APIDocsConfig) *AutoAPIRouter {
-	system := NewAPIDocumentationSystem(config)
-	return system.CreateAutoRouter(e)
-}
-
-// EnableVersionedDocumentation creates a versioned API documentation system
-func EnableVersionedDocumentation(e *core.ServeEvent, version string, config *APIDocsConfig) (*VersionedAPIRouter, error) {
-	manager := GetGlobalVersionManager()
-
-	// Register version if it doesn't exist
-	if _, err := manager.GetVersionConfig(version); err != nil {
-		if registerErr := manager.RegisterVersion(version, config); registerErr != nil {
-			return nil, registerErr
-		}
-	}
-
-	return manager.GetVersionRouter(version, e)
-}
 
 // CreateVersionedSystem creates a new version manager with initial versions
 func CreateVersionedSystem(versions map[string]*APIDocsConfig, defaultVersion string) *APIVersionManager {
 	return InitializeVersionManager(versions, defaultVersion)
 }
 
-// GetAPIDocs returns the current API documentation from the global system
-func GetAPIDocs() *APIDocs {
-	system := GetGlobalDocumentationSystem()
-	return system.GetDocs()
-}
-
 // GetAPIStats returns comprehensive statistics about the registered API endpoints
+// This function is kept for internal version manager use
 func GetAPIStats() map[string]interface{} {
-	docs := GetAPIDocs()
+	system := GetGlobalDocumentationSystem()
+	docs := system.GetDocs()
 	return calculateComprehensiveStats(docs.Endpoints)
 }
 
@@ -257,31 +231,7 @@ func InitializeVersionedSystem(versions map[string]*APIDocsConfig, defaultVersio
 // HTTP Handlers for API Documentation Endpoints
 // =============================================================================
 
-// OpenAPIHandler returns the OpenAPI specification as JSON
-func OpenAPIHandler(c *core.RequestEvent) error {
-	docs := GetAPIDocs()
-	return c.JSON(http.StatusOK, docs)
-}
-
-// StatsHandler returns comprehensive statistics about the API documentation including health info
-func StatsHandler(c *core.RequestEvent) error {
-	system := GetGlobalDocumentationSystem()
-	docs := system.GetDocs()
-
-	// Calculate comprehensive statistics
-	stats := calculateComprehensiveStats(docs.Endpoints)
-
-	// Add health information
-	stats["health"] = map[string]interface{}{
-		"status":         "healthy",
-		"enabled":        system.config.Enabled,
-		"auto_discovery": system.config.AutoDiscovery.Enabled,
-		"version":        system.config.Version,
-		"generated_at":   docs.Generated,
-	}
-
-	return c.JSON(http.StatusOK, stats)
-}
+// These handlers are deprecated - use versioned system endpoints only
 
 // calculateComprehensiveStats calculates comprehensive statistics for all endpoints
 func calculateComprehensiveStats(endpoints []APIEndpoint) map[string]interface{} {
@@ -349,13 +299,7 @@ func calculateComprehensiveStats(endpoints []APIEndpoint) map[string]interface{}
 	return stats
 }
 
-// ComponentsHandler returns the OpenAPI components/schemas
-func ComponentsHandler(c *core.RequestEvent) error {
-	docs := GetAPIDocs()
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"components": docs.Components,
-	})
-}
+// ComponentsHandler is deprecated - use versioned system only
 
 // =============================================================================
 // Configuration Utilities

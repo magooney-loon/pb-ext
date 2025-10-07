@@ -93,16 +93,12 @@ type HandlerInfo struct {
 
 // ASTParser provides robust AST parsing with improved error handling and performance
 type ASTParser struct {
-	mu         sync.RWMutex
-	fileSet    *token.FileSet
-	packages   map[string]*ast.Package
-	structs    map[string]*StructInfo
-	handlers   map[string]*ASTHandlerInfo
-	imports    map[string]string
-	typeCache  map[string]*TypeInfo
-	fileCache  map[string]*FileParseResult
-	validators []TypeValidator
-	logger     Logger
+	mu                 sync.RWMutex
+	fileSet            *token.FileSet
+	structs            map[string]*StructInfo
+	handlers           map[string]*ASTHandlerInfo
+	pocketbasePatterns *PocketBasePatterns
+	logger             Logger
 }
 
 // FileParseResult stores parsing results with metadata
@@ -184,6 +180,7 @@ type ASTHandlerInfo struct {
 	Package        string                 `json:"package"`
 	RequestType    string                 `json:"request_type"`
 	ResponseType   string                 `json:"response_type"`
+	RequestSchema  map[string]interface{} `json:"request_schema,omitempty"`
 	ResponseSchema map[string]interface{} `json:"response_schema,omitempty"`
 	Parameters     []*ParamInfo           `json:"parameters,omitempty"`
 	UsesJSONDecode bool                   `json:"uses_json_decode"`
@@ -197,6 +194,15 @@ type ASTHandlerInfo struct {
 	Complexity     int                    `json:"complexity"`
 	SourceLocation *SourceLocation        `json:"source_location,omitempty"`
 	Variables      map[string]string      `json:"variables,omitempty"` // Track variable names to types
+
+	// PocketBase-specific fields
+	RequiresAuth       bool     `json:"requires_auth"`
+	UsesBindBody       bool     `json:"uses_bind_body"`
+	UsesRequestInfo    bool     `json:"uses_request_info"`
+	DatabaseOperations []string `json:"database_operations,omitempty"`
+	AuthType           string   `json:"auth_type,omitempty"`
+	Collection         string   `json:"collection,omitempty"`
+	UsesEnrichRecords  bool     `json:"uses_enrich_records"`
 }
 
 // ParamInfo contains parameter information
@@ -339,6 +345,7 @@ func (l *DefaultLogger) Debug(msg string, args ...interface{}) { /* no-op or imp
 func (l *DefaultLogger) Info(msg string, args ...interface{})  { /* no-op or implement */ }
 func (l *DefaultLogger) Warn(msg string, args ...interface{})  { /* no-op or implement */ }
 func (l *DefaultLogger) Error(msg string, args ...interface{}) { /* no-op or implement */ }
+func (l *DefaultLogger) Log(msg string)                        { /* no-op or implement */ }
 
 // TypeValidator interface for type validation
 type TypeValidator interface {
@@ -369,6 +376,34 @@ type SchemaConfig struct {
 	DefaultContentType    string            `json:"default_content_type"`
 	DescriptionTemplates  map[string]string `json:"description_templates"`
 	SupportedContentTypes []string          `json:"supported_content_types"`
+}
+
+// PocketBasePatterns contains PocketBase-specific parsing patterns
+type PocketBasePatterns struct {
+	RequestPatterns  map[string]RequestPattern  `json:"request_patterns"`
+	ResponsePatterns map[string]ResponsePattern `json:"response_patterns"`
+	AuthPatterns     []AuthPattern              `json:"auth_patterns"`
+}
+
+// RequestPattern defines a PocketBase request pattern
+type RequestPattern struct {
+	Method      string `json:"method"`
+	StructType  string `json:"struct_type"`
+	Description string `json:"description"`
+}
+
+// ResponsePattern defines a PocketBase response pattern
+type ResponsePattern struct {
+	Method      string `json:"method"`
+	ReturnType  string `json:"return_type"`
+	Description string `json:"description"`
+}
+
+// AuthPattern defines a PocketBase authentication pattern
+type AuthPattern struct {
+	Pattern     string `json:"pattern"`
+	Required    bool   `json:"required"`
+	Description string `json:"description"`
 }
 
 // DefaultSchemaConfig returns a default schema configuration

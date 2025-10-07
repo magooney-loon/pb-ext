@@ -134,6 +134,12 @@ func (sg *SchemaGenerator) generateRequestSchemaFromAST(endpoint *APIEndpoint) m
 
 	handlerName := ExtractHandlerNameFromPath(endpoint.Handler)
 	if handlerInfo, exists := sg.astParser.GetHandlerByName(handlerName); exists {
+		// First check if we have a pre-generated request schema from AST analysis
+		if handlerInfo.RequestSchema != nil {
+			return handlerInfo.RequestSchema
+		}
+
+		// Fallback to struct-based schema generation
 		if handlerInfo.RequestType != "" {
 			if structInfo, exists := sg.astParser.GetStructByName(handlerInfo.RequestType); exists {
 				return structInfo.JSONSchema
