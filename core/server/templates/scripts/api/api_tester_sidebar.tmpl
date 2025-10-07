@@ -82,6 +82,8 @@
             const closeBtn = this._getElementById('close-tester-btn');
             const copyBtn = this._getElementById('copy-response-btn');
             const copySchemaBtn = this._getElementById('copy-schema-btn');
+            const sendBtn = this._getElementById('send-request-btn');
+            const resetBtn = this._getElementById('reset-form-btn');
 
             if (closeBtn) {
                 const cleanup = this._addListener(closeBtn, 'click', () => this.closeSidebar());
@@ -95,6 +97,16 @@
 
             if (copySchemaBtn) {
                 const cleanup = this._addListener(copySchemaBtn, 'click', () => this._copySchema());
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            if (sendBtn) {
+                const cleanup = this._addListener(sendBtn, 'click', () => this._sendRequest());
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            if (resetBtn) {
+                const cleanup = this._addListener(resetBtn, 'click', () => this._resetForm());
                 if (cleanup) this._eventCleanup.push(cleanup);
             }
 
@@ -283,28 +295,45 @@
             return {};
         },
 
-        // Update schema display with syntax highlighting
+        // Update schema display using APIFormBuilder
         _updateSchemaDisplay() {
-            if (!this.currentEndpoint || typeof SchemaProcessor === 'undefined') return;
+            if (!this.currentEndpoint) return;
 
             try {
+                const container = this._getElementById('schema-form-container');
+                if (!container) {
+                    console.error('Schema form container not found');
+                    return;
+                }
+
                 const { data } = this.currentEndpoint;
 
-                // Update request schema
-                if (data.request) {
-                    SchemaProcessor.updateElement('request-schema', data.request, 'json');
+                // Use APIFormBuilder to generate the parameter form
+                if (typeof APIFormBuilder !== 'undefined') {
+                    console.log('Generating parameter form for endpoint:', data);
+                    APIFormBuilder.generateParameterForm(container, data);
+                } else {
+                    console.error('APIFormBuilder not available');
+                    container.innerHTML = `
+                        <div class="txt-center txt-danger p-3">
+                            <i class="ri-error-warning-line"></i>
+                            <p>APIFormBuilder not available</p>
+                        </div>
+                    `;
                 }
-
-                // Update response schema
-                if (data.response) {
-                    SchemaProcessor.updateElement('response-schema', data.response, 'json');
-                }
-
-                // Update examples if available
-                this._updateExamples();
 
             } catch (error) {
-                console.warn('Failed to update schema display:', error);
+                console.error('Failed to update schema display:', error);
+                const container = this._getElementById('schema-form-container');
+                if (container) {
+                    container.innerHTML = `
+                        <div class="txt-center txt-danger p-3">
+                            <i class="ri-error-warning-line"></i>
+                            <p>Error loading form</p>
+                            <small>${error.message}</small>
+                        </div>
+                    `;
+                }
             }
         },
 
@@ -875,6 +904,85 @@
             this.initialized = false;
 
             console.log('API Tester Sidebar destroyed');
+        },
+
+        // Send request using APIRequestHandler
+        async _sendRequest() {
+            if (!this.currentEndpoint) {
+                console.error('No endpoint selected for request');
+                return;
+            }
+
+            try {
+                console.log('Sending request for endpoint:', this.currentEndpoint.data);
+
+                // Use APIRequestHandler to send the request
+                if (typeof APIRequestHandler !== 'undefined') {
+                    await APIRequestHandler.sendRequest(this.currentEndpoint.data);
+                } else {
+                    console.error('APIRequestHandler not available');
+                }
+            } catch (error) {
+                console.error('Failed to send request:', error);
+            }
+        },
+
+        // Reset form using APIFormBuilder
+        _resetForm() {
+            if (!this.currentEndpoint) {
+                console.error('No endpoint selected for reset');
+                return;
+            }
+
+            try {
+                // Clear form using APIFormBuilder
+                if (typeof APIFormBuilder !== 'undefined') {
+                    APIFormBuilder.clearForm();
+                    console.log('Form reset successfully');
+                } else {
+                    // Fallback: manually clear form fields
+                    const container = this._getElementById('schema-form-container');
+                    if (container) {
+                        const fields = container.querySelectorAll('.form-field');
+                        fields.forEach(field => {
+                            if (field.type === 'checkbox') {
+                                field.checked = false;
+                            } else {
+                                field.value = '';
+                            }
+                        });
+                    }
+                }
+
+                // Reset response display
+                this._resetResponseDisplay();
+
+            } catch (error) {
+                console.error('Failed to reset form:', error);
+            }
+        },
+
+        // Show validation errors to user
+        _showValidationErrors(errors) {
+            // You could implement a toast notification or highlight invalid fields
+            // For now, just console log and alert
+            const errorMessage = errors.join('\n');
+            alert(`Please fix the following errors:\n\n${errorMessage}`);
+        },
+
+        // Reset response display
+        _resetResponseDisplay() {
+            // Show empty state
+            const emptyState = this._getElementById('response-empty-state');
+            const responseBody = this._getElementById('response-body');
+            const responseHeaders = this._getElementById('response-headers');
+
+            if (emptyState) emptyState.style.display = 'block';
+            if (responseBody) responseBody.style.display = 'none';
+            if (responseHeaders) responseHeaders.style.display = 'none';
+
+            // Reset status
+            this._updateResponseStatus('Ready', 'Send a request', 0);
         }
     };
 

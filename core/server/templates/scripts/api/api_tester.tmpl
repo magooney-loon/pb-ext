@@ -19,6 +19,12 @@
 
         // Bind event listeners
         bindEvents() {
+            // Don't bind events if APITesterSidebar is handling the sidebar functionality
+            if (typeof APITesterSidebar !== 'undefined') {
+                console.log('APITesterSidebar available, skipping button bindings in legacy APITester');
+                return;
+            }
+
             // Form action buttons
             const sendBtn = document.getElementById('send-request-btn');
             const resetBtn = document.getElementById('reset-form-btn');

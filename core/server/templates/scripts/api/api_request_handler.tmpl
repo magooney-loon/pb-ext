@@ -41,8 +41,8 @@
                 this.displayResponse(response, endpoint);
 
                 // Switch to response tab
-                if (typeof APITesterSidebar !== 'undefined') {
-                    APITesterSidebar.switchTesterTab('response');
+                if (typeof APITesterSidebar !== 'undefined' && APITesterSidebar.switchTab) {
+                    APITesterSidebar.switchTab('response');
                 }
 
                 return response;
@@ -51,8 +51,8 @@
                 console.error('Request failed:', error);
                 this.displayError(error, endpoint);
 
-                if (typeof APITesterSidebar !== 'undefined') {
-                    APITesterSidebar.switchTesterTab('response');
+                if (typeof APITesterSidebar !== 'undefined' && APITesterSidebar.switchTab) {
+                    APITesterSidebar.switchTab('response');
                 }
             } finally {
                 // Restore button state
