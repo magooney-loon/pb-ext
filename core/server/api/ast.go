@@ -377,11 +377,11 @@ func (p *ASTParser) trackVariableAssignment(assign *ast.AssignStmt, handlerInfo 
 	}
 }
 
-// inferTypeFromExpression infers type from expressions (enhanced)
+// inferTypeFromExpression infers type from expressions (generic approach)
 func (p *ASTParser) inferTypeFromExpression(expr ast.Expr, handlerInfo *ASTHandlerInfo) string {
 	switch e := expr.(type) {
 	case *ast.CompositeLit:
-		// Handle struct literals like TodoRequest{...}
+		// Handle struct literals like SomeStruct{...}
 		if typeName := p.extractTypeName(e.Type); typeName != "" {
 			return typeName
 		}
@@ -399,26 +399,36 @@ func (p *ASTParser) inferTypeFromExpression(expr ast.Expr, handlerInfo *ASTHandl
 		if _, exists := p.structs[e.Name]; exists {
 			return e.Name
 		}
-		// Handle common variable patterns
-		if strings.HasSuffix(e.Name, "Request") || strings.HasSuffix(e.Name, "Response") {
-			return e.Name
+		// Generic pattern matching for common types
+		name := e.Name
+		if strings.HasSuffix(name, "Request") || strings.HasSuffix(name, "Response") ||
+			strings.HasSuffix(name, "Data") || strings.HasSuffix(name, "Input") ||
+			strings.HasSuffix(name, "Output") || strings.HasSuffix(name, "Payload") {
+			return name
 		}
 	case *ast.CallExpr:
-		// Handle constructor patterns
+		// Handle constructor patterns generically
 		if ident, ok := e.Fun.(*ast.Ident); ok {
-			if strings.HasPrefix(ident.Name, "New") {
+			if strings.HasPrefix(ident.Name, "New") && len(ident.Name) > 3 {
 				return strings.TrimPrefix(ident.Name, "New")
 			}
 		}
-		// Handle method calls that return specific types
+		// Handle method calls that return records/arrays
 		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
-			switch sel.Sel.Name {
-			case "FindRecordsByFilter", "FindRecordsByIds":
-				return "[]Record"
-			case "FindRecordById":
+			methodName := sel.Sel.Name
+			// PocketBase record methods
+			if strings.Contains(methodName, "Record") {
+				if strings.Contains(methodName, "s") || strings.Contains(methodName, "Filter") {
+					return "[]Record"
+				}
 				return "Record"
-			case "CreateRecord", "UpdateRecord":
-				return "Record"
+			}
+			// Generic collection methods
+			if strings.Contains(methodName, "Find") && strings.Contains(methodName, "s") {
+				return "[]interface{}"
+			}
+			if strings.Contains(methodName, "Find") || strings.Contains(methodName, "Get") {
+				return "interface{}"
 			}
 		}
 	case *ast.SliceExpr, *ast.IndexExpr:
@@ -651,35 +661,9 @@ func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit) map[string]interfa
 			}
 
 			if keyName != "" {
-				// Analyze value type with enhanced logic
+				// Analyze value type using generic inference
 				valueSchema := p.analyzeValueExpression(kv.Value)
 				if valueSchema != nil {
-					// Special handling for known patterns
-					switch keyName {
-					case "id", "user_id", "created_by":
-						// IDs are typically strings, but check if the value suggests otherwise
-						if valueSchema["type"] == "string" {
-							valueSchema["description"] = "Unique identifier"
-						}
-					case "count", "total", "totalItems", "totalPages":
-						// Counts should be integers
-						if valueSchema["type"] != "integer" {
-							valueSchema = map[string]interface{}{
-								"type":        "integer",
-								"minimum":     0,
-								"description": "Count of items",
-							}
-						}
-					case "todos", "items", "records":
-						// These are typically arrays
-						if valueSchema["type"] != "array" {
-							valueSchema = map[string]interface{}{
-								"type":  "array",
-								"items": map[string]interface{}{"type": "object"},
-							}
-						}
-					}
-
 					properties[keyName] = valueSchema
 					// Consider most fields required (can be refined later)
 					if keyName != "error" && keyName != "message" && keyName != "description" {
@@ -726,19 +710,17 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) map[string]interface{}
 				"example": e.Name == "true",
 			}
 		default:
-			// Enhanced variable reference handling
+			// Generic variable reference handling based on naming patterns
 			varName := e.Name
-			switch {
-			case varName == "todos" || varName == "records" || varName == "items":
+			if strings.HasSuffix(varName, "s") && len(varName) > 2 {
+				// Plural names likely arrays
 				return map[string]interface{}{
 					"type":  "array",
 					"items": map[string]interface{}{"type": "object"},
 				}
-			case strings.Contains(varName, "count") || strings.Contains(varName, "len"):
-				return map[string]interface{}{"type": "integer"}
-			case strings.Contains(varName, "ID") || strings.Contains(varName, "Id"):
-				return map[string]interface{}{"type": "string"}
 			}
+			// Default to string for identifiers
+			return map[string]interface{}{"type": "string"}
 		}
 	case *ast.CompositeLit:
 		// Handle nested map literals
@@ -783,54 +765,48 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) map[string]interface{}
 		if ident, ok := e.Fun.(*ast.Ident); ok {
 			switch ident.Name {
 			case "len":
-				return map[string]interface{}{
-					"type":        "integer",
-					"minimum":     0,
-					"description": "Length/count",
-				}
-			case "strconv.FormatInt":
-				return map[string]interface{}{"type": "string"}
+				return map[string]interface{}{"type": "integer", "minimum": 0}
 			case "make":
-				// Handle make() calls - usually for slices/maps
 				return map[string]interface{}{
 					"type":  "array",
 					"items": map[string]interface{}{"type": "object"},
+				}
+			default:
+				if strings.Contains(ident.Name, "String") || strings.HasPrefix(ident.Name, "Format") {
+					return map[string]interface{}{"type": "string"}
+				}
+				if strings.Contains(ident.Name, "Int") || strings.Contains(ident.Name, "Count") {
+					return map[string]interface{}{"type": "integer"}
 				}
 			}
 		}
 	case *ast.SelectorExpr:
-		// Handle property access like record.Id, record.Title
+		// Handle method calls and property access generically
 		if sel := e.Sel.Name; sel != "" {
-			switch {
-			case sel == "Id" || strings.HasSuffix(sel, "ID"):
-				return map[string]interface{}{
-					"type":        "string",
-					"description": "Unique identifier",
+			// PocketBase record getter methods
+			if strings.HasPrefix(sel, "Get") {
+				switch {
+				case strings.Contains(sel, "String"):
+					return map[string]interface{}{"type": "string"}
+				case strings.Contains(sel, "Bool"):
+					return map[string]interface{}{"type": "boolean"}
+				case strings.Contains(sel, "Int") || strings.Contains(sel, "Float"):
+					return map[string]interface{}{"type": "number"}
+				case strings.Contains(sel, "DateTime") || strings.Contains(sel, "Time"):
+					return map[string]interface{}{"type": "string", "format": "date-time"}
+				default:
+					return map[string]interface{}{"type": "string"}
 				}
-			case sel == "Name" || sel == "Title":
-				return map[string]interface{}{"type": "string"}
-			case strings.Contains(sel, "At") || strings.Contains(sel, "Time"):
-				return map[string]interface{}{
-					"type":   "string",
-					"format": "date-time",
-				}
-			case strings.Contains(sel, "Bool"):
-				return map[string]interface{}{"type": "boolean"}
-			case strings.Contains(sel, "Int") || strings.Contains(sel, "Count"):
-				return map[string]interface{}{"type": "integer"}
 			}
-		}
-		// Handle variable references through selectors
-		if x, ok := e.X.(*ast.Ident); ok {
-			varName := x.Name
-			// Check common variable patterns
-			switch {
-			case varName == "todos" || varName == "records" || varName == "items":
-				return map[string]interface{}{
-					"type":  "array",
-					"items": map[string]interface{}{"type": "object"},
-				}
-			case strings.Contains(varName, "count") || strings.Contains(varName, "len"):
+
+			// Generic property inference
+			if strings.Contains(sel, "Id") || strings.HasSuffix(sel, "ID") {
+				return map[string]interface{}{"type": "string"}
+			}
+			if strings.Contains(sel, "Time") || strings.Contains(sel, "At") || strings.Contains(sel, "Date") {
+				return map[string]interface{}{"type": "string", "format": "date-time"}
+			}
+			if strings.Contains(sel, "Count") || sel == "Unix" || sel == "UnixNano" {
 				return map[string]interface{}{"type": "integer"}
 			}
 		}
