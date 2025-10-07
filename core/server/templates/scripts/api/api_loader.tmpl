@@ -92,10 +92,13 @@
                     throw new Error('Invalid response format from endpoints API');
                 }
 
+                // Convert AST data to endpoints format if needed
+                const endpoints = this.convertASTToEndpoints(data);
+
                 // Set schema and endpoints data
                 APIState.openApiSchema = data;
-                APIState.allEndpoints = data.endpoints || [];
-                APIState.setEndpoints(data.endpoints || []);
+                APIState.allEndpoints = endpoints;
+                APIState.setEndpoints(endpoints);
 
                 console.log(`Loaded ${APIState.allEndpoints.length} endpoints for version ${version}`);
 
