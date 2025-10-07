@@ -118,8 +118,8 @@
                     <p class="txt-hint txt-xs m-b-sm">Add custom query parameters to the URL.</p>
                     <div class="query-parameters">
                         <div class="query-param-row">
-                            <input type="text" class="form-field query-param-name" placeholder="Parameter name">
-                            <input type="text" class="form-field query-param-value" placeholder="Parameter value">
+                            <input type="text" class="form-control query-param-name" placeholder="Parameter name">
+                            <input type="text" class="form-control query-param-value" placeholder="Parameter value">
                             <button type="button" class="btn btn-sm btn-secondary btn-outline add-query-param">
                                 <i class="ri-add-line"></i>
                             </button>
@@ -141,7 +141,7 @@
             const fieldId = `param-${source}-${param.name}`;
 
             return `
-                <div class="form-field-group m-b-xs">
+                <div class="form-field m-b-xs">
                     <label for="${fieldId}" class="form-label">
                         ${param.name}
                         ${param.required ? '<span class="txt-danger">*</span>' : ''}
@@ -150,12 +150,12 @@
                         type="text"
                         id="${fieldId}"
                         name="${param.name}"
-                        class="form-field"
+                        class="form-control"
                         data-source="${source}"
                         ${param.required ? 'required' : ''}
                         placeholder="${param.description || `Enter ${param.name}`}"
                     >
-                    ${param.description ? `<div class="form-field-help">${param.description}</div>` : ''}
+                    ${param.description ? `<div class="field-help">${param.description}</div>` : ''}
                 </div>
             `;
         },
@@ -166,14 +166,14 @@
             const inputType = this.getInputType(field);
 
             return `
-                <div class="form-field-group m-b-xs">
+                <div class="form-field m-b-xs">
                     <label for="${fieldId}" class="form-label">
                         ${field.name}
                         ${field.required ? '<span class="txt-danger">*</span>' : ''}
                         <span class="txt-xs txt-hint">(${field.type})</span>
                     </label>
                     ${this.buildFieldInput(field, fieldId, inputType)}
-                    ${field.description ? `<div class="form-field-help">${field.description}</div>` : ''}
+                    ${field.description ? `<div class="field-help">${field.description}</div>` : ''}
                 </div>
             `;
         },
@@ -197,7 +197,7 @@
             const commonAttrs = `
                 id="${fieldId}"
                 name="${field.name}"
-                class="form-field"
+                class="form-control"
                 data-type="${field.type}"
                 ${field.required ? 'required' : ''}
                 ${field.pattern ? `pattern="${field.pattern}"` : ''}
@@ -208,7 +208,7 @@
             switch (inputType) {
                 case 'checkbox':
                     return `
-                        <div class="form-field-toggle">
+                        <div class="form-control-toggle">
                             <input type="checkbox" ${commonAttrs} ${field.example === true ? 'checked' : ''}>
                             <label for="${fieldId}">Enable ${field.name}</label>
                         </div>
@@ -261,8 +261,8 @@
             paramRow.className = 'query-param-added flex-fill m-b-xs';
             paramRow.innerHTML = `
                 <div class="flex-fill">
-                    <input type="text" class="form-field" name="query-${name}" value="${value}" placeholder="Value for ${name}" readonly>
-                    <div class="form-field-help">${name}</div>
+                    <input type="text" class="form-control" name="query-${name}" value="${value}" placeholder="Value for ${name}" readonly>
+                    <div class="field-help">${name}</div>
                 </div>
                 <button type="button" class="btn btn-sm btn-secondary btn-outline remove-query-param">
                     <i class="ri-close-line"></i>
@@ -306,7 +306,7 @@
             });
 
             // Collect request body fields
-            document.querySelectorAll('[data-type]').forEach(input => {
+            document.querySelectorAll('.form-control[data-type]').forEach(input => {
                 const fieldType = input.getAttribute('data-type');
                 let value;
 
@@ -367,7 +367,7 @@
 
         // Clear all form fields
         clearForm() {
-            document.querySelectorAll('.form-field').forEach(field => {
+            document.querySelectorAll('.form-control').forEach(field => {
                 if (field.type === 'checkbox') {
                     field.checked = false;
                 } else {
