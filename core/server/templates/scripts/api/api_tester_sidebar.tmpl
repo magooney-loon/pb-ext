@@ -680,14 +680,14 @@
 
                 if (responseBody) {
                     responseBody.style.display = 'none';
-                    const code = responseBody.querySelector('code');
-                    if (code) code.innerHTML = '';
+                    // Clear both old and new response structure
+                    responseBody.innerHTML = '<pre class="code-block"><code></code></pre>';
                 }
 
                 if (responseHeaders) {
                     responseHeaders.style.display = 'none';
-                    const code = responseHeaders.querySelector('code');
-                    if (code) code.innerHTML = '';
+                    // Clear both old and new response structure
+                    responseHeaders.innerHTML = '<pre class="code-block"><code></code></pre>';
                 }
 
                 // Reset status display
