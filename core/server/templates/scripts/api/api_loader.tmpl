@@ -418,6 +418,164 @@
         // Check if loader is loading
         isLoading() {
             return this.loadingState.versions || this.loadingState.endpoints;
+        },
+
+        // Convert AST data format to expected endpoints format
+        convertASTToEndpoints(astData) {
+            // Check if this is already in endpoints format
+            if (astData.endpoints && Array.isArray(astData.endpoints)) {
+                return astData.endpoints;
+            }
+
+            // Check if this is AST format with handlers
+            if (!astData.handlers || typeof astData.handlers !== 'object') {
+                console.warn('No handlers found in AST data, returning empty endpoints array');
+                return [];
+            }
+
+            const endpoints = [];
+            const handlers = astData.handlers;
+
+            for (const [handlerName, handlerData] of Object.entries(handlers)) {
+                try {
+                    // Parse handler name to extract method and path info
+                    const parsedHandler = this._parseHandlerName(handlerName);
+
+                    // Extract basic endpoint info
+                    const endpoint = {
+                        method: parsedHandler.method,
+                        path: parsedHandler.path,
+                        handler: handlerName,
+                        description: handlerData.api_description || parsedHandler.description || `Handler: ${handlerName}`,
+                        tags: handlerData.api_tags || parsedHandler.tags || [],
+                        auth: {
+                            required: handlerData.requires_auth || false,
+                            type: handlerData.auth_type || 'none',
+                            description: handlerData.requires_auth ? 'Authentication required' : 'No authentication required',
+                            icon: handlerData.requires_auth ? '🔒' : '🌐'
+                        },
+                        request: null,
+                        response: null
+                    };
+
+                    // Convert request schema
+                    if (handlerData.request_schema && typeof handlerData.request_schema === 'object') {
+                        endpoint.request = handlerData.request_schema;
+                    }
+
+                    // Convert response schema
+                    if (handlerData.response_schema && typeof handlerData.response_schema === 'object') {
+                        endpoint.response = handlerData.response_schema;
+                    }
+
+                    endpoints.push(endpoint);
+
+                } catch (error) {
+                    console.error(`Failed to convert handler ${handlerName}:`, error);
+                    // Add a fallback endpoint for failed conversions
+                    endpoints.push({
+                        method: 'POST',
+                        path: `/api/${handlerName.toLowerCase()}`,
+                        handler: handlerName,
+                        description: `Handler: ${handlerName} (conversion error: ${error.message})`,
+                        tags: ['conversion-error'],
+                        auth: { required: false, type: 'none', description: 'No authentication required', icon: '🌐' },
+                        request: null,
+                        response: null
+                    });
+                }
+            }
+
+            console.log(`Converted ${Object.keys(handlers).length} handlers to ${endpoints.length} endpoints`);
+            return endpoints;
+        },
+
+        // Parse handler name to extract HTTP method, path, and metadata
+        _parseHandlerName(handlerName) {
+            // Default values
+            let method = 'POST';
+            let path = `/api/${handlerName.toLowerCase()}`;
+            let description = `Handler: ${handlerName}`;
+            let tags = [];
+
+            // Pattern 1: Action-based handlers (createTodoHandler, getTodosHandler, etc.)
+            const actionMatch = handlerName.match(/^(create|get|update|delete|patch|put)(.*)Handler$/i);
+            if (actionMatch) {
+                const action = actionMatch[1].toLowerCase();
+                const resource = actionMatch[2] || 'resource';
+
+                // Map actions to HTTP methods
+                switch (action) {
+                    case 'create':
+                        method = 'POST';
+                        break;
+                    case 'get':
+                        method = 'GET';
+                        break;
+                    case 'update':
+                    case 'patch':
+                        method = 'PATCH';
+                        break;
+                    case 'put':
+                        method = 'PUT';
+                        break;
+                    case 'delete':
+                        method = 'DELETE';
+                        break;
+                }
+
+                // Convert resource name to path
+                const resourcePath = resource.replace(/([A-Z])/g, '/$1').toLowerCase().replace(/^\//, '');
+
+                // Handle plural vs singular patterns
+                if (resource.endsWith('s')) {
+                    // Plural resource (getTodosHandler -> GET /api/todos)
+                    path = `/api/${resourcePath}`;
+                    description = `${action.charAt(0).toUpperCase() + action.slice(1)} all ${resourcePath}`;
+                } else {
+                    // Singular resource (getTodoHandler -> GET /api/todo/{id})
+                    path = `/api/${resourcePath}/{id}`;
+                    description = `${action.charAt(0).toUpperCase() + action.slice(1)} ${resourcePath} by ID`;
+                }
+
+                tags = [resourcePath, action];
+                return { method, path, description, tags };
+            }
+
+            // Pattern 2: Generic handlers (handleServerValidation, timeHandler, etc.)
+            const genericMatch = handlerName.match(/^handle(.*)$/i);
+            if (genericMatch) {
+                const operation = genericMatch[1];
+                const operationPath = operation.replace(/([A-Z])/g, '/$1').toLowerCase().replace(/^\//, '');
+
+                path = `/api/${operationPath}`;
+                description = `Handle ${operation}`;
+                tags = [operationPath];
+                return { method, path, description, tags };
+            }
+
+            // Pattern 3: Simple handlers (timeHandler, statusHandler, etc.)
+            const simpleMatch = handlerName.match(/^(.*)Handler$/i);
+            if (simpleMatch) {
+                const operation = simpleMatch[1];
+                const operationPath = operation.replace(/([A-Z])/g, '/$1').toLowerCase();
+
+                // Most simple handlers are GET operations
+                method = 'GET';
+                path = `/api/${operationPath}`;
+                description = `Get ${operation}`;
+                tags = [operationPath, 'utility'];
+                return { method, path, description, tags };
+            }
+
+            // Fallback: use handler name as-is
+            const fallbackPath = handlerName.replace(/([A-Z])/g, '/$1').toLowerCase().replace(/^\//, '');
+            return {
+                method,
+                path: `/api/${fallbackPath}`,
+                description,
+                tags: ['handler']
+            };
         }
     };
 {{end}}
