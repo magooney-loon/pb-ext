@@ -10,7 +10,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-func registerRoutes(pbApp core.App) {
+func registerRoutes(app core.App) {
 	// Create configs for API
 	v1Config := &api.APIDocsConfig{
 		Title:       "pb-ext demo api",
@@ -43,7 +43,7 @@ func registerRoutes(pbApp core.App) {
 
 	versionManager := api.InitializeVersionedSystem(versions, "v1") // v1 is default/stable
 
-	pbApp.OnServe().BindFunc(func(e *core.ServeEvent) error {
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		// Get routers
 		v1Router, err := versionManager.GetVersionRouter("v1", e)
 		if err != nil {
@@ -73,5 +73,5 @@ func registerRoutes(pbApp core.App) {
 	})
 
 	// Register version management endpoints
-	versionManager.RegisterWithServer(pbApp)
+	versionManager.RegisterWithServer(app)
 }
