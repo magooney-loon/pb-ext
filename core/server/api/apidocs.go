@@ -49,7 +49,7 @@ Example Usage:
            Description: "New API version in development",
        }
 
-       // Initialize versioned system (no backward compatibility)
+       // Initialize versioned system
        versions := map[string]*APIDocsConfig{
            "v1": v1Config,
            "v2": v2Config,
@@ -216,20 +216,6 @@ func GetAPIDocs() *APIDocs {
 	return system.GetDocs()
 }
 
-// GetAPIEndpoints returns all registered API endpoints (deprecated - use GetAPIDocs() instead)
-
-// RegisterEndpoint manually registers an API endpoint (for backward compatibility)
-func RegisterEndpoint(endpoint APIEndpoint) {
-	registry := GetGlobalRegistry()
-	registry.RegisterEndpoint(endpoint)
-}
-
-// ClearAllEndpoints clears all registered endpoints (useful for testing)
-func ClearAllEndpoints() {
-	registry := GetGlobalRegistry()
-	registry.ClearEndpoints()
-}
-
 // GetAPIStats returns comprehensive statistics about the registered API endpoints
 func GetAPIStats() map[string]interface{} {
 	docs := GetAPIDocs()
@@ -246,9 +232,6 @@ var globalDocSystem *APIDocumentationSystem
 func GetGlobalDocumentationSystem() *APIDocumentationSystem {
 	if globalDocSystem == nil {
 		globalDocSystem = NewAPIDocumentationSystem(nil)
-
-		// Set the global registry for backward compatibility
-		SetGlobalRegistry(globalDocSystem.registry)
 	}
 	return globalDocSystem
 }
@@ -256,9 +239,6 @@ func GetGlobalDocumentationSystem() *APIDocumentationSystem {
 // SetGlobalDocumentationSystem sets the global documentation system
 func SetGlobalDocumentationSystem(system *APIDocumentationSystem) {
 	globalDocSystem = system
-	if system != nil {
-		SetGlobalRegistry(system.registry)
-	}
 }
 
 // InitializeWithConfig initializes the global system with custom configuration
@@ -378,52 +358,8 @@ func ComponentsHandler(c *core.RequestEvent) error {
 }
 
 // =============================================================================
-// Backward Compatibility Functions
+// Configuration Utilities
 // =============================================================================
-
-// These functions maintain backward compatibility with the previous API
-
-// DefaultAutoDiscoveryConfig returns default auto-discovery configuration
-func DefaultAutoDiscoveryConfig() *AutoDiscoveryConfig {
-	return &AutoDiscoveryConfig{
-		Enabled:         true,
-		AnalyzeHandlers: true,
-		GenerateTags:    true,
-		DetectAuth:      true,
-		IncludeInternal: false,
-	}
-}
-
-// =============================================================================
-// Server Type Definition (if not defined elsewhere)
-// =============================================================================
-
-// =============================================================================
-// Migration and Upgrade Utilities
-// =============================================================================
-
-// MigrateFromLegacyConfig migrates from old configuration format
-func MigrateFromLegacyConfig(legacyConfig map[string]interface{}) *APIDocsConfig {
-	config := DefaultAPIDocsConfig()
-
-	if title, ok := legacyConfig["title"].(string); ok {
-		config.Title = title
-	}
-	if version, ok := legacyConfig["version"].(string); ok {
-		config.Version = version
-	}
-	if description, ok := legacyConfig["description"].(string); ok {
-		config.Description = description
-	}
-	if baseURL, ok := legacyConfig["base_url"].(string); ok {
-		config.BaseURL = baseURL
-	}
-	if enabled, ok := legacyConfig["enabled"].(bool); ok {
-		config.Enabled = enabled
-	}
-
-	return config
-}
 
 // ValidateConfiguration validates an API documentation configuration
 func ValidateConfiguration(config *APIDocsConfig) []string {

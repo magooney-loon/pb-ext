@@ -396,10 +396,8 @@ func (rc *RouteChain) getAuthIcon(authType string) string {
 
 // EnableAutoDocumentation wraps a router with automatic documentation capabilities
 func EnableAutoDocumentation(e *core.ServeEvent) *AutoAPIRouter {
-	// Initialize global documentation system to ensure same registry is used
-	GetGlobalDocumentationSystem()
-	registry := GetGlobalRegistry()
-	return NewAutoAPIRouter(e.Router, registry)
+	system := GetGlobalDocumentationSystem()
+	return NewAutoAPIRouter(e.Router, system.registry)
 }
 
 // EnableAutoDocumentationWithRegistry wraps a router with a specific registry
@@ -407,36 +405,37 @@ func EnableAutoDocumentationWithRegistry(e *core.ServeEvent, registry *APIRegist
 	return NewAutoAPIRouter(e.Router, registry)
 }
 
-// AutoRegisterRoute provides backward compatible global route registration
+// AutoRegisterRoute provides global route registration through documentation system
 func AutoRegisterRoute(method, path string, handler func(*core.RequestEvent) error) {
-	GetGlobalRegistry().AutoRegisterRoute(method, path, handler)
+	system := GetGlobalDocumentationSystem()
+	system.registry.AutoRegisterRoute(method, path, handler)
 }
 
-// ConfigureAutoDiscovery configures the global registry's auto-discovery settings
+// ConfigureAutoDiscovery configures auto-discovery settings
 func ConfigureAutoDiscovery(config *AutoDiscoveryConfig) {
-	registry := GetGlobalRegistry()
-	if registry.config != nil {
-		registry.config.AutoDiscovery = config
+	system := GetGlobalDocumentationSystem()
+	if system.config != nil {
+		system.config.AutoDiscovery = config
 	}
 }
 
-// GetDiscoveredEndpoints returns all endpoints discovered by the global registry
+// GetDiscoveredEndpoints returns all discovered endpoints
 func GetDiscoveredEndpoints() []APIEndpoint {
-	registry := GetGlobalRegistry()
-	docs := registry.GetDocs()
+	system := GetGlobalDocumentationSystem()
+	docs := system.GetDocs()
 	return docs.Endpoints
 }
 
-// GetEndpointByPath retrieves a specific endpoint by method and path from global registry
+// GetEndpointByPath retrieves a specific endpoint by method and path
 func GetEndpointByPath(method, path string) (*APIEndpoint, bool) {
-	registry := GetGlobalRegistry()
-	return registry.GetEndpoint(method, path)
+	system := GetGlobalDocumentationSystem()
+	return system.registry.GetEndpoint(method, path)
 }
 
-// GetEndpointsByTag returns all endpoints with a specific tag from global registry
+// GetEndpointsByTag returns all endpoints with a specific tag
 func GetEndpointsByTag(tag string) []APIEndpoint {
-	registry := GetGlobalRegistry()
-	return registry.GetEndpointsByTag(tag)
+	system := GetGlobalDocumentationSystem()
+	return system.registry.GetEndpointsByTag(tag)
 }
 
 // =============================================================================
