@@ -111,7 +111,7 @@
 
                 // Initialize filter options and update UI
                 if (typeof UIController !== 'undefined') {
-                    const stats = this.calculateStats();
+                    const stats = APIState.apiStats || this.calculateStats();
                     if (UIController.populateFilterOptions) {
                         UIController.populateFilterOptions(stats);
                     }
@@ -126,7 +126,7 @@
                     }
                 } else if (typeof FilterController !== 'undefined' && FilterController.populateFilterOptions) {
                     // Fallback for backward compatibility
-                    const stats = this.calculateStats();
+                    const stats = APIState.apiStats || this.calculateStats();
                     FilterController.populateFilterOptions(stats);
                 }
 
@@ -377,7 +377,7 @@
             const statsContainer = document.getElementById('api-stats');
             if (!statsContainer) return;
 
-            const stats = this.calculateStats();
+            const stats = APIState.apiStats || this.calculateStats();
 
             statsContainer.innerHTML = `
                 <div class="stats-grid">
@@ -397,15 +397,65 @@
             `;
         },
 
-        // Calculate statistics
+        // Calculate statistics (enhanced for filter population)
         calculateStats() {
             const endpoints = APIState.allEndpoints;
 
-            return {
-                endpoints: endpoints.length,
-                methods: new Set(endpoints.map(ep => ep.method)).size,
-                auth: endpoints.filter(ep => ep.auth?.required).length
+            // Use APIState's detailed calculation if available
+            if (APIState.apiStats && APIState.apiStats.totalEndpoints === endpoints.length) {
+                return APIState.apiStats;
+            }
+
+            // Fallback to local calculation with detailed breakdown
+            const stats = {
+                totalEndpoints: endpoints.length,
+                endpoints: endpoints.length, // backward compatibility
+                methodCounts: {},
+                authTypes: {},
+                authRequired: 0,
+                uniqueTags: 0,
+                tags: {},
+                validationErrors: 0,
+                lastUpdated: new Date().toISOString()
             };
+
+            const tagSet = new Set();
+
+            endpoints.forEach(endpoint => {
+                // Count methods
+                const method = endpoint.method;
+                stats.methodCounts[method] = (stats.methodCounts[method] || 0) + 1;
+
+                // Count auth types and requirements
+                if (endpoint.auth?.required) {
+                    stats.authRequired++;
+                    const authType = endpoint.auth.type || 'required';
+                    stats.authTypes[authType] = (stats.authTypes[authType] || 0) + 1;
+                } else {
+                    stats.authTypes['none'] = (stats.authTypes['none'] || 0) + 1;
+                }
+
+                // Count tags
+                if (endpoint.tags && Array.isArray(endpoint.tags)) {
+                    endpoint.tags.forEach(tag => {
+                        tagSet.add(tag);
+                        stats.tags[tag] = (stats.tags[tag] || 0) + 1;
+                    });
+                }
+
+                // Count validation errors
+                if (!endpoint._validated) {
+                    stats.validationErrors++;
+                }
+            });
+
+            stats.uniqueTags = tagSet.size;
+
+            // Backward compatibility fields
+            stats.methods = Object.keys(stats.methodCounts).length;
+            stats.auth = stats.authRequired;
+
+            return stats;
         },
 
         // Refresh all data
