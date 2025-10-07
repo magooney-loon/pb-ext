@@ -134,131 +134,83 @@
             };
         },
 
-        // Display successful response
+        // Display successful response in sidebar
         displayResponse(response, endpoint) {
-            const container = document.getElementById('api-response-container');
-            if (!container) return;
+            // Update response status
+            this.updateResponseStatus(response.status, response.statusText, response.duration);
 
-            const responseInfo = APISchemaManager.extractResponseInfo(endpoint);
+            // Hide empty state, show response content
+            const emptyState = document.getElementById('response-empty-state');
+            if (emptyState) emptyState.style.display = 'none';
 
-            container.innerHTML = `
-                <div class="api-response-success">
-                    <div class="response-header">
-                        <div class="response-status">
-                            <span class="status-badge ${this.getStatusClass(response.status)}">
-                                ${response.status} ${response.statusText}
-                            </span>
-                            <span class="response-time">${response.duration}ms</span>
-                        </div>
-                        <div class="response-url">
-                            <strong>${response.method}</strong> ${response.url}
-                        </div>
-                    </div>
+            // Update response body
+            const responseBody = document.getElementById('response-body');
+            if (responseBody) {
+                responseBody.style.display = 'block';
+                const codeElement = responseBody.querySelector('code');
+                if (codeElement) {
+                    codeElement.textContent = this.formatJSON(response.data);
+                }
+            }
 
-                    <div class="response-tabs">
-                        <div class="tab-nav">
-                            <button class="tab-btn active" data-tab="body">Response Body</button>
-                            <button class="tab-btn" data-tab="headers">Headers</button>
-                            ${responseInfo.hasSchema ? '<button class="tab-btn" data-tab="schema">Expected Schema</button>' : ''}
-                        </div>
+            // Update response headers
+            const responseHeaders = document.getElementById('response-headers');
+            if (responseHeaders) {
+                const codeElement = responseHeaders.querySelector('code');
+                if (codeElement) {
+                    const headersText = Object.entries(response.headers)
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join('\n');
+                    codeElement.textContent = headersText;
+                }
+            }
 
-                        <div class="tab-content">
-                            <div class="tab-panel active" data-panel="body">
-                                <div class="response-body">
-                                    <pre><code class="json">${this.formatJSON(response.data)}</code></pre>
-                                </div>
-                            </div>
-
-                            <div class="tab-panel" data-panel="headers">
-                                <div class="response-headers">
-                                    <table class="table table-sm">
-                                        <thead>
-                                            <tr>
-                                                <th>Header</th>
-                                                <th>Value</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            ${Object.entries(response.headers).map(([key, value]) => `
-                                                <tr>
-                                                    <td><code>${key}</code></td>
-                                                    <td>${value}</td>
-                                                </tr>
-                                            `).join('')}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            ${responseInfo.hasSchema ? `
-                                <div class="tab-panel" data-panel="schema">
-                                    <div class="response-schema">
-                                        <h6>Expected Response Schema:</h6>
-                                        <pre><code class="json">${this.formatJSON(responseInfo.schema)}</code></pre>
-                                        ${responseInfo.required.length > 0 ? `
-                                            <div class="schema-info m-t-sm">
-                                                <strong>Required fields:</strong> ${responseInfo.required.join(', ')}
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            this.initializeResponseTabs(container);
+            // Ensure body tab is active
+            this.activateResponseTab('body');
         },
 
-        // Display error response
+        // Display error response in sidebar
         displayError(error, endpoint) {
-            const container = document.getElementById('api-response-container');
-            if (!container) return;
+            // Update response status for error
+            this.updateResponseStatus('Error', error.message, 0);
 
-            container.innerHTML = `
-                <div class="api-response-error">
-                    <div class="error-header">
-                        <div class="error-icon">
-                            <i class="ri-error-warning-line"></i>
-                        </div>
-                        <div class="error-title">Request Failed</div>
-                    </div>
+            // Hide empty state, show response content
+            const emptyState = document.getElementById('response-empty-state');
+            if (emptyState) emptyState.style.display = 'none';
 
-                    <div class="error-details">
-                        <div class="error-message">
-                            <strong>Error:</strong>
-                            <pre>${error.message || 'Unknown error occurred'}</pre>
-                        </div>
+            // Show error in response body
+            const responseBody = document.getElementById('response-body');
+            if (responseBody) {
+                responseBody.style.display = 'block';
+                const codeElement = responseBody.querySelector('code');
+                if (codeElement) {
+                    const errorInfo = {
+                        error: error.message || 'Unknown error occurred',
+                        ...(error.response && {
+                            status: error.response.status,
+                            statusText: error.response.statusText,
+                            response: error.response.data
+                        })
+                    };
+                    codeElement.textContent = this.formatJSON(errorInfo);
+                }
+            }
 
-                        ${error.response ? `
-                            <div class="error-response m-t-sm">
-                                <strong>Response Details:</strong>
-                                <div class="response-status">
-                                    Status: <span class="status-badge status-error">
-                                        ${error.response.status} ${error.response.statusText}
-                                    </span>
-                                </div>
-                                ${error.response.data ? `
-                                    <div class="response-body m-t-xs">
-                                        <pre><code>${this.formatJSON(error.response.data)}</code></pre>
-                                    </div>
-                                ` : ''}
-                            </div>
-                        ` : ''}
+            // Clear headers
+            const responseHeaders = document.getElementById('response-headers');
+            if (responseHeaders) {
+                const codeElement = responseHeaders.querySelector('code');
+                if (codeElement) {
+                    codeElement.textContent = error.response ?
+                        Object.entries(error.response.headers || {})
+                            .map(([key, value]) => `${key}: ${value}`)
+                            .join('\n') :
+                        'No headers available';
+                }
+            }
 
-                        <div class="error-help m-t-sm">
-                            <h6>Troubleshooting Tips:</h6>
-                            <ul class="list-unstyled">
-                                <li><i class="ri-checkbox-circle-line"></i> Check that all required fields are filled</li>
-                                <li><i class="ri-checkbox-circle-line"></i> Verify the endpoint URL and method</li>
-                                <li><i class="ri-checkbox-circle-line"></i> Ensure authentication if required</li>
-                                <li><i class="ri-checkbox-circle-line"></i> Check server logs for detailed errors</li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            `;
+            // Ensure body tab is active
+            this.activateResponseTab('body');
         },
 
         // Initialize response tab functionality
@@ -284,12 +236,53 @@
         },
 
         // Get CSS class for HTTP status code
+        // Get status class for styling
         getStatusClass(status) {
+            if (typeof status === 'string') {
+                if (status.toLowerCase().includes('error')) return 'status-error';
+                if (status.toLowerCase().includes('success')) return 'status-success';
+                return 'status-unknown';
+            }
             if (status >= 200 && status < 300) return 'status-success';
-            if (status >= 300 && status < 400) return 'status-redirect';
-            if (status >= 400 && status < 500) return 'status-client-error';
-            if (status >= 500) return 'status-server-error';
+            if (status >= 300 && status < 400) return 'status-info';
+            if (status >= 400 && status < 500) return 'status-warning';
+            if (status >= 500) return 'status-error';
             return 'status-unknown';
+        },
+
+        // Update response status in sidebar
+        updateResponseStatus(status, statusText, duration) {
+            const statusEl = document.querySelector('#response-status-info .status-badge');
+            const timeEl = document.querySelector('#response-status-info .response-time');
+
+            if (statusEl) {
+                statusEl.className = `status-badge ${this.getStatusClass(status)}`;
+                statusEl.textContent = `${status} ${statusText || ''}`.trim();
+            }
+
+            if (timeEl) {
+                timeEl.textContent = duration ? `${duration}ms` : '';
+            }
+        },
+
+        // Activate specific response tab
+        activateResponseTab(tabName) {
+            // Update tab buttons
+            const tabButtons = document.querySelectorAll('.response-tab');
+            tabButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tabName);
+            });
+
+            // Update tab content visibility
+            const responseBody = document.getElementById('response-body');
+            const responseHeaders = document.getElementById('response-headers');
+
+            if (responseBody) {
+                responseBody.style.display = tabName === 'body' ? 'block' : 'none';
+            }
+            if (responseHeaders) {
+                responseHeaders.style.display = tabName === 'headers' ? 'block' : 'none';
+            }
         },
 
         // Format JSON for display
