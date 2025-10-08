@@ -168,7 +168,7 @@ func (s *Server) Start() error {
 		// Initialize API documentation system
 		// NOTE: API docs routes are now handled by the version manager to prevent conflicts
 		// s.RegisterAPIDocsRoutes(e)
-		app.Logger().Info("📚 AST API system initialized (using version manager)")
+		app.Logger().Info("📚 AST API system initialized")
 
 		// Serve static files from pb_public with improved path resolution
 		publicDirPath := "./pb_public"
