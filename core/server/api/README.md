@@ -12,6 +12,38 @@ This system provides runtime discovery and documentation of versioned API routes
 - **Middleware Detection**: Analyze authentication requirements from middleware chains
 - **OpenAPI Output**: Generate OpenAPI 3.0 compatible documentation per version
 
+## OpenAPI Schema System
+
+This system has been refactored to use **OpenAPI 3.0 compatible schemas** throughout, ensuring type safety and standards compliance:
+
+- **Type-Safe Schemas**: All schemas use proper `*OpenAPISchema` types instead of generic maps
+- **OpenAPI 3.0 Compatible**: Full compliance with OpenAPI specification
+- **Component System**: Reusable schema components with proper `$ref` references
+- **Validation Support**: Rich validation constraints (min/max, patterns, etc.)
+- **Conversion Utilities**: Automatic conversion from Go types to OpenAPI schemas
+
+### Key Improvements
+- **Before**: `map[string]interface{}` - loose, error-prone
+- **After**: `*OpenAPISchema` - type-safe, IDE-friendly, spec-compliant
+
+```go
+// Old approach
+endpoint.Request = map[string]interface{}{
+    "type": "object",
+    "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string"}},
+}
+
+// New OpenAPI approach  
+endpoint.Request = &OpenAPISchema{
+    Type: "object", 
+    Properties: map[string]*OpenAPISchema{
+        "name": {Type: "string", Description: "User name"},
+    },
+}
+```
+
+See **[OPENAPI_MIGRATION.md](./OPENAPI_MIGRATION.md)** for complete migration details and examples.
+
 ## Architecture
 
 ```

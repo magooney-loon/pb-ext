@@ -35,7 +35,17 @@ func NewAPIRegistry(config *APIDocsConfig, astParser ASTParserInterface, schemaG
 			BaseURL:     config.BaseURL,
 			Endpoints:   []APIEndpoint{},
 			Generated:   time.Now().Format(time.RFC3339),
-			Components:  make(map[string]interface{}),
+			Components: &OpenAPIComponents{
+				Schemas:         make(map[string]*OpenAPISchema),
+				Responses:       make(map[string]*OpenAPIResponse),
+				Parameters:      make(map[string]*OpenAPIParameter),
+				RequestBodies:   make(map[string]*OpenAPIRequestBody),
+				Examples:        make(map[string]*OpenAPIExample),
+				Headers:         make(map[string]*OpenAPIHeader),
+				SecuritySchemes: make(map[string]*OpenAPISecurityScheme),
+				Links:           make(map[string]*OpenAPILink),
+				Callbacks:       make(map[string]*OpenAPICallback),
+			},
 		},
 		endpoints:       make(map[string]APIEndpoint),
 		astParser:       astParser,
@@ -83,13 +93,10 @@ func (r *APIRegistry) GetDocs() *APIDocs {
 		BaseURL:     r.docs.BaseURL,
 		Generated:   r.docs.Generated,
 		Endpoints:   make([]APIEndpoint, len(r.docs.Endpoints)),
-		Components:  make(map[string]interface{}),
+		Components:  r.docs.Components,
 	}
 
 	copy(docsCopy.Endpoints, r.docs.Endpoints)
-	for k, v := range r.docs.Components {
-		docsCopy.Components[k] = v
-	}
 
 	return docsCopy
 }
