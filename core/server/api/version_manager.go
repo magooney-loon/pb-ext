@@ -70,6 +70,37 @@ type VersionedAPIRouter struct {
 	registry *APIRegistry // version-specific registry
 }
 
+// InitializeVersionedSystem initializes a versioned documentation system
+func InitializeVersionedSystem(versions map[string]*APIDocsConfig, defaultVersion string) *APIVersionManager {
+	return InitializeVersionManager(versions, defaultVersion)
+}
+
+// =============================================================================
+// Configuration Utilities
+// =============================================================================
+
+// ValidateConfiguration validates an API documentation configuration
+func ValidateConfiguration(config *APIDocsConfig) []string {
+	var errors []string
+
+	if config == nil {
+		errors = append(errors, "configuration is nil")
+		return errors
+	}
+
+	if config.Title == "" {
+		errors = append(errors, "title is required")
+	}
+	if config.Version == "" {
+		errors = append(errors, "version is required")
+	}
+	if config.BaseURL == "" {
+		errors = append(errors, "base_url is required")
+	}
+
+	return errors
+}
+
 // =============================================================================
 // Constructor Functions
 // =============================================================================
