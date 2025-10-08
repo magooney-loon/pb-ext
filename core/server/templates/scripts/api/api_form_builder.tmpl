@@ -15,6 +15,9 @@
             container.innerHTML = '';
             const sections = [];
 
+            // Build manual query parameters section (always available) - moved to top
+            sections.push(this.buildManualQuerySection(endpoint));
+
             // Build path parameters section
             const pathParams = APISchemaManager.extractPathParameters(endpoint.path);
             if (pathParams.length > 0) {
@@ -26,9 +29,6 @@
             if (requestFields.length > 0) {
                 sections.push(this.buildRequestBodySection(requestFields));
             }
-
-            // Build manual query parameters section (always available)
-            sections.push(this.buildManualQuerySection());
 
             // Add all sections to container
             sections.forEach(section => {
@@ -87,7 +87,7 @@
                         Request Body
                         <span class="txt-xs txt-hint">(application/json)</span>
                     </h6>
-                    <p class="txt-hint txt-xs">Data to be sent in the request body.</p>
+
 
                     ${requiredFields.length > 0 ? `
                         <div class="required-fields">
@@ -108,22 +108,48 @@
         },
 
         // Build manual query parameters section
-        buildManualQuerySection() {
+        buildManualQuerySection(endpoint) {
             const section = document.createElement('div');
             section.className = 'card card-body';
+
+            // Get available filters from response schema
+            const availableFilters = endpoint ? APISchemaManager.extractAvailableFilters(endpoint) : [];
+
+            let availableFiltersHTML = '';
+            if (availableFilters.length > 0) {
+                availableFiltersHTML = `
+                    <div class="m-b-sm">
+                        <div class="txt-hint txt-xs m-b-xs flex align-center gap-5">
+                            <i class="ri-filter-line"></i>
+                            <span>Available filters:</span>
+                        </div>
+                        <div class="flex flex-wrap gap-xs">
+                            ${availableFilters.map(filter => `
+                                <button type="button" class="btn btn-xs btn-secondary btn-outline filter-suggestion"
+                                        data-filter-name="${filter.name}"
+                                        data-filter-example="${filter.example}"
+                                        title="${filter.description}">
+                                    ${filter.name}${filter.required ? ' *' : ''}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
             section.innerHTML = `
                 <div class="form-section">
-                    <h6 class="form-section-title">
+                    <h6 class="form-section-title flex align-center gap-5 m-b-sm">
                         <i class="ri-search-line"></i>
-                        Query Parameters
+                        <span>Query Parameters</span>
                         <span class="txt-xs txt-hint">(optional)</span>
                     </h6>
-                    <p class="txt-hint txt-xs m-b-sm">Add custom query parameters to the URL.</p>
+                    ${availableFiltersHTML}
                     <div class="query-parameters">
-                        <div class="query-param-row">
-                            <input type="text" class="form-control query-param-name" placeholder="Parameter name">
-                            <input type="text" class="form-control query-param-value" placeholder="Parameter value">
-                            <button type="button" class="btn btn-sm btn-secondary btn-outline add-query-param">
+                        <div class="flex gap-xs align-center m-b-xs">
+                            <input type="text" class="form-control form-control-sm query-param-name" placeholder="name" style="flex: 1;">
+                            <input type="text" class="form-control form-control-sm query-param-value" placeholder="value" style="flex: 2;">
+                            <button type="button" class="btn btn-sm btn-secondary btn-outline add-query-param" title="Add parameter">
                                 <i class="ri-add-line"></i>
                             </button>
                         </div>
@@ -135,6 +161,21 @@
             // Add event listener for adding query parameters
             const addBtn = section.querySelector('.add-query-param');
             addBtn.addEventListener('click', () => this.addQueryParameter(section));
+
+            // Add event listeners for filter suggestions
+            section.querySelectorAll('.filter-suggestion').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const filterName = btn.getAttribute('data-filter-name');
+                    const filterExample = btn.getAttribute('data-filter-example');
+
+                    const nameInput = section.querySelector('.query-param-name');
+                    const valueInput = section.querySelector('.query-param-value');
+
+                    nameInput.value = filterName;
+                    valueInput.value = '';
+                    valueInput.focus();
+                });
+            });
 
             return section;
         },
@@ -178,7 +219,7 @@
                         <span class="txt-xs txt-hint">(${field.type})</span>
                     </label>
                     ${this.buildFieldInput(field, fieldId, inputType)}
-                    ${field.description ? `<div class="field-help">${field.description}</div>` : ''}
+
                 </div>
             `;
         },
@@ -218,19 +259,20 @@
                 case 'checkbox':
                     return `
                         <select ${commonAttrs}>
-                            <option value="true" ${field.example === true ? 'selected' : ''}>true</option>
-                            <option value="false" ${field.example === false ? 'selected' : ''}>false</option>
+                            <option value="">Select ${field.name}</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
                         </select>
                     `;
 
                 case 'textarea':
                     return `
-                        <textarea ${commonAttrs} rows="3" placeholder="${field.example || `Enter ${field.name}`}">${field.example && typeof field.example === 'object' ? JSON.stringify(field.example, null, 2) : (field.example || '')}</textarea>
+                        <textarea ${commonAttrs} rows="3" placeholder="Enter ${field.name}"></textarea>
                     `;
 
                 case 'number':
                     return `
-                        <input type="number" ${commonAttrs} placeholder="${field.example || `Enter ${field.name}`}" value="${field.example || ''}">
+                        <input type="number" ${commonAttrs} placeholder="Enter ${field.name}">
                     `;
 
                 default:
@@ -239,14 +281,14 @@
                             <select ${commonAttrs}>
                                 <option value="">Select ${field.name}</option>
                                 ${field.enum.map(value => `
-                                    <option value="${value}" ${field.example === value ? 'selected' : ''}>${value}</option>
+                                    <option value="${value}">${value}</option>
                                 `).join('')}
                             </select>
                         `;
                     }
 
                     return `
-                        <input type="text" ${commonAttrs} placeholder="${field.example || `Enter ${field.name}`}" value="${field.example || ''}">
+                        <input type="text" ${commonAttrs} placeholder="Enter ${field.name}">
                     `;
             }
         },
@@ -261,21 +303,26 @@
             const value = valueInput.value.trim();
 
             if (!name) {
+                alert('Parameter name is required');
                 nameInput.focus();
+                return;
+            }
+
+            if (!value) {
+                alert('Parameter value is required');
+                valueInput.focus();
                 return;
             }
 
             // Create compact parameter display
             const paramRow = document.createElement('div');
-            paramRow.className = 'query-param-added';
+            paramRow.className = 'flex align-center gap-xs m-b-xs p-xs txt-xs bg-base-alt border-radius';
             paramRow.innerHTML = `
-                <div class="param-display">
-                    <span class="param-name">${name}</span>
-                    <span>=</span>
-                    <span class="param-value" title="${value}">${value || '<empty>'}</span>
-                </div>
+                <span class="txt-hint">${name}</span>
+                <span class="txt-hint">=</span>
+                <span class="flex-fill txt-nowrap" title="${value}">${value || '<empty>'}</span>
                 <input type="hidden" name="query-${name}" value="${value}">
-                <button type="button" class="btn btn-xs btn-transparent remove-query-param" title="Remove parameter">
+                <button type="button" class="btn btn-xs btn-transparent remove-query-param" title="Remove">
                     <i class="ri-close-line"></i>
                 </button>
             `;
@@ -388,7 +435,9 @@
             const sidebar = document.getElementById('api-tester-sidebar');
             if (!sidebar) return;
 
-            sidebar.querySelectorAll('.form-control').forEach(field => {
+            // Target both .form-control elements and elements with data-type attributes
+            const fieldsSelector = '.form-control, [data-type]';
+            sidebar.querySelectorAll(fieldsSelector).forEach(field => {
                 // Skip if this field is part of API version selection or other global controls
                 if (field.closest('.api-version-selector') ||
                     field.closest('#api-tester-sidebar .endpoint-info') ||
@@ -396,7 +445,12 @@
                     return;
                 }
 
-                field.value = '';
+                // Handle select fields (including boolean selects)
+                if (field.tagName === 'SELECT') {
+                    field.selectedIndex = 0; // Reset to first option (usually empty/default)
+                } else {
+                    field.value = '';
+                }
             });
 
             // Remove added query parameters only within the sidebar

@@ -74,9 +74,16 @@
                         <div class="txt-hint">Used</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Used 1073741824)}}</div>
                     </div>
+                </div>
+
+                <div class="flex txt-sm m-t-5">
                     <div class="column flex-fill">
                         <div class="txt-hint">Free</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Free 1073741824)}}</div>
+                    </div>
+                    <div class="column flex-fill">
+                        <div class="txt-hint"></div>
+                        <div></div>
                     </div>
                 </div>
             </div>
@@ -110,20 +117,25 @@
                         <div class="txt-hint">Used</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.DiskUsed 1073741824)}}</div>
                     </div>
+                </div>
+
+                <div class="flex txt-sm m-t-5">
                     <div class="column flex-fill">
                         <div class="txt-hint">Free</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.DiskFree 1073741824)}}</div>
                     </div>
-                </div>
-
-                {{if hasDiskTemps .SystemStats}}
-                <div class="flex txt-sm m-t-5">
+                    {{if hasDiskTemps .SystemStats}}
                     <div class="column flex-fill">
                         <div class="txt-hint">Temp</div>
                         <div>{{printf "%.1f°C" (getDiskTemp .SystemStats)}}</div>
                     </div>
+                    {{else}}
+                    <div class="column flex-fill">
+                        <div class="txt-hint"></div>
+                        <div></div>
+                    </div>
+                    {{end}}
                 </div>
-                {{end}}
             </div>
         </div>
 
@@ -140,16 +152,24 @@
 
                 <div class="flex txt-sm m-t-10">
                     <div class="column flex-fill">
-                        <div class="txt-hint">Connections</div>
-                        <div>{{.SystemStats.NetworkConnections}}</div>
+                        <div class="txt-hint">Sent</div>
+                        <div>{{printf "%.1f MB" (divideFloat64 .SystemStats.NetworkBytesSent 1048576)}}</div>
                     </div>
                     <div class="column flex-fill">
                         <div class="txt-hint">Received</div>
                         <div>{{printf "%.1f MB" (divideFloat64 .SystemStats.NetworkBytesRecv 1048576)}}</div>
                     </div>
+                </div>
+
+                <div class="flex txt-sm m-t-5">
+
+                     <div class="column flex-fill">
+                        <div class="txt-hint">Connections</div>
+                        <div>{{.SystemStats.NetworkConnections}}</div>
+                    </div>
                     <div class="column flex-fill">
-                        <div class="txt-hint">Sent</div>
-                        <div>{{printf "%.1f MB" (divideFloat64 .SystemStats.NetworkBytesSent 1048576)}}</div>
+                        <div class="txt-hint"></div>
+                        <div></div>
                     </div>
                 </div>
             </div>

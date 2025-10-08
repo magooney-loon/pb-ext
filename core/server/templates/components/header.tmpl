@@ -15,13 +15,16 @@
         </h4>
     </header>
 
-    <div class="card">
-        <div class="card-body">
+
+
                 <div class="flex gap-5">
                     <div class="card card-sm view-card">
                         <div class="card-body">
                             <div class="flex flex-column">
-                                <div class="txt-lg">{{printf "%.1f/s" .RequestRate}}</div>
+                                <div class="flex align-center gap-5 m-b-5">
+                                    <i class="ri-arrow-up-line txt-hint"></i>
+                                    <div class="txt-lg">{{printf "%.1f/s" .RequestRate}}</div>
+                                </div>
                                 <div class="txt-hint txt-sm">Requests</div>
                             </div>
                         </div>
@@ -29,8 +32,11 @@
                     <div class="card card-sm view-card">
                         <div class="card-body">
                             <div class="flex flex-column">
-                                <div class="txt-lg" style="color: {{if gt .ServerStats.TotalErrors.Load 0}}var(--dangerColor){{else}}var(--successColor){{end}}">
-                                    {{printf "%.2f%%" (errorRate .ServerStats.TotalErrors.Load .ServerStats.TotalRequests.Load)}}
+                                <div class="flex align-center gap-5 m-b-5">
+                                    <i class="ri-error-warning-line txt-hint" style="color: {{if gt .ServerStats.TotalErrors.Load 0}}var(--dangerColor){{else}}var(--successColor){{end}}"></i>
+                                    <div class="txt-lg" style="color: {{if gt .ServerStats.TotalErrors.Load 0}}var(--dangerColor){{else}}var(--successColor){{end}}">
+                                        {{printf "%.2f%%" (errorRate .ServerStats.TotalErrors.Load .ServerStats.TotalRequests.Load)}}
+                                    </div>
                                 </div>
                                 <div class="txt-hint txt-sm">Errors</div>
                             </div>
@@ -39,21 +45,27 @@
                     <div class="card card-sm view-card" >
                         <div class="card-body">
                             <div class="flex flex-column">
-                                <div class="txt-lg">{{printf "%.1f ms" .AvgRequestTimeMs}}</div>
-                                <div class="txt-hint txt-sm">Avg Response</div>
+                                <div class="flex align-center gap-5 m-b-5">
+                                    <i class="ri-timer-line txt-hint"></i>
+                                    <div class="txt-lg">{{printf "%.1f ms" .AvgRequestTimeMs}}</div>
+                                </div>
+                                <div class="txt-hint txt-sm">Response</div>
                             </div>
                         </div>
                     </div>
                     <div class="card card-sm view-card">
                         <div class="card-body">
                             <div class="flex flex-column">
-                                <div class="txt-lg">{{.ServerStats.ActiveConnections.Load}}</div>
+                                <div class="flex align-center gap-5 m-b-5">
+                                    <i class="ri-links-line txt-hint"></i>
+                                    <div class="txt-lg">{{.ServerStats.ActiveConnections.Load}}</div>
+                                </div>
                                 <div class="txt-hint txt-sm">Active</div>
                             </div>
                         </div>
                     </div>
                 </div>
-        </div>
-    </div>
+
+
 </div>
 {{end}}

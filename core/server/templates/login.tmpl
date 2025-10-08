@@ -17,15 +17,14 @@
             background: #0a0a0a;
             color: #00ff41;
             min-height: 100vh;
-            padding: 20px;
             line-height: 1.4;
             overflow: hidden;
         }
 
         .terminal-body {
             flex: 1;
-            padding: 20px;
             overflow-y: auto;
+            padding: 20px;
         }
 
         .prompt {
@@ -188,7 +187,7 @@
             height: 100%;
             pointer-events: none;
             z-index: -1;
-            opacity: 0.03;
+            opacity: 0.6;
         }
     </style>
 </head>
@@ -306,36 +305,52 @@
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
 
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789@#$%^&*()*&^%+-/~{[|`]}';
+            const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンあいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん一二三四五六七八九十百千万円時間日月火水木金土曜日本人国家政治経済社会文化歴史地理科学技術数学物理化学生物医学工学情報通信0123456789';
             const charArray = chars.split('');
 
-            const fontSize = 10;
+            const fontSize = 14;
             const columns = canvas.width / fontSize;
 
             const drops = [];
             for (let x = 0; x < columns; x++) {
-                drops[x] = 1;
+                drops[x] = Math.random() * -100;
             }
 
             function draw() {
-                ctx.fillStyle = 'rgba(10, 10, 10, 0.04)';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                ctx.fillStyle = '#00ff41';
                 ctx.font = fontSize + 'px monospace';
 
                 for (let i = 0; i < drops.length; i++) {
-                    const text = charArray[Math.floor(Math.random() * charArray.length)];
-                    ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                    const char = charArray[Math.floor(Math.random() * charArray.length)];
+
+                    // Leading bright character with phosphor glow
+                    if (drops[i] * fontSize > 0 && drops[i] * fontSize < fontSize * 2) {
+                        ctx.fillStyle = '#ffffff';
+                        ctx.shadowColor = '#00ff41';
+                        ctx.shadowBlur = 10;
+                        ctx.fillText(char, i * fontSize, drops[i] * fontSize);
+                    } else {
+                        // Trailing characters with phosphor effect
+                        const opacity = Math.max(0.1, 1 - ((drops[i] * fontSize) % 200) / 200);
+                        ctx.fillStyle = `rgba(0, 255, 65, ${opacity})`;
+                        ctx.shadowColor = '#00ff41';
+                        ctx.shadowBlur = 5;
+                        ctx.fillText(char, i * fontSize, drops[i] * fontSize);
+                    }
 
                     if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
-                        drops[i] = 0;
+                        drops[i] = Math.random() * -100;
                     }
                     drops[i]++;
                 }
+
+                // Reset shadow for other canvas operations
+                ctx.shadowBlur = 0;
             }
 
-            setInterval(draw, 35);
+            setInterval(draw, 60);
         }
 
         // Debug logging
@@ -392,9 +407,6 @@
             setTimeout(() => {
                 const possibleTokenKeys = [
                     '__pb_superuser_auth__',
-                    '_pb_superuser_auth_',
-                    'pocketbase_superuser_auth',
-                    'pb_superuser_auth'
                 ];
 
                 showDebug(`TOKEN: Checking keys: ${possibleTokenKeys.join(', ')}`);

@@ -21,7 +21,7 @@
                     type: fieldSchema.type, // Keep original schema type
                     inputType: this.mapSchemaType(fieldSchema.type), // Separate input type for UI
                     required: required.includes(fieldName),
-                    description: fieldSchema.description || `${fieldName} field`,
+                    description: fieldSchema.description,
                     example: fieldSchema.example || this.generateExample(fieldSchema.type),
                     format: fieldSchema.format,
                     enum: fieldSchema.enum,
@@ -232,6 +232,68 @@
             }
 
             return url;
+        },
+
+        // Extract available filters from response schema
+        extractAvailableFilters(endpoint) {
+            if (!endpoint || !endpoint.response || !endpoint.response.properties) {
+                return [];
+            }
+
+            const responseSchema = endpoint.response;
+            const filtersProperty = responseSchema.properties.filters;
+
+            if (!filtersProperty || !filtersProperty.properties) {
+                return [];
+            }
+
+            const filters = [];
+            const filterProperties = filtersProperty.properties;
+            const requiredFilters = filtersProperty.required || [];
+
+            for (const [filterName, filterSchema] of Object.entries(filterProperties)) {
+                filters.push({
+                    name: filterName,
+                    type: filterSchema.type || 'string',
+                    required: requiredFilters.includes(filterName),
+                    description: filterSchema.description || `Filter by ${filterName}`,
+                    example: filterSchema.example || this.generateFilterExample(filterSchema.type, filterName),
+                    enum: filterSchema.enum
+                });
+            }
+
+            return filters;
+        },
+
+        // Generate example values for filter fields
+        generateFilterExample(type, name) {
+            const commonFilters = {
+                'completed': 'true',
+                'priority': 'high',
+                'status': 'active',
+                'type': 'task',
+                'category': 'work',
+                'date': '2024-01-01',
+                'limit': '10',
+                'offset': '0',
+                'sort': 'created_at',
+                'order': 'desc'
+            };
+
+            if (commonFilters[name.toLowerCase()]) {
+                return commonFilters[name.toLowerCase()];
+            }
+
+            switch (type) {
+                case 'boolean':
+                    return 'true';
+                case 'integer':
+                case 'number':
+                    return '10';
+                case 'string':
+                default:
+                    return 'example';
+            }
         },
 
         // Prepare request body from form data

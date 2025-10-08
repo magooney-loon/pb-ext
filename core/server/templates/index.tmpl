@@ -35,6 +35,7 @@
                     <a href="#analytics" class="menu-item analytics-tab" aria-label="Analytics" title="Analytics"><i class="ri-bar-chart-line"></i></a>
                     <a href="#api" class="menu-item api-tab" aria-label="API" title="API"><i class="ri-code-s-slash-line"></i></a>
                 </nav>
+                <div onclick="openDebugAPI(event)" target="_blank" class="menu-item thumb thumb-circle link-hint" aria-label="Debug" title="Debug AST"><i class="ri-bug-line"></i></div>
             </aside>
             <div class="app-body" id="content" style="opacity: 0;">
                 <!-- Health Section -->
@@ -85,8 +86,11 @@
                 </div>
 
             </div>
+
         </div>
+
     </div>
+
 
     {{template "scripts"}}
     <script>
@@ -140,6 +144,72 @@
                 console.error('Failed to piggyback PocketBase CSS:', error);
             }
         })();
+    </script>
+
+    <script>
+        async function openDebugAPI(event) {
+            event.preventDefault();
+
+            const possibleTokenKeys = [
+                '__pb_superuser_auth__',
+            ];
+
+            let authToken = null;
+            for (const key of possibleTokenKeys) {
+                const tokenData = localStorage.getItem(key);
+                if (tokenData) {
+                    try {
+                        const parsed = JSON.parse(tokenData);
+                        authToken = parsed.token || tokenData;
+                        break;
+                    } catch {
+                        authToken = tokenData;
+                        break;
+                    }
+                }
+            }
+
+            if (!authToken) {
+                alert('No superuser auth token found in localStorage');
+                return;
+            }
+
+            try {
+                const response = await fetch('http://127.0.0.1:8090/api/docs/debug/ast', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const newWindow = window.open('', '_blank');
+                    newWindow.document.write(`
+                        <html>
+                        <head>
+                            <title>Debug AST Results</title>
+                            <style>
+                                body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+                                pre { white-space: pre-wrap; word-wrap: break-word; }
+                            </style>
+                        </head>
+                        <body>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </body>
+                        </html>
+                    `);
+                    newWindow.document.close();
+                } else {
+                    const errorText = await response.text();
+                    alert(`Debug API failed: ${response.status} - ${errorText}`);
+                }
+            } catch (error) {
+                console.error('Error calling debug API:', error);
+                alert('Error calling debug API: ' + error.message);
+            }
+        }
     </script>
 
 </body>

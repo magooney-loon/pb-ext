@@ -7,14 +7,13 @@
         </h4>
     </header>
 
-    <div class="card">
-        <div class="card-body">
+
             <!-- Main Analytics Metrics -->
             <div class="grid grid-sm-2 grid-xl-4 gap-base">
                 <!-- Total Visitors -->
                 <div class="card view-card">
                     <div class="card-body">
-                        <h6 class="txt-hint m-b-10">Unique Visitors</h6>
+                        <h6 class="txt-hint m-b-10"><i class="ri-group-line"></i> Unique Visitors</h6>
                         <h4 class="m-b-10">{{.AnalyticsData.UniqueVisitors}}</h4>
                         <div class="progress m-b-10">
                             <div class="progress-bar" role="progressbar" style="width: 100%" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
@@ -35,7 +34,7 @@
                 <!-- Page Views -->
                 <div class="card view-card">
                     <div class="card-body">
-                        <h6 class="txt-hint m-b-10">Page Views</h6>
+                        <h6 class="txt-hint m-b-10"><i class="ri-eye-line"></i> Page Views</h6>
                         <h4 class="m-b-10">{{.AnalyticsData.TotalPageViews}}</h4>
                         <div class="progress m-b-10">
                             <div class="progress-bar primary" role="progressbar" style="width: 100%" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
@@ -60,22 +59,22 @@
                 <!-- Devices -->
                 <div class="card view-card">
                     <div class="card-body">
-                        <h6 class="txt-hint m-b-10">Devices</h6>
+                        <h6 class="txt-hint m-b-10"><i class="ri-device-line"></i> Devices</h6>
                         <h4 class="m-b-10">{{.AnalyticsData.TopDeviceType}}</h4>
                         <div class="progress m-b-10">
                             <div class="progress-bar success" role="progressbar" style="width: {{printf "%.1f%%" .AnalyticsData.TopDevicePercentage}}" aria-valuenow="{{.AnalyticsData.TopDevicePercentage}}" aria-valuemin="0" aria-valuemax="100"></div>
                         </div>
                         <div class="flex">
                             <div class="column flex-fill">
-                                <div class="txt-hint txt-sm">Desktop</div>
+                                <div class="txt-hint txt-sm"><i class="ri-computer-line"></i> Desktop</div>
                                 <div>{{printf "%.1f" .AnalyticsData.DesktopPercentage}}%</div>
                             </div>
                             <div class="column flex-fill">
-                                <div class="txt-hint txt-sm">Mobile</div>
+                                <div class="txt-hint txt-sm"><i class="ri-smartphone-line"></i> Mobile</div>
                                 <div>{{printf "%.1f" .AnalyticsData.MobilePercentage}}%</div>
                             </div>
                             <div class="column flex-fill">
-                                <div class="txt-hint txt-sm">Tablet</div>
+                                <div class="txt-hint txt-sm"><i class="ri-tablet-line"></i> Tablet</div>
                                 <div>{{printf "%.1f" .AnalyticsData.TabletPercentage}}%</div>
                             </div>
                         </div>
@@ -85,7 +84,7 @@
                 <!-- Browsers -->
                 <div class="card view-card">
                     <div class="card-body">
-                        <h6 class="txt-hint m-b-10">Browsers</h6>
+                        <h6 class="txt-hint m-b-10"><i class="ri-global-line"></i> Browsers</h6>
                         <h4 class="m-b-10">{{.AnalyticsData.TopBrowser}}</h4>
 
                         <div class="m-t-10">
@@ -110,7 +109,7 @@
                 <!-- Top Pages -->
                 <div class="card view-card">
                     <div class="card-body">
-                        <h6 class="txt-hint m-b-10">Top Pages</h6>
+                        <h6 class="txt-hint m-b-10"><i class="ri-file-list-3-line"></i> Top Pages</h6>
                         <h4 class="m-b-10">{{len .AnalyticsData.TopPages}}</h4>
 
                         <table class="table table-compact m-t-10">
@@ -132,7 +131,7 @@
                 <!-- Recent Activity -->
                 <div class="card view-card">
                     <div class="card-body">
-                        <h6 class="txt-hint m-b-10">Recent Activity</h6>
+                        <h6 class="txt-hint m-b-10"><i class="ri-time-line"></i> Recent Activity</h6>
                         <h4 class="m-b-10">{{.AnalyticsData.RecentVisitCount}}</h4>
                         <div class="progress m-b-10">
                             <div class="progress-bar warning" role="progressbar" style="width: {{printf "%.1f%%" .AnalyticsData.HourlyActivityPercentage}}" aria-valuenow="{{.AnalyticsData.HourlyActivityPercentage}}" aria-valuemin="0" aria-valuemax="100"></div>
@@ -160,7 +159,6 @@
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
+
 </div>
 {{end}}

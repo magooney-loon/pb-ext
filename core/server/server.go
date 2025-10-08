@@ -206,7 +206,6 @@ func (s *Server) Start() error {
 		// Wait for the next tick to ensure PocketBase has logged its URLs first
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			// Match PocketBase's log format for additional URLs
 			log.Println("└─ pb-ext Dashboard:  http://127.0.0.1:8090/_/_")
 		}()
 		return e.Next()
@@ -228,8 +227,6 @@ func (s *Server) Start() error {
 func (s *Server) App() *pocketbase.PocketBase {
 	return s.app
 }
-
-// RegisterAPIDocsRoutes initializes and registers the API documentation routes
 
 // Stats returns the current server statistics
 func (s *Server) Stats() *ServerStats {

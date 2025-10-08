@@ -196,6 +196,56 @@ var templateFuncs = template.FuncMap{
 	},
 }
 
+// prepareTemplateData prepares the template data for the health dashboard
+func (s *Server) prepareTemplateData() (interface{}, error) {
+	// Create a timeout context for stats collection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Collect system stats with context
+	sysStats, err := monitoring.CollectSystemStats(ctx, s.stats.StartTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get analytics data if available
+	var analyticsData *AnalyticsData
+	if s.analytics != nil {
+		analyticsData, _ = s.analytics.GetAnalyticsData()
+	} else {
+		analyticsData = defaultAnalyticsData()
+	}
+
+	// Prepare template data
+	data := struct {
+		Status           string
+		UptimeDuration   string
+		ServerStats      *ServerStats
+		SystemStats      *monitoring.SystemStats
+		AvgRequestTimeMs float64
+		MemoryUsageStr   string
+		DiskUsageStr     string
+		LastCheckTime    time.Time
+		RequestRate      float64
+		AnalyticsData    *AnalyticsData
+		PBAdminURL       string
+	}{
+		Status:           "Healthy",
+		UptimeDuration:   time.Since(s.stats.StartTime).Round(time.Second).String(),
+		ServerStats:      s.stats,
+		SystemStats:      sysStats,
+		AvgRequestTimeMs: float64(s.stats.AverageRequestTime.Load()) / 1e6,
+		MemoryUsageStr:   fmt.Sprintf("%.2f/%.2f GB", float64(sysStats.MemoryInfo.Used)/1024/1024/1024, float64(sysStats.MemoryInfo.Total)/1024/1024/1024),
+		DiskUsageStr:     fmt.Sprintf("%.2f/%.2f GB", float64(sysStats.DiskUsed)/1024/1024/1024, float64(sysStats.DiskTotal)/1024/1024/1024),
+		LastCheckTime:    time.Now(),
+		RequestRate:      float64(s.stats.TotalRequests.Load()) / time.Since(s.stats.StartTime).Seconds(),
+		AnalyticsData:    analyticsData,
+		PBAdminURL:       "/_/",
+	}
+
+	return data, nil
+}
+
 // RegisterHealthRoute registers the health check endpoint
 func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 	// Automatically discover and parse all templates from embedded filesystem
@@ -252,49 +302,10 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		}
 
 		// User is authenticated, show the dashboard
-		// Create a timeout context for stats collection
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		// Collect system stats with context
-		sysStats, err := monitoring.CollectSystemStats(ctx, s.stats.StartTime)
+		// Prepare template data using the extracted method
+		data, err := s.prepareTemplateData()
 		if err != nil {
 			return NewHTTPError("health_check", "Failed to collect system stats", http.StatusInternalServerError, err)
-		}
-
-		// Get analytics data if available
-		var analyticsData *AnalyticsData
-		if s.analytics != nil {
-			analyticsData, _ = s.analytics.GetAnalyticsData()
-		} else {
-			analyticsData = defaultAnalyticsData()
-		}
-
-		// Prepare template data
-		data := struct {
-			Status           string
-			UptimeDuration   string
-			ServerStats      *ServerStats
-			SystemStats      *monitoring.SystemStats
-			AvgRequestTimeMs float64
-			MemoryUsageStr   string
-			DiskUsageStr     string
-			LastCheckTime    time.Time
-			RequestRate      float64
-			AnalyticsData    *AnalyticsData
-			PBAdminURL       string
-		}{
-			Status:           "Healthy",
-			UptimeDuration:   time.Since(s.stats.StartTime).Round(time.Second).String(),
-			ServerStats:      s.stats,
-			SystemStats:      sysStats,
-			AvgRequestTimeMs: float64(s.stats.AverageRequestTime.Load()) / 1e6,
-			MemoryUsageStr:   fmt.Sprintf("%.2f/%.2f GB", float64(sysStats.MemoryInfo.Used)/1024/1024/1024, float64(sysStats.MemoryInfo.Total)/1024/1024/1024),
-			DiskUsageStr:     fmt.Sprintf("%.2f/%.2f GB", float64(sysStats.DiskUsed)/1024/1024/1024, float64(sysStats.DiskTotal)/1024/1024/1024),
-			LastCheckTime:    time.Now(),
-			RequestRate:      float64(s.stats.TotalRequests.Load()) / time.Since(s.stats.StartTime).Seconds(),
-			AnalyticsData:    analyticsData,
-			PBAdminURL:       "/_/",
 		}
 
 		// Execute dashboard template
@@ -308,4 +319,5 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 
 	// Register the main health route
 	e.Router.GET("/_/_", healthHandler)
+
 }
