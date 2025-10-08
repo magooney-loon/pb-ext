@@ -1,149 +1,182 @@
 {{define "api_schema_manager_js"}}
     // =============================================================================
-    // API SCHEMA MANAGER - SIMPLIFIED FOR AST-BASED SCHEMAS
+    // SIMPLIFIED API SCHEMA MANAGER - FOR CLEAN OPENAPI BACKEND
     // =============================================================================
 
     const APISchemaManager = {
-        // Extract request form fields from exact AST schema
+
+        // Extract form fields directly from OpenAPI request schema
         extractRequestFields(endpoint) {
-            if (!endpoint || !endpoint.request || !endpoint.request.properties) {
+            if (!endpoint?.request?.properties) {
                 return [];
             }
 
             const fields = [];
             const schema = endpoint.request;
-            const properties = schema.properties;
             const required = schema.required || [];
 
-            for (const [fieldName, fieldSchema] of Object.entries(properties)) {
+            Object.entries(schema.properties).forEach(([fieldName, fieldSchema]) => {
                 fields.push({
                     name: fieldName,
-                    type: fieldSchema.type, // Keep original schema type
-                    inputType: this.mapSchemaType(fieldSchema.type), // Separate input type for UI
+                    type: fieldSchema.type,
+                    inputType: this.getInputType(fieldSchema),
                     required: required.includes(fieldName),
-                    description: fieldSchema.description,
-                    example: fieldSchema.example || this.generateExample(fieldSchema.type),
+                    description: fieldSchema.description || '',
+                    example: fieldSchema.example,
                     format: fieldSchema.format,
                     enum: fieldSchema.enum,
                     minimum: fieldSchema.minimum,
                     maximum: fieldSchema.maximum,
-                    pattern: fieldSchema.pattern
+                    minLength: fieldSchema.minLength,
+                    maxLength: fieldSchema.maxLength,
+                    pattern: fieldSchema.pattern,
+                    default: fieldSchema.default
                 });
-            }
+            });
 
             return fields;
         },
 
-        // Extract path parameters from endpoint path
-        extractPathParameters(path) {
-            const params = [];
-            const pathParamRegex = /\{([^}]+)\}/g;
-            let match;
+        // Extract path parameters from endpoint
+        extractPathParameters(endpoint) {
+            const pathParams = [];
 
-            while ((match = pathParamRegex.exec(path)) !== null) {
-                params.push({
-                    name: match[1],
-                    type: 'string',
-                    required: true,
-                    in: 'path',
-                    description: `Path parameter: ${match[1]}`
+            // Use OpenAPI parameters if available
+            if (endpoint.parameters) {
+                endpoint.parameters.forEach(param => {
+                    if (param.in === 'path') {
+                        pathParams.push({
+                            name: param.name,
+                            type: param.schema?.type || 'string',
+                            required: param.required !== false,
+                            description: param.description || `Path parameter: ${param.name}`,
+                            example: param.schema?.example || param.example
+                        });
+                    }
                 });
+            } else {
+                // Fallback: extract from path pattern
+                const pathParamRegex = /\{([^}]+)\}/g;
+                let match;
+                while ((match = pathParamRegex.exec(endpoint.path)) !== null) {
+                    pathParams.push({
+                        name: match[1],
+                        type: 'string',
+                        required: true,
+                        description: `Path parameter: ${match[1]}`,
+                        example: 'example-value'
+                    });
+                }
             }
 
-            return params;
+            return pathParams;
         },
 
         // Build complete parameter schema for forms
         buildParameterSchema(endpoint) {
-            const pathParams = this.extractPathParameters(endpoint.path);
-            const requestFields = this.extractRequestFields(endpoint);
-
             return {
-                pathParameters: pathParams,
-                bodyParameters: requestFields,
-                queryParameters: [] // Can be manually added by user
+                pathParameters: this.extractPathParameters(endpoint),
+                bodyParameters: this.extractRequestFields(endpoint),
+                queryParameters: this.extractQueryParameters(endpoint)
             };
         },
 
-        // Map JSON schema types to form input types
-        mapSchemaType(schemaType) {
-            const typeMap = {
-                'string': 'text',
-                'integer': 'number',
-                'number': 'number',
-                'boolean': 'checkbox',
-                'array': 'text',
-                'object': 'textarea'
-            };
+        // Extract query parameters from endpoint
+        extractQueryParameters(endpoint) {
+            if (!endpoint.parameters) {
+                return [];
+            }
 
-            return typeMap[schemaType] || 'text';
+            return endpoint.parameters
+                .filter(param => param.in === 'query')
+                .map(param => ({
+                    name: param.name,
+                    type: param.schema?.type || 'string',
+                    required: param.required === true,
+                    description: param.description || `Query parameter: ${param.name}`,
+                    example: param.schema?.example || param.example,
+                    enum: param.schema?.enum,
+                    default: param.schema?.default
+                }));
         },
 
-        // Generate example value for schema type
-        generateExample(schemaType) {
-            const examples = {
-                'string': 'example text',
-                'integer': 42,
-                'number': 3.14,
-                'boolean': true,
-                'array': '[]',
-                'object': '{}'
-            };
+        // Map OpenAPI schema type to HTML input type
+        getInputType(schema) {
+            if (schema.enum) {
+                return 'select';
+            }
 
-            return examples[schemaType] || '';
+            switch (schema.type) {
+                case 'string':
+                    if (schema.format === 'email') return 'email';
+                    if (schema.format === 'password') return 'password';
+                    if (schema.format === 'date') return 'date';
+                    if (schema.format === 'date-time') return 'datetime-local';
+                    if (schema.format === 'uri') return 'url';
+                    return schema.maxLength && schema.maxLength > 100 ? 'textarea' : 'text';
+                case 'integer':
+                case 'number':
+                    return 'number';
+                case 'boolean':
+                    return 'checkbox';
+                case 'array':
+                    return 'textarea';
+                case 'object':
+                    return 'textarea';
+                default:
+                    return 'text';
+            }
         },
 
-        // Extract response schema info for display
-        extractResponseInfo(endpoint) {
-            if (!endpoint || !endpoint.response) {
+        // Get response information directly from OpenAPI schema
+        getResponseInfo(endpoint) {
+            if (!endpoint?.response) {
                 return {
                     hasSchema: false,
                     contentType: 'application/json',
-                    description: 'No response schema available'
+                    description: 'No response schema available',
+                    schema: null
                 };
             }
-
-            const schema = endpoint.response;
 
             return {
                 hasSchema: true,
                 contentType: 'application/json',
-                description: 'Response as defined by handler',
-                schema: schema,
-                required: schema.required || [],
-                properties: schema.properties || {}
+                description: endpoint.response.description || 'Response from endpoint',
+                schema: endpoint.response,
+                properties: endpoint.response.properties || {},
+                required: endpoint.response.required || []
             };
         },
 
-        // Validate request data against schema
+        // Simple validation using OpenAPI schema constraints
         validateRequestData(endpoint, data) {
             const errors = [];
 
-            if (!endpoint || !endpoint.request) {
+            if (!endpoint?.request?.properties) {
                 return { valid: true, errors: [] };
             }
 
             const schema = endpoint.request;
             const required = schema.required || [];
-            const properties = schema.properties || {};
 
             // Check required fields
-            for (const field of required) {
-                if (!data || !data.hasOwnProperty(field) || data[field] === '' || data[field] === null) {
-                    errors.push(`Required field '${field}' is missing or empty`);
+            required.forEach(fieldName => {
+                if (!data || !(fieldName in data) || data[fieldName] === '' || data[fieldName] === null || data[fieldName] === undefined) {
+                    errors.push(`Required field '${fieldName}' is missing or empty`);
                 }
-            }
+            });
 
-            // Check field types
-            for (const [fieldName, value] of Object.entries(data || {})) {
-                const fieldSchema = properties[fieldName];
-                if (fieldSchema && value !== '' && value !== null) {
-                    const typeError = this.validateFieldType(fieldName, value, fieldSchema);
-                    if (typeError) {
-                        errors.push(typeError);
+            // Basic type and constraint validation
+            Object.entries(data || {}).forEach(([fieldName, value]) => {
+                const fieldSchema = schema.properties[fieldName];
+                if (fieldSchema && value !== '' && value != null) {
+                    const error = this.validateField(fieldName, value, fieldSchema);
+                    if (error) {
+                        errors.push(error);
                     }
                 }
-            }
+            });
 
             return {
                 valid: errors.length === 0,
@@ -151,51 +184,60 @@
             };
         },
 
-        // Validate individual field type
-        validateFieldType(fieldName, value, fieldSchema) {
-            const type = fieldSchema.type;
-
-            switch (type) {
-                case 'boolean':
-                    if (typeof value !== 'boolean' && value !== 'true' && value !== 'false') {
-                        return `Field '${fieldName}' must be a boolean (true/false)`;
-                    }
-                    break;
-
+        // Validate individual field against its OpenAPI schema
+        validateField(fieldName, value, schema) {
+            // Type validation
+            switch (schema.type) {
                 case 'integer':
-                case 'number':
-                    const num = Number(value);
-                    if (isNaN(num)) {
-                        return `Field '${fieldName}' must be a number`;
-                    }
-                    if (type === 'integer' && !Number.isInteger(num)) {
+                    const intVal = parseInt(value, 10);
+                    if (isNaN(intVal)) {
                         return `Field '${fieldName}' must be an integer`;
                     }
-                    if (fieldSchema.minimum !== undefined && num < fieldSchema.minimum) {
-                        return `Field '${fieldName}' must be at least ${fieldSchema.minimum}`;
-                    }
-                    if (fieldSchema.maximum !== undefined && num > fieldSchema.maximum) {
-                        return `Field '${fieldName}' must be at most ${fieldSchema.maximum}`;
-                    }
+                    value = intVal;
                     break;
-
-                case 'string':
-                    if (typeof value !== 'string') {
-                        return `Field '${fieldName}' must be a string`;
+                case 'number':
+                    const numVal = parseFloat(value);
+                    if (isNaN(numVal)) {
+                        return `Field '${fieldName}' must be a number`;
                     }
-                    if (fieldSchema.pattern) {
-                        const regex = new RegExp(fieldSchema.pattern);
-                        if (!regex.test(value)) {
-                            return `Field '${fieldName}' does not match required pattern`;
+                    value = numVal;
+                    break;
+                case 'boolean':
+                    if (typeof value === 'string') {
+                        if (!['true', 'false', '1', '0'].includes(value.toLowerCase())) {
+                            return `Field '${fieldName}' must be a boolean (true/false)`;
                         }
                     }
                     break;
             }
 
+            // Constraint validation
+            if (schema.minimum !== undefined && value < schema.minimum) {
+                return `Field '${fieldName}' must be at least ${schema.minimum}`;
+            }
+            if (schema.maximum !== undefined && value > schema.maximum) {
+                return `Field '${fieldName}' must be at most ${schema.maximum}`;
+            }
+            if (schema.minLength !== undefined && value.length < schema.minLength) {
+                return `Field '${fieldName}' must be at least ${schema.minLength} characters`;
+            }
+            if (schema.maxLength !== undefined && value.length > schema.maxLength) {
+                return `Field '${fieldName}' must be at most ${schema.maxLength} characters`;
+            }
+            if (schema.pattern) {
+                const regex = new RegExp(schema.pattern);
+                if (!regex.test(value)) {
+                    return `Field '${fieldName}' does not match required pattern`;
+                }
+            }
+            if (schema.enum && !schema.enum.includes(value)) {
+                return `Field '${fieldName}' must be one of: ${schema.enum.join(', ')}`;
+            }
+
             return null;
         },
 
-        // Format response for display
+        // Format response data for display
         formatResponse(responseData) {
             if (!responseData) {
                 return 'No response data';
@@ -212,107 +254,35 @@
             return JSON.stringify(responseData, null, 2);
         },
 
-        // Get content type for request
-        getRequestContentType(endpoint) {
-            if (!endpoint || !endpoint.request) {
-                return 'application/json';
-            }
-
-            // Always use JSON for our AST-generated schemas
-            return 'application/json';
-        },
-
-        // Build URL with path parameters
+        // Build URL with path parameters substituted
         buildUrl(endpoint, pathParams = {}) {
             let url = endpoint.path;
 
             // Replace path parameters
-            for (const [key, value] of Object.entries(pathParams)) {
+            Object.entries(pathParams).forEach(([key, value]) => {
                 url = url.replace(`{${key}}`, encodeURIComponent(value));
-            }
+            });
 
             return url;
         },
 
-        // Extract available filters from response schema
-        extractAvailableFilters(endpoint) {
-            if (!endpoint || !endpoint.response || !endpoint.response.properties) {
-                return [];
-            }
-
-            const responseSchema = endpoint.response;
-            const filtersProperty = responseSchema.properties.filters;
-
-            if (!filtersProperty || !filtersProperty.properties) {
-                return [];
-            }
-
-            const filters = [];
-            const filterProperties = filtersProperty.properties;
-            const requiredFilters = filtersProperty.required || [];
-
-            for (const [filterName, filterSchema] of Object.entries(filterProperties)) {
-                filters.push({
-                    name: filterName,
-                    type: filterSchema.type || 'string',
-                    required: requiredFilters.includes(filterName),
-                    description: filterSchema.description || `Filter by ${filterName}`,
-                    example: filterSchema.example || this.generateFilterExample(filterSchema.type, filterName),
-                    enum: filterSchema.enum
-                });
-            }
-
-            return filters;
-        },
-
-        // Generate example values for filter fields
-        generateFilterExample(type, name) {
-            const commonFilters = {
-                'completed': 'true',
-                'priority': 'high',
-                'status': 'active',
-                'type': 'task',
-                'category': 'work',
-                'date': '2024-01-01',
-                'limit': '10',
-                'offset': '0',
-                'sort': 'created_at',
-                'order': 'desc'
-            };
-
-            if (commonFilters[name.toLowerCase()]) {
-                return commonFilters[name.toLowerCase()];
-            }
-
-            switch (type) {
-                case 'boolean':
-                    return 'true';
-                case 'integer':
-                case 'number':
-                    return '10';
-                case 'string':
-                default:
-                    return 'example';
-            }
-        },
-
-        // Prepare request body from form data
+        // Prepare request body from form data according to schema
         prepareRequestBody(endpoint, formData) {
-            if (!endpoint || !endpoint.request || !formData) {
+            if (!endpoint?.request?.properties || !formData) {
                 return null;
             }
 
             const body = {};
-            const properties = endpoint.request.properties || {};
+            const properties = endpoint.request.properties;
 
-            for (const [fieldName, fieldSchema] of Object.entries(properties)) {
-                if (formData.hasOwnProperty(fieldName)) {
+            Object.entries(properties).forEach(([fieldName, fieldSchema]) => {
+                if (fieldName in formData && formData[fieldName] !== '') {
                     let value = formData[fieldName];
 
-                    // Convert types based on schema
+                    // Convert value according to schema type
                     switch (fieldSchema.type) {
                         case 'boolean':
-                            body[fieldName] = value === 'true' || value === true;
+                            body[fieldName] = value === 'true' || value === true || value === '1';
                             break;
                         case 'integer':
                             body[fieldName] = parseInt(value, 10);
@@ -320,13 +290,87 @@
                         case 'number':
                             body[fieldName] = parseFloat(value);
                             break;
+                        case 'array':
+                            try {
+                                body[fieldName] = typeof value === 'string' ? JSON.parse(value) : value;
+                            } catch (e) {
+                                body[fieldName] = value.split(',').map(s => s.trim());
+                            }
+                            break;
+                        case 'object':
+                            try {
+                                body[fieldName] = typeof value === 'string' ? JSON.parse(value) : value;
+                            } catch (e) {
+                                body[fieldName] = value;
+                            }
+                            break;
                         default:
                             body[fieldName] = value;
                     }
                 }
+            });
+
+            return Object.keys(body).length > 0 ? body : null;
+        },
+
+        // Get content type for request (always JSON for our OpenAPI endpoints)
+        getRequestContentType() {
+            return 'application/json';
+        },
+
+        // Check if endpoint requires authentication
+        requiresAuth(endpoint) {
+            return endpoint?.auth?.required === true;
+        },
+
+        // Get authentication info
+        getAuthInfo(endpoint) {
+            if (!endpoint?.auth) {
+                return { required: false, type: 'none', description: 'No authentication required' };
             }
 
-            return body;
+            return {
+                required: endpoint.auth.required || false,
+                type: endpoint.auth.type || 'none',
+                description: endpoint.auth.description || 'Authentication required',
+                icon: endpoint.auth.icon || (endpoint.auth.required ? '🔒' : '🌐')
+            };
+        },
+
+        // Get example request body
+        getExampleRequest(endpoint) {
+            if (!endpoint?.request) {
+                return null;
+            }
+
+            const example = {};
+            const properties = endpoint.request.properties || {};
+
+            Object.entries(properties).forEach(([fieldName, fieldSchema]) => {
+                if (fieldSchema.example !== undefined) {
+                    example[fieldName] = fieldSchema.example;
+                } else if (fieldSchema.default !== undefined) {
+                    example[fieldName] = fieldSchema.default;
+                }
+            });
+
+            return Object.keys(example).length > 0 ? example : null;
+        },
+
+        // Check if endpoint has request body
+        hasRequestBody(endpoint) {
+            return endpoint?.request?.properties && Object.keys(endpoint.request.properties).length > 0;
+        },
+
+        // Check if endpoint has response schema
+        hasResponseSchema(endpoint) {
+            return endpoint?.response?.properties && Object.keys(endpoint.response.properties).length > 0;
         }
     };
+
+    // Export for global use
+    if (typeof window !== 'undefined') {
+        window.APISchemaManager = APISchemaManager;
+    }
+
 {{end}}

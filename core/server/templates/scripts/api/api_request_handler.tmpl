@@ -1,46 +1,46 @@
 {{define "api_request_handler_js"}}
     // =============================================================================
-    // API REQUEST HANDLER - SIMPLIFIED FOR AST-BASED SCHEMAS
+    // SIMPLIFIED API REQUEST HANDLER - USES NEW OPENAPI SCHEMA MANAGER
     // =============================================================================
 
     const APIRequestHandler = {
 
-        // Send HTTP request using simplified form data
+        // Send HTTP request using simplified form data and OpenAPI schema
         async sendRequest(endpoint, authToken = null) {
             if (!endpoint) {
                 console.error('No endpoint provided for request');
+                this.showError('No endpoint selected for request');
                 return;
             }
 
             const sendBtn = document.getElementById('send-request-btn');
-            const originalText = sendBtn ? sendBtn.innerHTML : '';
+            const originalBtnContent = sendBtn?.innerHTML || 'Send Request';
 
             try {
                 // Update button state
-                if (sendBtn) {
-                    sendBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Sending...';
-                    sendBtn.disabled = true;
-                }
+                this.updateSendButton(sendBtn, true);
 
-                // Validate and collect form data
-                const validation = APIFormBuilder.validateForm(endpoint);
+                // Collect and validate form data
+                const formData = APIFormBuilder.collectFormData();
+                const validation = APISchemaManager.validateRequestData(endpoint, formData);
 
                 if (!validation.valid) {
-                    throw new Error(`Form validation failed:\n${validation.errors.join('\n')}`);
+                    throw new Error(`Validation failed:\n${validation.errors.join('\n')}`);
                 }
-
-                const formData = validation.data;
 
                 // Build request configuration
                 const requestConfig = this.buildRequestConfig(endpoint, formData, authToken);
 
+                // Log request details
+                console.log('Sending request:', requestConfig.method, requestConfig.url);
+
                 // Execute request
                 const response = await this.executeRequest(requestConfig);
 
-                // Display response
+                // Display successful response
                 this.displayResponse(response, endpoint);
 
-                // Switch to response tab
+                // Auto-switch to response tab
                 if (typeof APITesterSidebar !== 'undefined' && APITesterSidebar.switchTab) {
                     APITesterSidebar.switchTab('response');
                 }
@@ -51,59 +51,59 @@
                 console.error('Request failed:', error);
                 this.displayError(error, endpoint);
 
+                // Switch to response tab to show error
                 if (typeof APITesterSidebar !== 'undefined' && APITesterSidebar.switchTab) {
                     APITesterSidebar.switchTab('response');
                 }
             } finally {
                 // Restore button state
-                if (sendBtn) {
-                    sendBtn.innerHTML = originalText;
-                    sendBtn.disabled = false;
-                }
+                this.updateSendButton(sendBtn, false, originalBtnContent);
             }
         },
 
-        // Build request configuration from form data
-        buildRequestConfig(endpoint, formData, authToken = null) {
+        // Build request configuration from endpoint and form data
+        buildRequestConfig(endpoint, formData, authToken) {
             // Build URL with path parameters
-            let url = endpoint.path;
-            for (const [key, value] of Object.entries(formData.pathParameters)) {
-                url = url.replace(`{${key}}`, encodeURIComponent(value));
-            }
+            const url = APISchemaManager.buildUrl(endpoint, formData.pathParams);
 
-            // Add query parameters
-            const queryParams = new URLSearchParams(formData.queryParameters);
-            if (queryParams.toString()) {
-                url += '?' + queryParams.toString();
-            }
+            // Prepare request body
+            const body = APISchemaManager.prepareRequestBody(endpoint, formData);
 
-            // Build request configuration
-            const config = {
-                method: endpoint.method,
-                url: url,
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+            // Build headers
+            const headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             };
 
-            // Add Authorization header if auth token is provided
-            if (authToken) {
-                config.headers['Authorization'] = `Bearer ${authToken}`;
-                console.log('Added Authorization header to request');
+            // Add authentication if required and available
+            if (APISchemaManager.requiresAuth(endpoint)) {
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                } else {
+                    // Try to get auth token from APILoader
+                    const token = window.APILoader?.getSuperuserAuthToken();
+                    if (token) {
+                        headers['Authorization'] = `Bearer ${token}`;
+                    } else {
+                        console.warn('Authentication required but no token available');
+                    }
+                }
             }
 
-            // Add request body for methods that support it
-            if (['POST', 'PUT', 'PATCH'].includes(endpoint.method) &&
-                Object.keys(formData.requestBody).length > 0) {
-                config.body = JSON.stringify(formData.requestBody);
-            }
+            // Add query parameters to URL
+            const finalUrl = this.addQueryParameters(url, formData.queryParams);
 
-            return config;
+            return {
+                method: endpoint.method.toUpperCase(),
+                url: finalUrl,
+                headers: headers,
+                body: body ? JSON.stringify(body) : null
+            };
         },
 
-        // Execute HTTP request
+        // Execute the HTTP request
         async executeRequest(config) {
-            const startTime = performance.now();
+            const startTime = Date.now();
 
             const response = await fetch(config.url, {
                 method: config.method,
@@ -111,10 +111,10 @@
                 body: config.body
             });
 
-            const endTime = performance.now();
-            const duration = Math.round(endTime - startTime);
+            const endTime = Date.now();
+            const duration = endTime - startTime;
 
-            // Parse response body
+            // Parse response data
             let responseData;
             const contentType = response.headers.get('content-type');
 
@@ -128,6 +128,7 @@
                 responseData = await response.text();
             }
 
+            // Return normalized response object
             return {
                 ok: response.ok,
                 status: response.status,
@@ -140,272 +141,233 @@
             };
         },
 
-        // Display successful response in sidebar
+        // Add query parameters to URL
+        addQueryParameters(url, queryParams) {
+            if (!queryParams || Object.keys(queryParams).length === 0) {
+                return url;
+            }
+
+            const urlObj = new URL(url, window.location.origin);
+            Object.entries(queryParams).forEach(([key, value]) => {
+                if (value !== null && value !== undefined && value !== '') {
+                    urlObj.searchParams.append(key, String(value));
+                }
+            });
+
+            return urlObj.pathname + urlObj.search;
+        },
+
+        // Display successful response
         displayResponse(response, endpoint) {
+            this.updateStatus('success', `${response.status} ${response.statusText} (${response.duration}ms)`);
+
             // Update response status
-            this.updateResponseStatus(response.status, response.statusText, response.duration);
+            this.updateResponseStatus(response);
 
-            // Hide empty state, show response content
-            const emptyState = document.getElementById('response-empty-state');
-            const copyBtn = document.getElementById('copy-response-btn');
-            if (emptyState) emptyState.style.display = 'none';
-            if (copyBtn) copyBtn.style.display = 'block';
+            // Display response body
+            this.displayResponseBody(response);
 
-            // Update response body with proper formatting
-            const responseBody = document.getElementById('response-body');
-            if (responseBody) {
-                responseBody.style.display = 'block';
-                if (typeof SchemaProcessor !== 'undefined') {
-                    const formatted = SchemaProcessor.formatForDisplay(response.data, 'json');
-                    responseBody.innerHTML = formatted;
-                } else {
-                    const codeElement = responseBody.querySelector('code');
-                    if (codeElement) {
-                        codeElement.textContent = this.formatJSON(response.data);
-                    }
-                }
-            }
+            // Display response headers
+            this.displayResponseHeaders(response);
 
-            // Update response headers with proper formatting
-            const responseHeaders = document.getElementById('response-headers');
-            if (responseHeaders) {
-                if (typeof SchemaProcessor !== 'undefined') {
-                    const formatted = SchemaProcessor.formatForDisplay(response.headers || {}, 'json');
-                    responseHeaders.innerHTML = formatted;
-                } else {
-                    const codeElement = responseHeaders.querySelector('code');
-                    if (codeElement) {
-                        const headersText = Object.entries(response.headers || {})
-                            .map(([key, value]) => `${key}: ${value}`)
-                            .join('\n');
-                        codeElement.textContent = headersText;
-                    }
-                }
-            }
-
-            // Ensure body tab is active
-            this.activateResponseTab('body');
+            // Update request info
+            this.updateRequestInfo(response, endpoint);
         },
 
-        // Display error response in sidebar
+        // Display error response
         displayError(error, endpoint) {
-            // Update response status for error
-            this.updateResponseStatus('Error', error.message, 0);
+            console.error('Request error:', error);
 
-            // Hide empty state, show response content
-            const emptyState = document.getElementById('response-empty-state');
-            const copyBtn = document.getElementById('copy-response-btn');
-            if (emptyState) emptyState.style.display = 'none';
-            if (copyBtn) copyBtn.style.display = 'block';
+            this.updateStatus('error', error.message);
 
-            // Show error in response body with proper formatting
-            const responseBody = document.getElementById('response-body');
-            if (responseBody) {
-                responseBody.style.display = 'block';
-                const errorInfo = {
-                    error: error.message || 'Unknown error occurred',
-                    ...(error.response && {
-                        status: error.response.status,
-                        statusText: error.response.statusText,
-                        response: error.response.data
-                    })
-                };
+            // Try to show error details in response area
+            const errorResponse = {
+                ok: false,
+                status: 0,
+                statusText: 'Request Failed',
+                data: {
+                    error: error.message,
+                    timestamp: new Date().toISOString(),
+                    endpoint: endpoint ? `${endpoint.method} ${endpoint.path}` : 'unknown'
+                },
+                headers: {},
+                duration: 0
+            };
 
-                if (typeof SchemaProcessor !== 'undefined') {
-                    const formatted = SchemaProcessor.formatForDisplay(errorInfo, 'json');
-                    responseBody.innerHTML = formatted;
-                } else {
-                    const codeElement = responseBody.querySelector('code');
-                    if (codeElement) {
-                        codeElement.textContent = this.formatJSON(errorInfo);
-                    }
-                }
-            }
-
-            // Clear headers
-            const responseHeaders = document.getElementById('response-headers');
-            if (responseHeaders) {
-                const codeElement = responseHeaders.querySelector('code');
-                if (codeElement) {
-                    codeElement.textContent = error.response ?
-                        Object.entries(error.response.headers || {})
-                            .map(([key, value]) => `${key}: ${value}`)
-                            .join('\n') :
-                        'No headers available';
-                }
-            }
-
-            // Ensure body tab is active
-            this.activateResponseTab('body');
+            this.displayResponse(errorResponse, endpoint);
         },
 
-        // Initialize response tab functionality
-        initializeResponseTabs(container) {
-            const tabBtns = container.querySelectorAll('.tab-btn');
-            const tabPanels = container.querySelectorAll('.tab-panel');
-
-            tabBtns.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const tabName = btn.getAttribute('data-tab');
-
-                    // Update active states
-                    tabBtns.forEach(b => b.classList.remove('active'));
-                    tabPanels.forEach(p => p.classList.remove('active'));
-
-                    btn.classList.add('active');
-                    const panel = container.querySelector(`[data-panel="${tabName}"]`);
-                    if (panel) {
-                        panel.classList.add('active');
-                    }
-                });
-            });
-        },
-
-        // Get CSS class for HTTP status code
-        // Get status class for styling
-        getStatusClass(status) {
-            if (typeof status === 'string') {
-                if (status.toLowerCase().includes('error')) return 'status-error';
-                if (status.toLowerCase().includes('success')) return 'status-success';
-                return 'status-unknown';
-            }
-            if (status >= 200 && status < 300) return 'status-success';
-            if (status >= 300 && status < 400) return 'status-info';
-            if (status >= 400 && status < 500) return 'status-warning';
-            if (status >= 500) return 'status-error';
-            return 'status-unknown';
-        },
-
-        // Update response status in sidebar
-        updateResponseStatus(status, statusText, duration) {
-            const statusEl = document.querySelector('#response-status-info .status-badge');
-            const timeEl = document.querySelector('#response-status-info .response-time');
-
+        // Update response status display
+        updateResponseStatus(response) {
+            const statusEl = document.getElementById('response-status');
             if (statusEl) {
-                statusEl.className = `status-badge ${this.getStatusClass(status)}`;
-                statusEl.textContent = `${status} ${statusText || ''}`.trim();
-            }
-
-            if (timeEl) {
-                timeEl.textContent = duration ? `${duration}ms` : '';
+                const statusClass = response.ok ? 'success' : 'error';
+                statusEl.className = `response-status ${statusClass}`;
+                statusEl.innerHTML = `
+                    <span class="status-code">${response.status}</span>
+                    <span class="status-text">${response.statusText}</span>
+                    <span class="duration">${response.duration}ms</span>
+                `;
             }
         },
 
-        // Activate specific response tab
-        activateResponseTab(tabName) {
-            // Update tab buttons
-            const tabButtons = document.querySelectorAll('.response-tab');
-            tabButtons.forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === tabName);
-            });
+        // Display response body with syntax highlighting
+        displayResponseBody(response) {
+            const bodyEl = document.getElementById('response-body');
+            if (!bodyEl) return;
 
-            // Update tab content visibility
+            if (!response.data) {
+                bodyEl.innerHTML = '<div class="txt-hint">No response body</div>';
+                return;
+            }
+
+            // Use SchemaProcessor for syntax highlighting if available
+            if (typeof SchemaProcessor !== 'undefined') {
+                try {
+                    const formatted = SchemaProcessor.syntaxHighlight(response.data, 'json');
+                    bodyEl.innerHTML = `<pre><code>${formatted}</code></pre>`;
+                } catch (e) {
+                    // Fallback to plain text with escaping
+                    const escaped = SchemaProcessor.escapeHtml(
+                        typeof response.data === 'string' ?
+                            response.data :
+                            JSON.stringify(response.data, null, 2)
+                    );
+                    bodyEl.innerHTML = `<pre><code>${escaped}</code></pre>`;
+                }
+            } else {
+                // Simple fallback
+                const content = typeof response.data === 'string' ?
+                    response.data :
+                    JSON.stringify(response.data, null, 2);
+                bodyEl.innerHTML = `<pre><code>${this.escapeHtml(content)}</code></pre>`;
+            }
+        },
+
+        // Display response headers
+        displayResponseHeaders(response) {
+            const headersEl = document.getElementById('response-headers');
+            if (!headersEl) return;
+
+            if (!response.headers || Object.keys(response.headers).length === 0) {
+                headersEl.innerHTML = '<div class="txt-hint">No response headers</div>';
+                return;
+            }
+
+            // Use SchemaProcessor for formatting if available
+            if (typeof SchemaProcessor !== 'undefined') {
+                const formatted = SchemaProcessor.syntaxHighlight(response.headers, 'json');
+                headersEl.innerHTML = `<pre><code>${formatted}</code></pre>`;
+            } else {
+                const content = JSON.stringify(response.headers, null, 2);
+                headersEl.innerHTML = `<pre><code>${this.escapeHtml(content)}</code></pre>`;
+            }
+        },
+
+        // Update request information display
+        updateRequestInfo(response, endpoint) {
+            const requestInfoEl = document.getElementById('request-info');
+            if (requestInfoEl) {
+                requestInfoEl.innerHTML = `
+                    <div class="request-summary">
+                        <div><strong>Method:</strong> ${response.method}</div>
+                        <div><strong>URL:</strong> ${response.url}</div>
+                        <div><strong>Status:</strong> ${response.status} ${response.statusText}</div>
+                        <div><strong>Duration:</strong> ${response.duration}ms</div>
+                    </div>
+                `;
+            }
+        },
+
+        // Update send button state
+        updateSendButton(button, loading, originalContent = 'Send Request') {
+            if (!button) return;
+
+            if (loading) {
+                button.disabled = true;
+                button.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Sending...';
+            } else {
+                button.disabled = false;
+                button.innerHTML = originalContent;
+            }
+        },
+
+        // Update status message
+        updateStatus(type, message) {
+            if (typeof ErrorStatusManager !== 'undefined') {
+                ErrorStatusManager.updateStatus(type, message);
+            } else if (typeof StatusManager !== 'undefined') {
+                StatusManager.updateStatus(type, message);
+            } else {
+                console.log(`[${type.toUpperCase()}] ${message}`);
+            }
+        },
+
+        // Show error message
+        showError(message) {
+            this.updateStatus('error', message);
+        },
+
+        // Simple HTML escaping fallback
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        },
+
+        // Clear response display
+        clearResponse() {
             const responseBody = document.getElementById('response-body');
             const responseHeaders = document.getElementById('response-headers');
+            const responseStatus = document.getElementById('response-status');
+            const requestInfo = document.getElementById('request-info');
 
-            if (responseBody) {
-                responseBody.style.display = tabName === 'body' ? 'block' : 'none';
+            if (responseBody) responseBody.innerHTML = '<div class="txt-hint">No response yet</div>';
+            if (responseHeaders) responseHeaders.innerHTML = '<div class="txt-hint">No headers yet</div>';
+            if (responseStatus) {
+                responseStatus.className = 'response-status';
+                responseStatus.innerHTML = '<span class="txt-hint">Ready</span>';
             }
-            if (responseHeaders) {
-                responseHeaders.style.display = tabName === 'headers' ? 'block' : 'none';
-            }
+            if (requestInfo) requestInfo.innerHTML = '';
         },
 
-        // Format JSON for display
-        formatJSON(data) {
-            if (!data) return 'No data';
+        // Test endpoint with example data
+        async testWithExample(endpoint) {
+            if (!endpoint) return;
 
-            if (typeof data === 'string') {
-                try {
-                    data = JSON.parse(data);
-                } catch (e) {
-                    return data; // Return as-is if not valid JSON
-                }
+            // Populate form with example data
+            if (APIFormBuilder.populateExampleData) {
+                APIFormBuilder.populateExampleData(endpoint);
             }
 
-            return JSON.stringify(data, null, 2);
+            // Send request
+            await this.sendRequest(endpoint);
         },
 
-        // Build cURL command for the request
-        generateCurlCommand(endpoint, formData, authToken = null) {
-            const config = this.buildRequestConfig(endpoint, formData, authToken);
-
-            let curl = `curl -X ${config.method}`;
-
-            // Add headers
-            Object.entries(config.headers).forEach(([key, value]) => {
-                curl += ` -H "${key}: ${value}"`;
-            });
-
-            // Add body if present
-            if (config.body) {
-                curl += ` -d '${config.body}'`;
+        // Get authentication token helper
+        getAuthToken() {
+            if (window.APILoader && window.APILoader.getSuperuserAuthToken) {
+                return window.APILoader.getSuperuserAuthToken();
             }
 
-            // Add URL (quote it to handle query parameters)
-            curl += ` "${config.url}"`;
-
-            return curl;
-        },
-
-        // Copy cURL command to clipboard
-        copyCurlCommand(endpoint) {
+            // Fallback: check localStorage directly
             try {
-                const validation = APIFormBuilder.validateForm(endpoint);
-                if (!validation.valid) {
-                    throw new Error('Form validation failed');
+                const authData = localStorage.getItem('__pb_superuser_auth__');
+                if (authData) {
+                    const parsed = JSON.parse(authData);
+                    return parsed.token;
                 }
-
-                const curlCommand = this.generateCurlCommand(endpoint, validation.data);
-
-                if (navigator.clipboard) {
-                    navigator.clipboard.writeText(curlCommand).then(() => {
-                        this.showToast('cURL command copied to clipboard!', 'success');
-                    });
-                } else {
-                    // Fallback for older browsers
-                    const textArea = document.createElement('textarea');
-                    textArea.value = curlCommand;
-                    document.body.appendChild(textArea);
-                    textArea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textArea);
-                    this.showToast('cURL command copied to clipboard!', 'success');
-                }
-            } catch (error) {
-                this.showToast('Failed to generate cURL command: ' + error.message, 'error');
+            } catch (e) {
+                console.warn('Could not retrieve auth token:', e);
             }
-        },
 
-        // Show toast notification
-        showToast(message, type = 'info') {
-            // Simple toast implementation
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            toast.textContent = message;
-            toast.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 10px 15px;
-                background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
-                color: white;
-                border-radius: 4px;
-                z-index: 1000;
-                opacity: 0;
-                transition: opacity 0.3s;
-            `;
-
-            document.body.appendChild(toast);
-
-            // Fade in
-            setTimeout(() => toast.style.opacity = '1', 10);
-
-            // Fade out and remove
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                setTimeout(() => document.body.removeChild(toast), 300);
-            }, 3000);
+            return null;
         }
     };
+
+    // Export for global use
+    if (typeof window !== 'undefined') {
+        window.APIRequestHandler = APIRequestHandler;
+    }
+
 {{end}}

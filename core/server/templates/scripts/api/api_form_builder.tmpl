@@ -1,11 +1,11 @@
 {{define "api_form_builder_js"}}
     // =============================================================================
-    // API FORM BUILDER - SIMPLIFIED FOR AST-BASED SCHEMAS
+    // SIMPLIFIED API FORM BUILDER - USES NEW OPENAPI SCHEMA MANAGER
     // =============================================================================
 
     const APIFormBuilder = {
 
-        // Generate parameter form from endpoint schema
+        // Generate complete parameter form from endpoint schema
         generateParameterForm(container, endpoint) {
             if (!container || !endpoint) {
                 console.error('Invalid container or endpoint for form generation');
@@ -15,16 +15,16 @@
             container.innerHTML = '';
             const sections = [];
 
-            // Build manual query parameters section (always available) - moved to top
-            sections.push(this.buildManualQuerySection(endpoint));
+            // Build manual query parameters section (always available for testing)
+            sections.push(this.buildManualQuerySection());
 
-            // Build path parameters section
-            const pathParams = APISchemaManager.extractPathParameters(endpoint.path);
+            // Build path parameters section using simplified schema manager
+            const pathParams = APISchemaManager.extractPathParameters(endpoint);
             if (pathParams.length > 0) {
                 sections.push(this.buildPathParametersSection(pathParams));
             }
 
-            // Build request body section from AST schema
+            // Build request body section using simplified schema manager
             const requestFields = APISchemaManager.extractRequestFields(endpoint);
             if (requestFields.length > 0) {
                 sections.push(this.buildRequestBodySection(requestFields));
@@ -40,488 +40,383 @@
             // Initialize URL updating functionality
             setTimeout(() => this.initUrlUpdating(), 100);
 
-            // If no sections, show helpful message
-            if (sections.length === 0) {
-                container.innerHTML = `
-                    <div class="card card-body">
-                        <div class="txt-center txt-hint p-4">
-                            <i class="ri-information-line"></i>
-                            <p>This endpoint doesn't require any parameters.</p>
-                        </div>
+            // Show helpful message if no parameters needed
+            if (sections.length === 1) { // Only manual query section
+                const helpDiv = document.createElement('div');
+                helpDiv.className = 'card card-body mt-3';
+                helpDiv.innerHTML = `
+                    <div class="txt-center txt-hint p-4">
+                        <i class="ri-information-line"></i>
+                        <p>This endpoint doesn't require any parameters.</p>
+                        <p class="txt-sm">You can still add manual query parameters above if needed.</p>
                     </div>
                 `;
+                container.appendChild(helpDiv);
             }
         },
 
         // Build path parameters section
         buildPathParametersSection(pathParams) {
             const section = document.createElement('div');
-            section.className = 'card card-body';
-            section.innerHTML = `
-                <div class="form-section">
-                    <h6 class="form-section-title">
-                        <i class="ri-route-line"></i>
-                        Path Parameters
-                    </h6>
-                    <p class="txt-hint txt-xs">These parameters are part of the URL path and are required.</p>
-                    <div class="path-parameters">
-                        ${pathParams.map(param => this.buildParameterField(param, 'path')).join('')}
-                    </div>
-                </div>
-            `;
+            section.className = 'form-section card card-body mb-3';
+
+            const header = document.createElement('h6');
+            header.className = 'form-section-title';
+            header.innerHTML = '<i class="ri-route-line"></i> Path Parameters';
+
+            const fieldsContainer = document.createElement('div');
+            fieldsContainer.className = 'form-fields';
+
+            pathParams.forEach(param => {
+                const field = this.createFormField(param, 'path');
+                fieldsContainer.appendChild(field);
+            });
+
+            section.appendChild(header);
+            section.appendChild(fieldsContainer);
+
             return section;
         },
 
-        // Build request body section from AST schema
+        // Build request body section
         buildRequestBodySection(requestFields) {
             const section = document.createElement('div');
-            section.className = 'card card-body';
+            section.className = 'form-section card card-body mb-3';
 
-            const requiredFields = requestFields.filter(field => field.required);
-            const optionalFields = requestFields.filter(field => !field.required);
+            const header = document.createElement('h6');
+            header.className = 'form-section-title';
+            header.innerHTML = '<i class="ri-file-text-line"></i> Request Body';
 
-            section.innerHTML = `
-                <div class="form-section">
-                    <h6 class="form-section-title">
-                        <i class="ri-file-text-line"></i>
-                        Request Body
-                        <span class="txt-xs txt-hint">(application/json)</span>
-                    </h6>
+            const fieldsContainer = document.createElement('div');
+            fieldsContainer.className = 'form-fields';
 
+            requestFields.forEach(field => {
+                const fieldElement = this.createFormField(field, 'body');
+                fieldsContainer.appendChild(fieldElement);
+            });
 
-                    ${requiredFields.length > 0 ? `
-                        <div class="required-fields">
-                            <h7 class="txt-sm txt-bold">Required Fields</h7>
-                            ${requiredFields.map(field => this.buildRequestField(field)).join('')}
-                        </div>
-                    ` : ''}
+            section.appendChild(header);
+            section.appendChild(fieldsContainer);
 
-                    ${optionalFields.length > 0 ? `
-                        <div class="optional-fields ${requiredFields.length > 0 ? 'm-t-sm' : ''}">
-                            <h7 class="txt-sm txt-bold">Optional Fields</h7>
-                            ${optionalFields.map(field => this.buildRequestField(field)).join('')}
-                        </div>
-                    ` : ''}
-                </div>
-            `;
             return section;
         },
 
         // Build manual query parameters section
-        buildManualQuerySection(endpoint) {
+        buildManualQuerySection() {
             const section = document.createElement('div');
-            section.className = 'card card-body';
+            section.className = 'form-section card card-body mb-3';
 
-            // Get available filters from response schema
-            const availableFilters = endpoint ? APISchemaManager.extractAvailableFilters(endpoint) : [];
+            const header = document.createElement('h6');
+            header.className = 'form-section-title';
+            header.innerHTML = '<i class="ri-settings-3-line"></i> Query Parameters';
 
-            let availableFiltersHTML = '';
-            if (availableFilters.length > 0) {
-                availableFiltersHTML = `
-                    <div class="m-b-sm">
-                        <div class="txt-hint txt-xs m-b-xs flex align-center gap-5">
-                            <i class="ri-filter-line"></i>
-                            <span>Available filters:</span>
-                        </div>
-                        <div class="flex flex-wrap gap-xs">
-                            ${availableFilters.map(filter => `
-                                <button type="button" class="btn btn-xs btn-secondary btn-outline filter-suggestion"
-                                        data-filter-name="${filter.name}"
-                                        data-filter-example="${filter.example}"
-                                        title="${filter.description}">
-                                    ${filter.name}${filter.required ? ' *' : ''}
-                                </button>
-                            `).join('')}
-                        </div>
-                    </div>
-                `;
-            }
+            const description = document.createElement('p');
+            description.className = 'txt-hint txt-sm mb-3';
+            description.textContent = 'Add custom query parameters for testing (optional)';
 
-            section.innerHTML = `
-                <div class="form-section">
-                    <h6 class="form-section-title flex align-center gap-5 m-b-sm">
-                        <i class="ri-search-line"></i>
-                        <span>Query Parameters</span>
-                        <span class="txt-xs txt-hint">(optional)</span>
-                    </h6>
-                    ${availableFiltersHTML}
-                    <div class="query-parameters">
-                        <div class="flex gap-xs align-center m-b-xs">
-                            <input type="text" class="form-control form-control-sm query-param-name" placeholder="name" style="flex: 1;">
-                            <input type="text" class="form-control form-control-sm query-param-value" placeholder="value" style="flex: 2;">
-                            <button type="button" class="btn btn-sm btn-secondary btn-outline add-query-param" title="Add parameter">
-                                <i class="ri-add-line"></i>
-                            </button>
-                        </div>
-                        <div class="added-query-params"></div>
-                    </div>
-                </div>
-            `;
+            const queryContainer = document.createElement('div');
+            queryContainer.id = 'manual-query-params';
+            queryContainer.className = 'query-params-container';
 
-            // Add event listener for adding query parameters
-            const addBtn = section.querySelector('.add-query-param');
-            addBtn.addEventListener('click', () => this.addQueryParameter(section));
+            const addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.className = 'btn btn-sm btn-outline-primary';
+            addBtn.innerHTML = '<i class="ri-add-line"></i> Add Query Parameter';
+            addBtn.onclick = () => this.addManualQueryParam(queryContainer);
 
-            // Add event listeners for filter suggestions
-            section.querySelectorAll('.filter-suggestion').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const filterName = btn.getAttribute('data-filter-name');
-                    const filterExample = btn.getAttribute('data-filter-example');
-
-                    const nameInput = section.querySelector('.query-param-name');
-                    const valueInput = section.querySelector('.query-param-value');
-
-                    nameInput.value = filterName;
-                    valueInput.value = '';
-                    valueInput.focus();
-                });
-            });
+            section.appendChild(header);
+            section.appendChild(description);
+            section.appendChild(queryContainer);
+            section.appendChild(addBtn);
 
             return section;
         },
 
-        // Build parameter field (for path parameters)
-        buildParameterField(param, source) {
-            const fieldId = `param-${source}-${param.name}`;
+        // Create form field element
+        createFormField(fieldInfo, paramType) {
+            const fieldDiv = document.createElement('div');
+            fieldDiv.className = 'form-field mb-3';
 
-            return `
-                <div class="form-field m-b-xs">
-                    <label for="${fieldId}" class="form-label">
-                        ${param.name}
-                        ${param.required ? '<span class="txt-danger">*</span>' : ''}
-                    </label>
-                    <input
-                        type="text"
-                        id="${fieldId}"
-                        name="${param.name}"
-                        class="form-control"
-                        data-source="${source}"
-                        ${param.required ? 'required' : ''}
-                        placeholder="${param.description || `Enter ${param.name}`}"
-                    >
-                    ${param.description ? `<div class="field-help">${param.description}</div>` : ''}
-                </div>
-            `;
-        },
+            const label = document.createElement('label');
+            label.className = 'form-label';
+            label.textContent = fieldInfo.name;
 
-        // Build request body field
-        buildRequestField(field) {
-            const fieldId = `body-${field.name}`;
-            const inputType = field.inputType || this.getInputType(field);
-
-
-
-            return `
-                <div class="form-field m-b-xs">
-                    <label for="${fieldId}" class="form-label">
-                        ${field.name}
-                        ${field.required ? '<span class="txt-danger">*</span>' : ''}
-                        <span class="txt-xs txt-hint">(${field.type})</span>
-                    </label>
-                    ${this.buildFieldInput(field, fieldId, inputType)}
-
-                </div>
-            `;
-        },
-
-        // Get appropriate input type for field
-        getInputType(field) {
-            switch (field.type) {
-                case 'boolean':
-                    return 'checkbox';
-                case 'checkbox':
-                    return 'checkbox';
-                case 'textarea':
-                    return 'textarea';
-                case 'number':
-                    return 'number';
-                default:
-                    return 'text';
-            }
-        },
-
-        // Build field input HTML
-        buildFieldInput(field, fieldId, inputType) {
-
-
-            const commonAttrs = `
-                id="${fieldId}"
-                name="${field.name}"
-                ${inputType !== 'checkbox' ? 'class="form-control"' : ''}
-                data-type="${field.type}"
-                ${field.required ? 'required' : ''}
-                ${field.pattern ? `pattern="${field.pattern}"` : ''}
-                ${field.minimum !== undefined ? `min="${field.minimum}"` : ''}
-                ${field.maximum !== undefined ? `max="${field.maximum}"` : ''}
-            `;
-
-            switch (inputType) {
-                case 'checkbox':
-                    return `
-                        <select ${commonAttrs}>
-                            <option value="">Select ${field.name}</option>
-                            <option value="true">true</option>
-                            <option value="false">false</option>
-                        </select>
-                    `;
-
-                case 'textarea':
-                    return `
-                        <textarea ${commonAttrs} rows="3" placeholder="Enter ${field.name}"></textarea>
-                    `;
-
-                case 'number':
-                    return `
-                        <input type="number" ${commonAttrs} placeholder="Enter ${field.name}">
-                    `;
-
-                default:
-                    if (field.enum) {
-                        return `
-                            <select ${commonAttrs}>
-                                <option value="">Select ${field.name}</option>
-                                ${field.enum.map(value => `
-                                    <option value="${value}">${value}</option>
-                                `).join('')}
-                            </select>
-                        `;
-                    }
-
-                    return `
-                        <input type="text" ${commonAttrs} placeholder="Enter ${field.name}">
-                    `;
-            }
-        },
-
-        // Add query parameter row
-        addQueryParameter(section) {
-            const nameInput = section.querySelector('.query-param-name');
-            const valueInput = section.querySelector('.query-param-value');
-            const container = section.querySelector('.added-query-params');
-
-            const name = nameInput.value.trim();
-            const value = valueInput.value.trim();
-
-            if (!name) {
-                alert('Parameter name is required');
-                nameInput.focus();
-                return;
+            if (fieldInfo.required) {
+                label.innerHTML += ' <span class="txt-danger">*</span>';
+                fieldDiv.classList.add('required');
             }
 
-            if (!value) {
-                alert('Parameter value is required');
-                valueInput.focus();
-                return;
+            const input = this.createInputElement(fieldInfo, paramType);
+
+            // Add description if available
+            if (fieldInfo.description) {
+                const helpText = document.createElement('div');
+                helpText.className = 'form-help txt-hint txt-sm mt-1';
+                helpText.textContent = fieldInfo.description;
+                fieldDiv.appendChild(label);
+                fieldDiv.appendChild(input);
+                fieldDiv.appendChild(helpText);
+            } else {
+                fieldDiv.appendChild(label);
+                fieldDiv.appendChild(input);
             }
 
-            // Create compact parameter display
-            const paramRow = document.createElement('div');
-            paramRow.className = 'flex align-center gap-xs m-b-xs p-xs txt-xs bg-base-alt border-radius';
-            paramRow.innerHTML = `
-                <span class="txt-hint">${name}</span>
-                <span class="txt-hint">=</span>
-                <span class="flex-fill txt-nowrap" title="${value}">${value || '<empty>'}</span>
-                <input type="hidden" name="query-${name}" value="${value}">
-                <button type="button" class="btn btn-xs btn-transparent remove-query-param" title="Remove">
-                    <i class="ri-close-line"></i>
-                </button>
-            `;
+            return fieldDiv;
+        },
 
-            // Add remove functionality
-            paramRow.querySelector('.remove-query-param').addEventListener('click', () => {
-                paramRow.remove();
-                this.updateUrlDisplay();
+        // Create appropriate input element based on field schema
+        createInputElement(fieldInfo, paramType) {
+            const inputType = fieldInfo.inputType;
+            let input;
+
+            if (inputType === 'select' && fieldInfo.enum) {
+                input = document.createElement('select');
+                input.className = 'form-control';
+
+                // Add empty option for non-required fields
+                if (!fieldInfo.required) {
+                    const emptyOption = document.createElement('option');
+                    emptyOption.value = '';
+                    emptyOption.textContent = '-- Select --';
+                    input.appendChild(emptyOption);
+                }
+
+                fieldInfo.enum.forEach(value => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    input.appendChild(option);
+                });
+
+            } else if (inputType === 'textarea') {
+                input = document.createElement('textarea');
+                input.className = 'form-control';
+                input.rows = 3;
+
+            } else if (inputType === 'checkbox') {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'form-check';
+
+                input = document.createElement('input');
+                input.type = 'checkbox';
+                input.className = 'form-check-input';
+
+                const checkLabel = document.createElement('label');
+                checkLabel.className = 'form-check-label';
+                checkLabel.textContent = 'Yes';
+
+                wrapper.appendChild(input);
+                wrapper.appendChild(checkLabel);
+                return wrapper;
+
+            } else {
+                input = document.createElement('input');
+                input.type = inputType;
+                input.className = 'form-control';
+
+                // Set input attributes based on schema constraints
+                if (fieldInfo.minimum !== undefined) {
+                    input.min = fieldInfo.minimum;
+                }
+                if (fieldInfo.maximum !== undefined) {
+                    input.max = fieldInfo.maximum;
+                }
+                if (fieldInfo.minLength !== undefined) {
+                    input.minLength = fieldInfo.minLength;
+                }
+                if (fieldInfo.maxLength !== undefined) {
+                    input.maxLength = fieldInfo.maxLength;
+                }
+                if (fieldInfo.pattern) {
+                    input.pattern = fieldInfo.pattern;
+                }
+            }
+
+            // Set common attributes
+            input.name = fieldInfo.name;
+            input.required = fieldInfo.required;
+            input.dataset.paramType = paramType;
+
+            // Set placeholder or example
+            if (fieldInfo.example !== undefined) {
+                if (inputType === 'textarea') {
+                    input.placeholder = typeof fieldInfo.example === 'object' ?
+                        JSON.stringify(fieldInfo.example, null, 2) :
+                        String(fieldInfo.example);
+                } else {
+                    input.placeholder = String(fieldInfo.example);
+                }
+            }
+
+            // Set default value
+            if (fieldInfo.default !== undefined) {
+                if (inputType === 'checkbox') {
+                    input.checked = Boolean(fieldInfo.default);
+                } else {
+                    input.value = String(fieldInfo.default);
+                }
+            }
+
+            return input;
+        },
+
+        // Add manual query parameter field
+        addManualQueryParam(container) {
+            const paramDiv = document.createElement('div');
+            paramDiv.className = 'query-param-pair d-flex align-items-center mb-2';
+
+            const keyInput = document.createElement('input');
+            keyInput.type = 'text';
+            keyInput.className = 'form-control me-2';
+            keyInput.placeholder = 'Parameter name';
+            keyInput.style.flex = '1';
+
+            const valueInput = document.createElement('input');
+            valueInput.type = 'text';
+            valueInput.className = 'form-control me-2';
+            valueInput.placeholder = 'Parameter value';
+            valueInput.style.flex = '1';
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-sm btn-outline-danger';
+            removeBtn.innerHTML = '<i class="ri-close-line"></i>';
+            removeBtn.onclick = () => container.removeChild(paramDiv);
+
+            paramDiv.appendChild(keyInput);
+            paramDiv.appendChild(valueInput);
+            paramDiv.appendChild(removeBtn);
+
+            container.appendChild(paramDiv);
+            keyInput.focus();
+        },
+
+        // Initialize URL updating functionality
+        initUrlUpdating() {
+            const pathParams = document.querySelectorAll('[data-param-type="path"]');
+            pathParams.forEach(input => {
+                input.addEventListener('input', () => this.updateDisplayUrl());
             });
 
-            container.appendChild(paramRow);
+            this.updateDisplayUrl();
+        },
 
-            // Clear inputs
-            nameInput.value = '';
-            valueInput.value = '';
-            nameInput.focus();
+        // Update display URL with current path parameter values
+        updateDisplayUrl() {
+            const urlDisplay = document.getElementById('current-url');
+            if (!urlDisplay) return;
 
-            // Update URL display
-            this.updateUrlDisplay();
+            const endpoint = APITesterSidebar.currentEndpoint;
+            if (!endpoint) return;
+
+            const pathParams = {};
+            document.querySelectorAll('[data-param-type="path"]').forEach(input => {
+                if (input.value) {
+                    pathParams[input.name] = input.value;
+                }
+            });
+
+            const updatedUrl = APISchemaManager.buildUrl(endpoint, pathParams);
+            urlDisplay.textContent = updatedUrl;
+        },
+
+        // Validate form using simplified schema manager
+        validateForm(endpoint) {
+            const formData = this.collectFormData();
+            return APISchemaManager.validateRequestData(endpoint, formData);
         },
 
         // Collect all form data
         collectFormData() {
-            const formData = {
-                pathParameters: {},
-                queryParameters: {},
-                requestBody: {}
-            };
+            const data = {};
 
             // Collect path parameters
-            document.querySelectorAll('[data-source="path"]').forEach(input => {
-                if (input.value.trim()) {
-                    formData.pathParameters[input.name] = input.value.trim();
+            const pathParams = {};
+            document.querySelectorAll('[data-param-type="path"]').forEach(input => {
+                if (input.value) {
+                    pathParams[input.name] = input.value;
                 }
             });
 
-            // Collect query parameters
-            document.querySelectorAll('[name^="query-"]').forEach(input => {
-                const paramName = input.name.replace('query-', '');
-                if (input.value.trim()) {
-                    formData.queryParameters[paramName] = input.value.trim();
+            // Collect body parameters
+            const bodyParams = {};
+            document.querySelectorAll('[data-param-type="body"]').forEach(input => {
+                if (input.type === 'checkbox') {
+                    if (input.checked) {
+                        bodyParams[input.name] = true;
+                    }
+                } else if (input.value) {
+                    bodyParams[input.name] = input.value;
                 }
             });
 
-            // Collect request body fields (including checkboxes without form-control class)
-            document.querySelectorAll('[data-type]').forEach(input => {
-                const fieldType = input.getAttribute('data-type');
-                let value;
-
-
-
-                switch (fieldType) {
-                    case 'boolean':
-                        value = input.value === 'true' ? true : (input.value === 'false' ? false : null);
-                        break;
-                    case 'integer':
-                        value = input.value ? parseInt(input.value, 10) : null;
-                        break;
-                    case 'number':
-                        value = input.value ? parseFloat(input.value) : null;
-                        break;
-                    case 'object':
-                        try {
-                            value = input.value ? JSON.parse(input.value) : null;
-                        } catch (e) {
-                            value = input.value;
-                        }
-                        break;
-                    default:
-                        value = input.value || null;
-                }
-
-                if (value !== null && value !== '') {
-                    formData.requestBody[input.name] = value;
+            // Collect manual query parameters
+            const queryParams = {};
+            document.querySelectorAll('#manual-query-params .query-param-pair').forEach(pair => {
+                const keyInput = pair.querySelector('input:first-child');
+                const valueInput = pair.querySelector('input:last-child');
+                if (keyInput.value && valueInput.value) {
+                    queryParams[keyInput.value] = valueInput.value;
                 }
             });
-
-            return formData;
-        },
-
-        // Validate form data
-        validateForm(endpoint) {
-            const formData = this.collectFormData();
-            const errors = [];
-
-            // Validate path parameters
-            const pathParams = APISchemaManager.extractPathParameters(endpoint.path);
-            pathParams.forEach(param => {
-                if (param.required && !formData.pathParameters[param.name]) {
-                    errors.push(`Path parameter '${param.name}' is required`);
-                }
-            });
-
-            // Validate request body
-            if (endpoint.request) {
-                const validation = APISchemaManager.validateRequestData(endpoint, formData.requestBody);
-                errors.push(...validation.errors);
-            }
 
             return {
-                valid: errors.length === 0,
-                errors: errors,
-                data: formData
+                pathParams,
+                bodyParams,
+                queryParams,
+                ...bodyParams // For validation, include body params at root level
             };
         },
 
         // Clear all form fields
         clearForm() {
-            // Only clear form controls within the API tester sidebar
-            const sidebar = document.getElementById('api-tester-sidebar');
-            if (!sidebar) return;
-
-            // Target both .form-control elements and elements with data-type attributes
-            const fieldsSelector = '.form-control, [data-type]';
-            sidebar.querySelectorAll(fieldsSelector).forEach(field => {
-                // Skip if this field is part of API version selection or other global controls
-                if (field.closest('.api-version-selector') ||
-                    field.closest('#api-tester-sidebar .endpoint-info') ||
-                    field.hasAttribute('data-preserve-on-reset')) {
-                    return;
-                }
-
-                // Handle select fields (including boolean selects)
-                if (field.tagName === 'SELECT') {
-                    field.selectedIndex = 0; // Reset to first option (usually empty/default)
+            const inputs = document.querySelectorAll('.form-field input, .form-field textarea, .form-field select');
+            inputs.forEach(input => {
+                if (input.type === 'checkbox') {
+                    input.checked = false;
                 } else {
-                    field.value = '';
+                    input.value = '';
                 }
             });
 
-            // Remove added query parameters only within the sidebar
-            sidebar.querySelectorAll('.query-param-added').forEach(param => {
-                param.remove();
-            });
+            // Clear manual query parameters
+            const queryContainer = document.getElementById('manual-query-params');
+            if (queryContainer) {
+                queryContainer.innerHTML = '';
+            }
 
-            // Update URL display
-            this.updateUrlDisplay();
+            this.updateDisplayUrl();
         },
 
-        // Update the URL display with current query parameters
-        updateUrlDisplay() {
-            const pathEl = document.getElementById('tester-path');
-            if (!pathEl || !window.APITesterSidebar || !window.APITesterSidebar.currentEndpoint) {
-                return;
-            }
+        // Populate form with example data
+        populateExampleData(endpoint) {
+            if (!endpoint) return;
 
-            const basePath = window.APITesterSidebar.currentEndpoint.path;
-            const formData = this.collectFormData();
+            // Get example request from schema manager
+            const example = APISchemaManager.getExampleRequest(endpoint);
+            if (!example) return;
 
-            // Build URL with path parameters
-            let displayUrl = basePath;
-            for (const [key, value] of Object.entries(formData.pathParameters)) {
-                displayUrl = displayUrl.replace(`{${key}}`, value || `{${key}}`);
-            }
-
-            // Add query parameters
-            const queryParams = new URLSearchParams();
-            for (const [key, value] of Object.entries(formData.queryParameters)) {
-                if (value.trim()) {
-                    queryParams.append(key, value);
-                }
-            }
-
-            if (queryParams.toString()) {
-                displayUrl += '?' + queryParams.toString();
-            }
-
-            pathEl.textContent = displayUrl;
-        },
-
-        // Initialize URL updating for existing elements
-        initUrlUpdating() {
-            // Add event listeners to path parameter inputs
-            document.addEventListener('input', (e) => {
-                if (e.target.matches('[data-source="path"]')) {
-                    this.updateUrlDisplay();
+            // Populate fields with example data
+            Object.entries(example).forEach(([fieldName, value]) => {
+                const input = document.querySelector(`[name="${fieldName}"]`);
+                if (input) {
+                    if (input.type === 'checkbox') {
+                        input.checked = Boolean(value);
+                    } else if (input.tagName === 'TEXTAREA' && typeof value === 'object') {
+                        input.value = JSON.stringify(value, null, 2);
+                    } else {
+                        input.value = String(value);
+                    }
                 }
             });
 
-            // Add event listeners to query parameter inputs
-            const addBtn = document.querySelector('.add-query-param');
-            if (addBtn) {
-                const nameInput = addBtn.closest('.query-parameters').querySelector('.query-param-name');
-                const valueInput = addBtn.closest('.query-parameters').querySelector('.query-param-value');
-
-                if (nameInput && valueInput) {
-                    nameInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter' && nameInput.value.trim()) {
-                            this.addQueryParameter(addBtn.closest('.form-section'));
-                        }
-                    });
-
-                    valueInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter' && nameInput.value.trim()) {
-                            this.addQueryParameter(addBtn.closest('.form-section'));
-                        }
-                    });
-                }
-            }
+            this.updateDisplayUrl();
         }
     };
+
+    // Export for global use
+    if (typeof window !== 'undefined') {
+        window.APIFormBuilder = APIFormBuilder;
+    }
+
 {{end}}
