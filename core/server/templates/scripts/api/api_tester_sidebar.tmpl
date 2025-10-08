@@ -82,16 +82,21 @@
             const emptyState = this._getElementById('response-empty-state');
             const bodyContent = this._getElementById('response-body');
             const headersContent = this._getElementById('response-headers');
+            const copyBtn = this._getElementById('copy-response-btn');
 
             if (emptyState) emptyState.style.display = 'block';
             if (bodyContent) bodyContent.style.display = 'none';
             if (headersContent) headersContent.style.display = 'none';
+            if (copyBtn) copyBtn.style.display = 'none';
         },
 
         // Hide empty response state and show content
         _hideEmptyResponseState() {
             const emptyState = this._getElementById('response-empty-state');
+            const copyBtn = this._getElementById('copy-response-btn');
+
             if (emptyState) emptyState.style.display = 'none';
+            if (copyBtn) copyBtn.style.display = 'block';
 
             // Show the active response tab
             const activeTab = document.querySelector('.response-tab.active');
@@ -673,9 +678,14 @@
                 const emptyState = this._getElementById('response-empty-state');
                 const responseBody = this._getElementById('response-body');
                 const responseHeaders = this._getElementById('response-headers');
+                const copyBtn = this._getElementById('copy-response-btn');
 
                 if (emptyState) {
                     emptyState.style.display = 'flex';
+                }
+
+                if (copyBtn) {
+                    copyBtn.style.display = 'none';
                 }
 
                 if (responseBody) {
@@ -732,10 +742,10 @@
             const emptyState = this._getElementById('response-empty-state');
             const responseBody = this._getElementById('response-body');
             const responseHeaders = this._getElementById('response-headers');
+            const copyBtn = this._getElementById('copy-response-btn');
 
-            if (emptyState) {
-                emptyState.style.display = 'none';
-            }
+            if (emptyState) emptyState.style.display = 'none';
+            if (copyBtn) copyBtn.style.display = 'block';
 
             // Show content based on active response tab
             const activeResponseTab = this._safeQuery('.response-tab.active');
@@ -1121,8 +1131,10 @@
             const emptyState = this._getElementById('response-empty-state');
             const responseBody = this._getElementById('response-body');
             const responseHeaders = this._getElementById('response-headers');
+            const copyBtn = this._getElementById('copy-response-btn');
 
             if (emptyState) emptyState.style.display = 'block';
+            if (copyBtn) copyBtn.style.display = 'none';
 
             if (responseBody) {
                 responseBody.style.display = 'none';

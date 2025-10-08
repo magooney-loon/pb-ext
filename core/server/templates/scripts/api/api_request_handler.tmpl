@@ -147,7 +147,9 @@
 
             // Hide empty state, show response content
             const emptyState = document.getElementById('response-empty-state');
+            const copyBtn = document.getElementById('copy-response-btn');
             if (emptyState) emptyState.style.display = 'none';
+            if (copyBtn) copyBtn.style.display = 'block';
 
             // Update response body with proper formatting
             const responseBody = document.getElementById('response-body');
@@ -192,7 +194,9 @@
 
             // Hide empty state, show response content
             const emptyState = document.getElementById('response-empty-state');
+            const copyBtn = document.getElementById('copy-response-btn');
             if (emptyState) emptyState.style.display = 'none';
+            if (copyBtn) copyBtn.style.display = 'block';
 
             // Show error in response body with proper formatting
             const responseBody = document.getElementById('response-body');
