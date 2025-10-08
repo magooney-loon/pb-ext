@@ -305,10 +305,10 @@ func (p *ASTParser) handleJSONResponse(call *ast.CallExpr, handlerInfo *ASTHandl
 		}
 
 		// Fallback: generate a basic object schema
-		handlerInfo.ResponseSchema = map[string]interface{}{
-			"type":                 "object",
-			"description":          "Response data",
-			"additionalProperties": true,
+		handlerInfo.ResponseSchema = &OpenAPISchema{
+			Type:                 "object",
+			Description:          "Response data",
+			AdditionalProperties: true,
 		}
 	}
 }
@@ -453,14 +453,12 @@ func (p *ASTParser) extractTypeName(expr ast.Expr) string {
 	return ""
 }
 
-// generateStructSchema generates JSON schema for a struct
-func (p *ASTParser) generateStructSchema(structInfo *StructInfo) map[string]interface{} {
-	schema := map[string]interface{}{
-		"type":       "object",
-		"properties": make(map[string]interface{}),
+// generateStructSchema generates OpenAPI schema for a struct
+func (p *ASTParser) generateStructSchema(structInfo *StructInfo) *OpenAPISchema {
+	schema := &OpenAPISchema{
+		Type:       "object",
+		Properties: make(map[string]*OpenAPISchema),
 	}
-
-	properties := schema["properties"].(map[string]interface{})
 
 	for _, fieldInfo := range structInfo.Fields {
 		fieldName := fieldInfo.JSONName
@@ -468,31 +466,31 @@ func (p *ASTParser) generateStructSchema(structInfo *StructInfo) map[string]inte
 			fieldName = fieldInfo.Name
 		}
 
-		properties[fieldName] = p.generateFieldSchema(fieldInfo.Type)
+		schema.Properties[fieldName] = p.generateFieldSchema(fieldInfo.Type)
 	}
 
 	return schema
 }
 
-// generateFieldSchema generates schema for a field type
-func (p *ASTParser) generateFieldSchema(fieldType string) map[string]interface{} {
+// generateFieldSchema generates OpenAPI schema for a field type
+func (p *ASTParser) generateFieldSchema(fieldType string) *OpenAPISchema {
 	switch fieldType {
 	case "string":
-		return map[string]interface{}{"type": "string"}
+		return &OpenAPISchema{Type: "string"}
 	case "int", "int64", "int32":
-		return map[string]interface{}{"type": "integer"}
+		return &OpenAPISchema{Type: "integer"}
 	case "float64", "float32":
-		return map[string]interface{}{"type": "number"}
+		return &OpenAPISchema{Type: "number"}
 	case "bool":
-		return map[string]interface{}{"type": "boolean"}
+		return &OpenAPISchema{Type: "boolean"}
 	default:
 		if strings.HasPrefix(fieldType, "[]") {
-			return map[string]interface{}{
-				"type":  "array",
-				"items": p.generateFieldSchema(strings.TrimPrefix(fieldType, "[]")),
+			return &OpenAPISchema{
+				Type:  "array",
+				Items: p.generateFieldSchema(strings.TrimPrefix(fieldType, "[]")),
 			}
 		}
-		return map[string]interface{}{"type": "object"}
+		return &OpenAPISchema{Type: "object"}
 	}
 }
 
@@ -631,7 +629,7 @@ func (p *ASTParser) ClearCache() {
 }
 
 // analyzeMapLiteralSchema analyzes map[string]any{...} literals to generate schemas
-func (p *ASTParser) analyzeMapLiteralSchema(expr ast.Expr) map[string]interface{} {
+func (p *ASTParser) analyzeMapLiteralSchema(expr ast.Expr) *OpenAPISchema {
 	switch e := expr.(type) {
 	case *ast.CompositeLit:
 		// Check if it's a map literal
@@ -643,13 +641,12 @@ func (p *ASTParser) analyzeMapLiteralSchema(expr ast.Expr) map[string]interface{
 }
 
 // parseMapLiteral parses a map literal and generates a JSON schema
-func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit) map[string]interface{} {
-	schema := map[string]interface{}{
-		"type":       "object",
-		"properties": make(map[string]interface{}),
+func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit) *OpenAPISchema {
+	schema := &OpenAPISchema{
+		Type:       "object",
+		Properties: make(map[string]*OpenAPISchema),
 	}
 
-	properties := schema["properties"].(map[string]interface{})
 	required := []string{}
 
 	for _, elt := range mapLit.Elts {
@@ -664,7 +661,7 @@ func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit) map[string]interfa
 				// Analyze value type using generic inference
 				valueSchema := p.analyzeValueExpression(kv.Value)
 				if valueSchema != nil {
-					properties[keyName] = valueSchema
+					schema.Properties[keyName] = valueSchema
 					// Consider most fields required (can be refined later)
 					if keyName != "error" && keyName != "message" && keyName != "description" {
 						required = append(required, keyName)
@@ -675,52 +672,52 @@ func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit) map[string]interfa
 	}
 
 	if len(required) > 0 {
-		schema["required"] = required
+		schema.Required = required
 	}
 
 	return schema
 }
 
 // analyzeValueExpression analyzes the value in a key-value pair to determine its schema
-func (p *ASTParser) analyzeValueExpression(expr ast.Expr) map[string]interface{} {
+func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		switch e.Kind.String() {
 		case "STRING":
-			return map[string]interface{}{
-				"type":    "string",
-				"example": strings.Trim(e.Value, `"`),
+			return &OpenAPISchema{
+				Type:    "string",
+				Example: strings.Trim(e.Value, `"`),
 			}
 		case "INT":
-			return map[string]interface{}{
-				"type":    "integer",
-				"example": e.Value,
+			return &OpenAPISchema{
+				Type:    "integer",
+				Example: e.Value,
 			}
 		case "FLOAT":
-			return map[string]interface{}{
-				"type":    "number",
-				"example": e.Value,
+			return &OpenAPISchema{
+				Type:    "number",
+				Example: e.Value,
 			}
 		}
 	case *ast.Ident:
 		switch e.Name {
 		case "true", "false":
-			return map[string]interface{}{
-				"type":    "boolean",
-				"example": e.Name == "true",
+			return &OpenAPISchema{
+				Type:    "boolean",
+				Example: e.Name == "true",
 			}
 		default:
 			// Generic variable reference handling based on naming patterns
 			varName := e.Name
 			if strings.HasSuffix(varName, "s") && len(varName) > 2 {
 				// Plural names likely arrays
-				return map[string]interface{}{
-					"type":  "array",
-					"items": map[string]interface{}{"type": "object"},
+				return &OpenAPISchema{
+					Type:  "array",
+					Items: &OpenAPISchema{Type: "object"},
 				}
 			}
 			// Default to string for identifiers
-			return map[string]interface{}{"type": "string"}
+			return &OpenAPISchema{Type: "string"}
 		}
 	case *ast.CompositeLit:
 		// Handle nested map literals
@@ -736,47 +733,47 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) map[string]interface{}
 		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
 			switch sel.Sel.Name {
 			case "GetString":
-				return map[string]interface{}{"type": "string"}
+				return &OpenAPISchema{Type: "string"}
 			case "GetBool":
-				return map[string]interface{}{"type": "boolean"}
+				return &OpenAPISchema{Type: "boolean"}
 			case "GetInt", "GetFloat":
-				return map[string]interface{}{"type": "number"}
+				return &OpenAPISchema{Type: "number"}
 			case "GetDateTime":
-				return map[string]interface{}{
-					"type":   "string",
-					"format": "date-time",
+				return &OpenAPISchema{
+					Type:   "string",
+					Format: "date-time",
 				}
 			case "Format":
 				// Handle time.Format calls
 				if x, ok := sel.X.(*ast.CallExpr); ok {
 					if s, ok := x.Fun.(*ast.SelectorExpr); ok && s.Sel.Name == "Now" {
-						return map[string]interface{}{
-							"type":   "string",
-							"format": "date-time",
+						return &OpenAPISchema{
+							Type:   "string",
+							Format: "date-time",
 						}
 					}
 				}
-				return map[string]interface{}{"type": "string"}
+				return &OpenAPISchema{Type: "string"}
 			case "Unix", "UnixNano":
-				return map[string]interface{}{"type": "integer"}
+				return &OpenAPISchema{Type: "integer"}
 			}
 		}
 		// Handle direct function calls
 		if ident, ok := e.Fun.(*ast.Ident); ok {
 			switch ident.Name {
 			case "len":
-				return map[string]interface{}{"type": "integer", "minimum": 0}
+				return &OpenAPISchema{Type: "integer", Minimum: floatPtr(0)}
 			case "make":
-				return map[string]interface{}{
-					"type":  "array",
-					"items": map[string]interface{}{"type": "object"},
+				return &OpenAPISchema{
+					Type:  "array",
+					Items: &OpenAPISchema{Type: "object"},
 				}
 			default:
 				if strings.Contains(ident.Name, "String") || strings.HasPrefix(ident.Name, "Format") {
-					return map[string]interface{}{"type": "string"}
+					return &OpenAPISchema{Type: "string"}
 				}
 				if strings.Contains(ident.Name, "Int") || strings.Contains(ident.Name, "Count") {
-					return map[string]interface{}{"type": "integer"}
+					return &OpenAPISchema{Type: "integer"}
 				}
 			}
 		}
@@ -787,46 +784,46 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) map[string]interface{}
 			if strings.HasPrefix(sel, "Get") {
 				switch {
 				case strings.Contains(sel, "String"):
-					return map[string]interface{}{"type": "string"}
+					return &OpenAPISchema{Type: "string"}
 				case strings.Contains(sel, "Bool"):
-					return map[string]interface{}{"type": "boolean"}
+					return &OpenAPISchema{Type: "boolean"}
 				case strings.Contains(sel, "Int") || strings.Contains(sel, "Float"):
-					return map[string]interface{}{"type": "number"}
+					return &OpenAPISchema{Type: "number"}
 				case strings.Contains(sel, "DateTime") || strings.Contains(sel, "Time"):
-					return map[string]interface{}{"type": "string", "format": "date-time"}
+					return &OpenAPISchema{Type: "string", Format: "date-time"}
 				default:
-					return map[string]interface{}{"type": "string"}
+					return &OpenAPISchema{Type: "string"}
 				}
 			}
 
 			// Generic property inference
 			if strings.Contains(sel, "Id") || strings.HasSuffix(sel, "ID") {
-				return map[string]interface{}{"type": "string"}
+				return &OpenAPISchema{Type: "string"}
 			}
 			if strings.Contains(sel, "Time") || strings.Contains(sel, "At") || strings.Contains(sel, "Date") {
-				return map[string]interface{}{"type": "string", "format": "date-time"}
+				return &OpenAPISchema{Type: "string", Format: "date-time"}
 			}
 			if strings.Contains(sel, "Count") || sel == "Unix" || sel == "UnixNano" {
-				return map[string]interface{}{"type": "integer"}
+				return &OpenAPISchema{Type: "integer"}
 			}
 		}
 	}
 
 	// Default to string for unknown expressions instead of generic object
-	return map[string]interface{}{"type": "string"}
+	return &OpenAPISchema{Type: "string"}
 }
 
 // parseArrayLiteral parses an array literal
-func (p *ASTParser) parseArrayLiteral(arrayLit *ast.CompositeLit) map[string]interface{} {
-	schema := map[string]interface{}{
-		"type":  "array",
-		"items": map[string]interface{}{"type": "object"},
+func (p *ASTParser) parseArrayLiteral(arrayLit *ast.CompositeLit) *OpenAPISchema {
+	schema := &OpenAPISchema{
+		Type:  "array",
+		Items: &OpenAPISchema{Type: "object"},
 	}
 
 	// Try to infer item type from first element
 	if len(arrayLit.Elts) > 0 {
 		if itemSchema := p.analyzeValueExpression(arrayLit.Elts[0]); itemSchema != nil {
-			schema["items"] = itemSchema
+			schema.Items = itemSchema
 		}
 	}
 
@@ -918,34 +915,34 @@ func (p *ASTParser) extractVarDecl(genDecl *ast.GenDecl, handlerInfo *ASTHandler
 	}
 }
 
-// generateSchemaFromType generates a JSON schema from a type name
-func (p *ASTParser) generateSchemaFromType(typeName string) map[string]interface{} {
+// generateSchemaFromType generates an OpenAPI schema from a type name
+func (p *ASTParser) generateSchemaFromType(typeName string) *OpenAPISchema {
 	// Handle array types
 	if strings.HasPrefix(typeName, "[]") {
 		elementType := strings.TrimPrefix(typeName, "[]")
 		elementSchema := p.generateSchemaFromType(elementType)
 		if elementSchema != nil {
-			return map[string]interface{}{
-				"type":  "array",
-				"items": elementSchema,
+			return &OpenAPISchema{
+				Type:  "array",
+				Items: elementSchema,
 			}
 		}
-		return map[string]interface{}{
-			"type":  "array",
-			"items": map[string]interface{}{"type": "object"},
+		return &OpenAPISchema{
+			Type:  "array",
+			Items: &OpenAPISchema{Type: "object"},
 		}
 	}
 
 	// Handle primitive types
 	switch typeName {
 	case "string":
-		return map[string]interface{}{"type": "string"}
+		return &OpenAPISchema{Type: "string"}
 	case "int", "int64", "int32":
-		return map[string]interface{}{"type": "integer"}
+		return &OpenAPISchema{Type: "integer"}
 	case "float64", "float32":
-		return map[string]interface{}{"type": "number"}
+		return &OpenAPISchema{Type: "number"}
 	case "bool":
-		return map[string]interface{}{"type": "boolean"}
+		return &OpenAPISchema{Type: "boolean"}
 	}
 
 	// Look for struct definition
@@ -955,17 +952,17 @@ func (p *ASTParser) generateSchemaFromType(typeName string) map[string]interface
 
 	// Handle map types or unknown structs
 	if strings.Contains(typeName, "map[") || typeName == "interface{}" {
-		return map[string]interface{}{
-			"type":                 "object",
-			"additionalProperties": true,
+		return &OpenAPISchema{
+			Type:                 "object",
+			AdditionalProperties: true,
 		}
 	}
 
 	// Default to object type with reference
-	return map[string]interface{}{
-		"type":                 "object",
-		"description":          "Response object of type " + typeName,
-		"additionalProperties": true,
+	return &OpenAPISchema{
+		Type:                 "object",
+		Description:          "Response object of type " + typeName,
+		AdditionalProperties: true,
 	}
 }
 

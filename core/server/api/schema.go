@@ -1,9 +1,7 @@
 package api
 
 import (
-	"fmt"
 	"regexp"
-	"strings"
 )
 
 // =============================================================================
@@ -12,148 +10,235 @@ import (
 
 // NewSchemaGenerator creates a new schema generator with the given AST parser
 func NewSchemaGenerator(astParser ASTParserInterface) *SchemaGenerator {
+	logger := &DefaultLogger{}
 	return &SchemaGenerator{
-		astParser:   astParser,
-		typeCache:   make(map[string]interface{}),
-		schemaCache: make(map[string]map[string]interface{}),
-		validators:  []TypeValidator{},
-		logger:      &DefaultLogger{},
+		astParser:     astParser,
+		schemaBuilder: NewOpenAPISchemaBuilder(logger),
+		components: &OpenAPIComponents{
+			Schemas:         make(map[string]*OpenAPISchema),
+			Responses:       make(map[string]*OpenAPIResponse),
+			Parameters:      make(map[string]*OpenAPIParameter),
+			RequestBodies:   make(map[string]*OpenAPIRequestBody),
+			Examples:        make(map[string]*OpenAPIExample),
+			Headers:         make(map[string]*OpenAPIHeader),
+			SecuritySchemes: make(map[string]*OpenAPISecurityScheme),
+			Links:           make(map[string]*OpenAPILink),
+			Callbacks:       make(map[string]*OpenAPICallback),
+		},
+		validators: []TypeValidator{},
+		logger:     logger,
 	}
 }
 
 // AnalyzeRequestSchema analyzes and generates request schema for an endpoint
-func (sg *SchemaGenerator) AnalyzeRequestSchema(endpoint *APIEndpoint) (map[string]interface{}, error) {
+func (sg *SchemaGenerator) AnalyzeRequestSchema(endpoint *APIEndpoint) (*OpenAPISchema, error) {
 	sg.mu.RLock()
 	defer sg.mu.RUnlock()
 
-	// Check cache first
-	cacheKey := fmt.Sprintf("req:%s:%s", endpoint.Method, endpoint.Path)
-	if cached, exists := sg.schemaCache[cacheKey]; exists {
-		return cached, nil
+	// Check if endpoint already has a request schema
+	if endpoint.Request != nil {
+		return endpoint.Request, nil
 	}
 
-	var schema map[string]interface{}
-
-	// Try AST-based analysis first
-	// Only use AST-based generation - no fallbacks
-	if sg.astParser != nil {
-		schema = sg.generateRequestSchemaFromAST(endpoint)
+	// Try to generate from AST
+	if schema := sg.generateRequestSchemaFromAST(endpoint); schema != nil {
+		return schema, nil
 	}
 
-	// Cache the result
-	if schema != nil {
-		sg.schemaCache[cacheKey] = schema
+	// Try pattern matching
+	patterns := sg.getSchemaPatterns()
+	for _, pattern := range patterns {
+		if pattern.PathMatch != nil && pattern.PathMatch(endpoint.Path) {
+			if pattern.RequestGen != nil {
+				return pattern.RequestGen(), nil
+			}
+		}
 	}
 
-	return schema, nil
+	return nil, nil // No request schema needed (e.g., GET requests)
 }
 
 // AnalyzeResponseSchema analyzes and generates response schema for an endpoint
-func (sg *SchemaGenerator) AnalyzeResponseSchema(endpoint *APIEndpoint) (map[string]interface{}, error) {
+func (sg *SchemaGenerator) AnalyzeResponseSchema(endpoint *APIEndpoint) (*OpenAPISchema, error) {
 	sg.mu.RLock()
 	defer sg.mu.RUnlock()
 
-	// Check cache first
-	cacheKey := fmt.Sprintf("resp:%s:%s", endpoint.Method, endpoint.Path)
-	if cached, exists := sg.schemaCache[cacheKey]; exists {
-		return cached, nil
+	// Check if endpoint already has a response schema
+	if endpoint.Response != nil {
+		return endpoint.Response, nil
 	}
 
-	var schema map[string]interface{}
-
-	// Try AST-based analysis first
-	// Only use AST-based generation - no fallbacks
-	if sg.astParser != nil {
-		schema = sg.generateResponseSchemaFromAST(endpoint)
+	// Try to generate from AST
+	if schema := sg.generateResponseSchemaFromAST(endpoint); schema != nil {
+		return schema, nil
 	}
 
-	// Cache the result
-	if schema != nil {
-		sg.schemaCache[cacheKey] = schema
+	// Try pattern matching
+	patterns := sg.getSchemaPatterns()
+	for _, pattern := range patterns {
+		if pattern.PathMatch != nil && pattern.PathMatch(endpoint.Path) {
+			if pattern.ResponseGen != nil {
+				return pattern.ResponseGen(), nil
+			}
+		}
 	}
 
-	return schema, nil
+	// Default success response
+	return sg.generateSuccessResponseSchema(), nil
 }
 
-// AnalyzeSchemaFromPath generates schemas based on URL path patterns
+// AnalyzeSchemaFromPath analyzes schemas for a given method and path
 func (sg *SchemaGenerator) AnalyzeSchemaFromPath(method, path string) (*SchemaAnalysisResult, error) {
 	result := &SchemaAnalysisResult{
 		Errors:   []error{},
 		Warnings: []string{},
 	}
 
-	// Only provide schemas if we have AST data - no generic fallbacks
+	// Create a temporary endpoint for analysis
+	endpoint := &APIEndpoint{
+		Method: method,
+		Path:   path,
+	}
+
+	// Analyze request schema
+	if requestSchema, err := sg.AnalyzeRequestSchema(endpoint); err != nil {
+		result.Errors = append(result.Errors, err)
+	} else {
+		result.RequestSchema = requestSchema
+	}
+
+	// Analyze response schema
+	if responseSchema, err := sg.AnalyzeResponseSchema(endpoint); err != nil {
+		result.Errors = append(result.Errors, err)
+	} else {
+		result.ResponseSchema = responseSchema
+	}
 
 	return result, nil
 }
 
-// GenerateComponentSchemas generates OpenAPI component schemas
-func (sg *SchemaGenerator) GenerateComponentSchemas() map[string]interface{} {
+// GenerateComponentSchemas generates OpenAPI component schemas from AST data
+func (sg *SchemaGenerator) GenerateComponentSchemas() *OpenAPIComponents {
 	sg.mu.RLock()
 	defer sg.mu.RUnlock()
 
-	components := map[string]interface{}{
-		"schemas": sg.generateStructSchemas(),
+	components := &OpenAPIComponents{
+		Schemas:       sg.generateStructSchemas(),
+		Responses:     sg.generateCommonResponses(),
+		Parameters:    sg.generateCommonParameters(),
+		RequestBodies: make(map[string]*OpenAPIRequestBody),
+		Examples:      make(map[string]*OpenAPIExample),
+		Headers:       make(map[string]*OpenAPIHeader),
+		SecuritySchemes: map[string]*OpenAPISecurityScheme{
+			"bearerAuth": {
+				Type:   "http",
+				Scheme: "bearer",
+			},
+		},
+		Links:     make(map[string]*OpenAPILink),
+		Callbacks: make(map[string]*OpenAPICallback),
 	}
 
 	return components
 }
 
+// GetOpenAPIEndpointSchema generates a complete OpenAPI endpoint schema
+func (sg *SchemaGenerator) GetOpenAPIEndpointSchema(endpoint *APIEndpoint) (*OpenAPIEndpointSchema, error) {
+	operation := &OpenAPIOperation{
+		Summary:     endpoint.Description,
+		Description: endpoint.Description,
+		Tags:        endpoint.Tags,
+		Responses:   make(map[string]*OpenAPIResponse),
+	}
+
+	// Generate operation ID
+	if endpoint.Handler != "" {
+		operation.OperationId = generateOperationId(endpoint.Handler)
+	}
+
+	// Analyze request schema
+	if requestSchema, err := sg.AnalyzeRequestSchema(endpoint); err == nil && requestSchema != nil {
+		operation.RequestBody = &OpenAPIRequestBody{
+			Description: "Request body",
+			Required:    boolPtr(true),
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: requestSchema,
+				},
+			},
+		}
+	}
+
+	// Analyze response schema
+	if responseSchema, err := sg.AnalyzeResponseSchema(endpoint); err == nil && responseSchema != nil {
+		operation.Responses["200"] = &OpenAPIResponse{
+			Description: "Successful response",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: responseSchema,
+				},
+			},
+		}
+	} else {
+		operation.Responses["200"] = &OpenAPIResponse{
+			Description: "Successful response",
+		}
+	}
+
+	// Add common error responses
+	sg.addCommonErrorResponses(operation.Responses)
+
+	// Add security if authentication is required
+	if endpoint.Auth != nil && endpoint.Auth.Required {
+		operation.Security = []map[string][]string{
+			{"bearerAuth": {}},
+		}
+	}
+
+	return &OpenAPIEndpointSchema{
+		Operation: operation,
+		Responses: operation.Responses,
+		Security:  operation.Security,
+	}, nil
+}
+
 // =============================================================================
-// AST-Based Schema Generation
+// Private Helper Methods
 // =============================================================================
 
-// generateRequestSchemaFromAST generates request schema using AST information
-func (sg *SchemaGenerator) generateRequestSchemaFromAST(endpoint *APIEndpoint) map[string]interface{} {
+// generateRequestSchemaFromAST generates request schema from AST analysis
+func (sg *SchemaGenerator) generateRequestSchemaFromAST(endpoint *APIEndpoint) *OpenAPISchema {
 	if sg.astParser == nil {
 		return nil
 	}
 
 	handlerName := ExtractHandlerNameFromPath(endpoint.Handler)
 	if handlerInfo, exists := sg.astParser.GetHandlerByName(handlerName); exists {
-		// First check if we have a pre-generated request schema from AST analysis
-		if handlerInfo.RequestSchema != nil {
-			return handlerInfo.RequestSchema
-		}
-
-		// Fallback to struct-based schema generation
-		if handlerInfo.RequestType != "" {
-			if structInfo, exists := sg.astParser.GetStructByName(handlerInfo.RequestType); exists {
-				return structInfo.JSONSchema
-			}
-		}
+		// Return pre-generated request schema from AST analysis
+		return handlerInfo.RequestSchema
 	}
 
 	return nil
 }
 
-// generateResponseSchemaFromAST generates response schema using AST information
-func (sg *SchemaGenerator) generateResponseSchemaFromAST(endpoint *APIEndpoint) map[string]interface{} {
+// generateResponseSchemaFromAST generates response schema from AST analysis
+func (sg *SchemaGenerator) generateResponseSchemaFromAST(endpoint *APIEndpoint) *OpenAPISchema {
 	if sg.astParser == nil {
 		return nil
 	}
 
 	handlerName := ExtractHandlerNameFromPath(endpoint.Handler)
 	if handlerInfo, exists := sg.astParser.GetHandlerByName(handlerName); exists {
-		// First check for inline map schema (from map literals)
-		if handlerInfo.ResponseSchema != nil {
-			return handlerInfo.ResponseSchema
-		}
-
-		// Fallback to struct-based schema
-		if handlerInfo.ResponseType != "" {
-			if structInfo, exists := sg.astParser.GetStructByName(handlerInfo.ResponseType); exists {
-				return structInfo.JSONSchema
-			}
-		}
+		// Return pre-generated response schema from AST analysis
+		return handlerInfo.ResponseSchema
 	}
 
 	return nil
 }
 
-// generateStructSchemas generates schemas for all parsed structs
-func (sg *SchemaGenerator) generateStructSchemas() map[string]interface{} {
-	schemas := make(map[string]interface{})
+// generateStructSchemas generates OpenAPI schemas for all discovered structs
+func (sg *SchemaGenerator) generateStructSchemas() map[string]*OpenAPISchema {
+	schemas := make(map[string]*OpenAPISchema)
 
 	if sg.astParser != nil {
 		structs := sg.astParser.GetAllStructs()
@@ -161,31 +246,155 @@ func (sg *SchemaGenerator) generateStructSchemas() map[string]interface{} {
 			if structInfo.JSONSchema != nil {
 				cleanName := CleanTypeName(name)
 				schemas[cleanName] = structInfo.JSONSchema
+			} else {
+				// Convert StructInfo to OpenAPI schema
+				cleanName := CleanTypeName(name)
+				schemas[cleanName] = ConvertStructInfoToOpenAPISchema(structInfo)
 			}
 		}
 	}
 
-	// Only return actual parsed schemas - no generic ones
+	// Add PocketBase common schemas
+	schemas["PocketBaseRecord"] = PocketBaseRecordSchema
+	schemas["Error"] = ErrorResponseSchema
+
 	return schemas
 }
 
-// =============================================================================
-// Schema Pattern Matching
-// =============================================================================
+// generateCommonResponses generates common response schemas
+func (sg *SchemaGenerator) generateCommonResponses() map[string]*OpenAPIResponse {
+	return map[string]*OpenAPIResponse{
+		"BadRequest": {
+			Description: "Bad Request",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: ErrorResponseSchema,
+				},
+			},
+		},
+		"Unauthorized": {
+			Description: "Unauthorized",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: ErrorResponseSchema,
+				},
+			},
+		},
+		"Forbidden": {
+			Description: "Forbidden",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: ErrorResponseSchema,
+				},
+			},
+		},
+		"NotFound": {
+			Description: "Not Found",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: ErrorResponseSchema,
+				},
+			},
+		},
+		"InternalServerError": {
+			Description: "Internal Server Error",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: ErrorResponseSchema,
+				},
+			},
+		},
+	}
+}
 
-// getSchemaPatterns returns predefined schema patterns for common endpoints
+// generateCommonParameters generates common parameter definitions
+func (sg *SchemaGenerator) generateCommonParameters() map[string]*OpenAPIParameter {
+	return map[string]*OpenAPIParameter{
+		"CollectionParam": {
+			Name:        "collection",
+			In:          "path",
+			Description: "Collection name",
+			Required:    boolPtr(true),
+			Schema:      &OpenAPISchema{Type: "string"},
+		},
+		"RecordIdParam": {
+			Name:        "id",
+			In:          "path",
+			Description: "Record ID",
+			Required:    boolPtr(true),
+			Schema:      &OpenAPISchema{Type: "string"},
+		},
+		"PageParam": {
+			Name:        "page",
+			In:          "query",
+			Description: "Page number",
+			Required:    boolPtr(false),
+			Schema:      &OpenAPISchema{Type: "integer", Minimum: floatPtr(1), Default: 1},
+		},
+		"PerPageParam": {
+			Name:        "perPage",
+			In:          "query",
+			Description: "Items per page",
+			Required:    boolPtr(false),
+			Schema:      &OpenAPISchema{Type: "integer", Minimum: floatPtr(1), Maximum: floatPtr(500), Default: 30},
+		},
+	}
+}
+
+// addCommonErrorResponses adds common error responses to an operation
+func (sg *SchemaGenerator) addCommonErrorResponses(responses map[string]*OpenAPIResponse) {
+	errorResponses := map[string]*OpenAPIResponse{
+		"400": {
+			Description: "Bad Request",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {Schema: ErrorResponseSchema},
+			},
+		},
+		"401": {
+			Description: "Unauthorized",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {Schema: ErrorResponseSchema},
+			},
+		},
+		"403": {
+			Description: "Forbidden",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {Schema: ErrorResponseSchema},
+			},
+		},
+		"404": {
+			Description: "Not Found",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {Schema: ErrorResponseSchema},
+			},
+		},
+		"500": {
+			Description: "Internal Server Error",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {Schema: ErrorResponseSchema},
+			},
+		},
+	}
+
+	for code, response := range errorResponses {
+		if _, exists := responses[code]; !exists {
+			responses[code] = response
+		}
+	}
+}
+
+// getSchemaPatterns returns pattern-based schema generators for common PocketBase endpoints
 func (sg *SchemaGenerator) getSchemaPatterns() []*SchemaPattern {
 	return []*SchemaPattern{
 		{
 			Name: "Collection List",
 			PathMatch: func(path string) bool {
-				// Matches paths like /api/collections/:collection/records
 				return regexp.MustCompile(`/collections/[^/]+/records$`).MatchString(path)
 			},
-			RequestGen: func() map[string]interface{} {
+			RequestGen: func() *OpenAPISchema {
 				return nil // GET requests don't have body
 			},
-			ResponseGen: func() map[string]interface{} {
+			ResponseGen: func() *OpenAPISchema {
 				return sg.generatePaginatedResponseSchema()
 			},
 		},
@@ -194,336 +403,246 @@ func (sg *SchemaGenerator) getSchemaPatterns() []*SchemaPattern {
 			PathMatch: func(path string) bool {
 				return regexp.MustCompile(`/collections/[^/]+/records$`).MatchString(path)
 			},
-			RequestGen: func() map[string]interface{} {
+			RequestGen: func() *OpenAPISchema {
 				return sg.generateRecordCreateSchema()
 			},
-			ResponseGen: func() map[string]interface{} {
+			ResponseGen: func() *OpenAPISchema {
 				return sg.generateSingleRecordSchema()
 			},
 		},
 		{
-			Name: "Collection Update",
+			Name: "Record Update",
 			PathMatch: func(path string) bool {
 				return regexp.MustCompile(`/collections/[^/]+/records/[^/]+$`).MatchString(path)
 			},
-			RequestGen: func() map[string]interface{} {
+			RequestGen: func() *OpenAPISchema {
 				return sg.generateRecordUpdateSchema()
 			},
-			ResponseGen: func() map[string]interface{} {
+			ResponseGen: func() *OpenAPISchema {
 				return sg.generateSingleRecordSchema()
 			},
 		},
 		{
 			Name: "Auth Login",
 			PathMatch: func(path string) bool {
-				return strings.Contains(path, "auth") && strings.Contains(path, "login")
+				return regexp.MustCompile(`/collections/[^/]+/auth-with-password$`).MatchString(path)
 			},
-			RequestGen: func() map[string]interface{} {
+			RequestGen: func() *OpenAPISchema {
 				return sg.generateLoginRequestSchema()
 			},
-			ResponseGen: func() map[string]interface{} {
+			ResponseGen: func() *OpenAPISchema {
 				return sg.generateAuthResponseSchema()
 			},
 		},
 		{
-			Name: "Auth Register",
+			Name: "User Registration",
 			PathMatch: func(path string) bool {
-				return strings.Contains(path, "auth") && strings.Contains(path, "register")
+				return regexp.MustCompile(`/collections/users/records$`).MatchString(path)
 			},
-			RequestGen: func() map[string]interface{} {
+			RequestGen: func() *OpenAPISchema {
 				return sg.generateRegisterRequestSchema()
 			},
-			ResponseGen: func() map[string]interface{} {
-				return sg.generateAuthResponseSchema()
+			ResponseGen: func() *OpenAPISchema {
+				return sg.generateSingleRecordSchema()
+			},
+		},
+		{
+			Name: "Record Delete",
+			PathMatch: func(path string) bool {
+				return regexp.MustCompile(`/collections/[^/]+/records/[^/]+$`).MatchString(path)
+			},
+			RequestGen: func() *OpenAPISchema {
+				return nil // DELETE requests don't have body
+			},
+			ResponseGen: func() *OpenAPISchema {
+				return sg.generateDeleteResponseSchema()
 			},
 		},
 	}
 }
 
 // =============================================================================
-// List Endpoint Detection
+// Schema Generation Methods
 // =============================================================================
 
-// isListEndpoint determines if a path represents a list endpoint
-func (sg *SchemaGenerator) isListEndpoint(path string) bool {
-	// Simple heuristic: if the path doesn't end with an ID parameter, it's likely a list
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) == 0 {
-		return false
-	}
-
-	lastPart := parts[len(parts)-1]
-	// If the last part looks like a parameter (:id, {id}), it's not a list
-	if strings.HasPrefix(lastPart, ":") ||
-		(strings.HasPrefix(lastPart, "{") && strings.HasSuffix(lastPart, "}")) {
-		return false
-	}
-
-	// Check if the path suggests a collection
-	return strings.Contains(path, "list") ||
-		strings.HasSuffix(path, "s") ||
-		strings.Contains(path, "records")
-}
-
-// =============================================================================
-// Specific Schema Generators
-// =============================================================================
-
-// generateErrorResponseSchema generates schema for error responses
-func (sg *SchemaGenerator) generateErrorResponseSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"code": map[string]interface{}{
-				"type":        "integer",
-				"description": "Error code",
-				"example":     400,
+// generateSuccessResponseSchema generates a basic success response schema
+func (sg *SchemaGenerator) generateSuccessResponseSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Type: "object",
+		Properties: map[string]*OpenAPISchema{
+			"success": {
+				Type:        "boolean",
+				Description: "Operation success status",
+				Example:     true,
 			},
-			"message": map[string]interface{}{
-				"type":        "string",
-				"description": "Error message",
-				"example":     "Bad Request",
-			},
-			"data": map[string]interface{}{
-				"type":                 "object",
-				"description":          "Additional error data",
-				"additionalProperties": true,
+			"message": {
+				Type:        "string",
+				Description: "Success message",
+				Example:     "Operation completed successfully",
 			},
 		},
-		"required": []string{"code", "message"},
+		Required: []string{"success"},
 	}
 }
 
-// generateSuccessResponseSchema generates schema for success responses
-func (sg *SchemaGenerator) generateSuccessResponseSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"success": map[string]interface{}{
-				"type":        "boolean",
-				"description": "Operation success status",
-				"example":     true,
+// generatePaginatedResponseSchema generates a paginated response schema
+func (sg *SchemaGenerator) generatePaginatedResponseSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Type: "object",
+		Properties: map[string]*OpenAPISchema{
+			"page": {
+				Type:        "integer",
+				Description: "Current page number",
+				Minimum:     floatPtr(1),
+				Example:     1,
 			},
-			"message": map[string]interface{}{
-				"type":        "string",
-				"description": "Success message",
-				"example":     "Operation completed successfully",
+			"perPage": {
+				Type:        "integer",
+				Description: "Items per page",
+				Minimum:     floatPtr(1),
+				Example:     30,
 			},
-		},
-		"required": []string{"success"},
-	}
-}
-
-// generatePaginatedResponseSchema generates schema for paginated responses
-func (sg *SchemaGenerator) generatePaginatedResponseSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"page": map[string]interface{}{
-				"type":        "integer",
-				"description": "Current page number",
-				"minimum":     1,
-				"example":     1,
+			"totalItems": {
+				Type:        "integer",
+				Description: "Total number of items",
+				Minimum:     floatPtr(0),
+				Example:     150,
 			},
-			"perPage": map[string]interface{}{
-				"type":        "integer",
-				"description": "Items per page",
-				"minimum":     1,
-				"maximum":     500,
-				"example":     30,
+			"totalPages": {
+				Type:        "integer",
+				Description: "Total number of pages",
+				Minimum:     floatPtr(1),
+				Example:     5,
 			},
-			"totalItems": map[string]interface{}{
-				"type":        "integer",
-				"description": "Total number of items",
-				"minimum":     0,
-				"example":     150,
-			},
-			"totalPages": map[string]interface{}{
-				"type":        "integer",
-				"description": "Total number of pages",
-				"minimum":     0,
-				"example":     5,
-			},
-			"items": map[string]interface{}{
-				"type":        "array",
-				"description": "Array of items for current page",
-				"items": map[string]interface{}{
-					"type":                 "object",
-					"additionalProperties": true,
+			"items": {
+				Type: "array",
+				Items: &OpenAPISchema{
+					Ref: "#/components/schemas/PocketBaseRecord",
 				},
+				Description: "Array of records",
 			},
 		},
-		"required": []string{"page", "perPage", "totalItems", "totalPages", "items"},
+		Required: []string{"page", "perPage", "totalItems", "totalPages", "items"},
 	}
 }
 
-// generateSingleRecordSchema generates schema for single record responses
-func (sg *SchemaGenerator) generateSingleRecordSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"id": map[string]interface{}{
-				"type":        "string",
-				"description": "Record identifier",
-				"example":     "abc123def456",
-			},
-			"created": map[string]interface{}{
-				"type":        "string",
-				"format":      "date-time",
-				"description": "Creation timestamp",
-				"example":     "2023-01-01T12:00:00Z",
-			},
-			"updated": map[string]interface{}{
-				"type":        "string",
-				"format":      "date-time",
-				"description": "Last update timestamp",
-				"example":     "2023-01-01T12:00:00Z",
-			},
-		},
-		"required":             []string{"id", "created", "updated"},
-		"additionalProperties": true,
+// generateSingleRecordSchema generates a single record response schema
+func (sg *SchemaGenerator) generateSingleRecordSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Ref: "#/components/schemas/PocketBaseRecord",
 	}
 }
 
-// generateRecordCreateSchema generates schema for record creation requests
-func (sg *SchemaGenerator) generateRecordCreateSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type":                 "object",
-		"description":          "Data for creating a new record",
-		"additionalProperties": true,
-		"example": map[string]interface{}{
+// generateRecordCreateSchema generates a schema for creating records
+func (sg *SchemaGenerator) generateRecordCreateSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Type:                 "object",
+		Description:          "Data for creating a new record",
+		AdditionalProperties: true,
+		Example: map[string]interface{}{
 			"name":  "Example Record",
 			"email": "example@test.com",
 		},
 	}
 }
 
-// generateRecordUpdateSchema generates schema for record update requests
-func (sg *SchemaGenerator) generateRecordUpdateSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type":                 "object",
-		"description":          "Data for updating an existing record",
-		"additionalProperties": true,
-		"example": map[string]interface{}{
+// generateRecordUpdateSchema generates a schema for updating records
+func (sg *SchemaGenerator) generateRecordUpdateSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Type:                 "object",
+		Description:          "Data for updating an existing record",
+		AdditionalProperties: true,
+		Example: map[string]interface{}{
 			"name": "Updated Record Name",
 		},
 	}
 }
 
-// generateLoginRequestSchema generates schema for login requests
-func (sg *SchemaGenerator) generateLoginRequestSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"identity": map[string]interface{}{
-				"type":        "string",
-				"description": "User email or username",
-				"example":     "user@example.com",
+// generateLoginRequestSchema generates a login request schema
+func (sg *SchemaGenerator) generateLoginRequestSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Type: "object",
+		Properties: map[string]*OpenAPISchema{
+			"identity": {
+				Type:        "string",
+				Description: "User email or username",
+				Example:     "user@example.com",
 			},
-			"password": map[string]interface{}{
-				"type":        "string",
-				"description": "User password",
-				"format":      "password",
-				"example":     "password123",
+			"password": {
+				Type:        "string",
+				Description: "User password",
+				Format:      "password",
+				Example:     "password123",
 			},
 		},
-		"required": []string{"identity", "password"},
+		Required: []string{"identity", "password"},
 	}
 }
 
-// generateRegisterRequestSchema generates schema for registration requests
-func (sg *SchemaGenerator) generateRegisterRequestSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"email": map[string]interface{}{
-				"type":        "string",
-				"format":      "email",
-				"description": "User email address",
-				"example":     "newuser@example.com",
+// generateRegisterRequestSchema generates a user registration schema
+func (sg *SchemaGenerator) generateRegisterRequestSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Type: "object",
+		Properties: map[string]*OpenAPISchema{
+			"email": {
+				Type:        "string",
+				Format:      "email",
+				Description: "User email address",
+				Example:     "newuser@example.com",
 			},
-			"password": map[string]interface{}{
-				"type":        "string",
-				"description": "User password",
-				"format":      "password",
-				"minLength":   8,
-				"example":     "password123",
+			"password": {
+				Type:        "string",
+				Description: "User password",
+				Format:      "password",
+				MinLength:   intPtr(8),
+				Example:     "securepassword123",
 			},
-			"passwordConfirm": map[string]interface{}{
-				"type":        "string",
-				"description": "Password confirmation",
-				"format":      "password",
-				"example":     "password123",
+			"passwordConfirm": {
+				Type:        "string",
+				Description: "Password confirmation",
+				Format:      "password",
+				Example:     "securepassword123",
 			},
 		},
-		"required": []string{"email", "password", "passwordConfirm"},
+		Required: []string{"email", "password", "passwordConfirm"},
 	}
 }
 
-// generateAuthResponseSchema generates schema for authentication responses
-func (sg *SchemaGenerator) generateAuthResponseSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"token": map[string]interface{}{
-				"type":        "string",
-				"description": "JWT authentication token",
-				"example":     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+// generateAuthResponseSchema generates an authentication response schema
+func (sg *SchemaGenerator) generateAuthResponseSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Type: "object",
+		Properties: map[string]*OpenAPISchema{
+			"token": {
+				Type:        "string",
+				Description: "JWT authentication token",
+				Example:     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
 			},
-			"record": map[string]interface{}{
-				"type":        "object",
-				"description": "User record information",
-				"$ref":        "#/components/schemas/UserRecord",
+			"record": {
+				Ref:         "#/components/schemas/PocketBaseRecord",
+				Description: "User record data",
 			},
 		},
-		"required": []string{"token", "record"},
+		Required: []string{"token", "record"},
 	}
 }
 
-// generateDeleteResponseSchema generates schema for delete responses
-func (sg *SchemaGenerator) generateDeleteResponseSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"success": map[string]interface{}{
-				"type":        "boolean",
-				"description": "Deletion success status",
-				"example":     true,
+// generateDeleteResponseSchema generates a delete operation response schema
+func (sg *SchemaGenerator) generateDeleteResponseSchema() *OpenAPISchema {
+	return &OpenAPISchema{
+		Type: "object",
+		Properties: map[string]*OpenAPISchema{
+			"success": {
+				Type:        "boolean",
+				Description: "Deletion success status",
+				Example:     true,
 			},
-			"message": map[string]interface{}{
-				"type":        "string",
-				"description": "Deletion confirmation message",
-				"example":     "Record deleted successfully",
+			"message": {
+				Type:        "string",
+				Description: "Deletion confirmation message",
+				Example:     "Record deleted successfully",
 			},
 		},
-		"required": []string{"success"},
-	}
-}
-
-// =============================================================================
-// Cache Management
-// =============================================================================
-
-// =============================================================================
-// Cache Management
-// =============================================================================
-
-// ClearCache clears the schema cache
-func (sg *SchemaGenerator) ClearCache() {
-	sg.mu.Lock()
-	defer sg.mu.Unlock()
-
-	sg.schemaCache = make(map[string]map[string]interface{})
-	sg.typeCache = make(map[string]interface{})
-}
-
-// GetCacheStats returns cache statistics
-func (sg *SchemaGenerator) GetCacheStats() map[string]interface{} {
-	sg.mu.RLock()
-	defer sg.mu.RUnlock()
-
-	return map[string]interface{}{
-		"schema_cache_size": len(sg.schemaCache),
-		"type_cache_size":   len(sg.typeCache),
+		Required: []string{"success"},
 	}
 }
