@@ -12,19 +12,13 @@
         // Get superuser authentication token from localStorage
         getSuperuserAuthToken() {
             try {
-                console.log('🔑 Checking for superuser auth token in localStorage...');
                 const authData = localStorage.getItem('__pb_superuser_auth__');
                 if (!authData) {
-                    console.warn('❌ No superuser authentication token found in localStorage');
-                    console.log('📋 Available localStorage keys:', Object.keys(localStorage));
                     return null;
                 }
 
-                console.log('✅ Found auth data in localStorage, parsing...');
                 const parsed = JSON.parse(authData);
-                const token = parsed.token || null;
-                console.log('🎫 Parsed token:', token ? `${token.substring(0, 20)}...` : 'null');
-                return token;
+                return parsed.token || null;
             } catch (error) {
                 console.error('❌ Failed to parse superuser auth token:', error);
                 return null;
@@ -68,48 +62,32 @@
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                console.log('📊 Parsing response data...');
                 const data = await response.json();
-                console.log('📄 Response data structure:', {
-                    hasVersions: !!data.versions,
-                    versionsLength: data.versions?.length,
-                    defaultVersion: data.default_version,
-                    dataKeys: Object.keys(data || {})
-                });
-
                 if (!data || !data.versions) {
-                    console.error('❌ Invalid response format:', data);
                     throw new Error('Invalid response format from versions endpoint');
                 }
 
                 // Store version information
-                console.log('💾 Storing version information in APIState...');
                 APIState.availableVersions = data.versions;
                 APIState.currentVersion = data.default_version || (data.versions.length > 0 ? data.versions[0].version : null);
 
-                console.log(`✅ Loaded ${data.versions.length} API versions, default: ${APIState.currentVersion}`);
-                console.log('📋 Available versions:', data.versions.map(v => v.version));
+                console.log(`Loaded ${data.versions.length} API versions, default: ${APIState.currentVersion}`);
 
                 // Update UI
-                console.log('🎨 Populating version selector...');
                 this.populateVersionSelector();
 
                 // Load the current version's endpoints
                 if (APIState.currentVersion) {
-                    console.log(`🔄 Loading endpoints for version: ${APIState.currentVersion}`);
                     await this.loadEndpoints();
                 } else {
-                    console.error('❌ No current version set');
                     throw new Error('No API versions available');
                 }
 
             } catch (error) {
-                console.error('❌ Failed to load API versions:', error);
-                console.error('📍 Error stack:', error.stack);
+                console.error('Failed to load API versions:', error);
                 this.updateStatus('error', `Failed to load API versions: ${error.message}`);
                 throw error;
             } finally {
-                console.log('🏁 Finished loadVersions(), resetting loading state');
                 this.loadingState.versions = false;
             }
         },
@@ -139,32 +117,27 @@
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                console.log('📊 Parsing endpoints response data...');
                 const openApiSpec = await response.json();
-                console.log('📄 OpenAPI spec structure:', {
-                    hasEndpoints: !!openApiSpec.endpoints,
-                    endpointsLength: openApiSpec.endpoints?.length,
-                    specKeys: Object.keys(openApiSpec || {})
-                });
-
                 if (!openApiSpec || !openApiSpec.endpoints) {
-                    console.error('❌ Invalid OpenAPI specification:', openApiSpec);
                     throw new Error('Invalid OpenAPI specification received');
                 }
 
                 // Store the clean OpenAPI data - no conversion needed!
-                console.log('💾 Storing OpenAPI data in APIState...');
                 APIState.openApiSchema = openApiSpec;
                 APIState.allEndpoints = openApiSpec.endpoints;
                 APIState.setEndpoints(openApiSpec.endpoints);
 
-                console.log(`✅ Loaded ${openApiSpec.endpoints.length} endpoints for version ${version}`);
+                console.log(`Loaded ${openApiSpec.endpoints.length} endpoints for version ${version}`);
 
                 // Update UI
                 this.updateEndpointsList();
                 this.updateStatsDisplay();
                 this.updateVersionDisplay();
                 this.initializeFilters();
+
+                // Update other tabs with OpenAPI data
+                this.updateRawSchema('json');
+                this.updateComponents('json');
 
                 this.updateStatus('success', `Loaded ${openApiSpec.endpoints.length} endpoints`);
 
@@ -209,13 +182,12 @@
                 const option = document.createElement('option');
                 option.value = versionInfo.version;
 
-                const config = versionInfo.config || {};
-                const title = config.title || 'API';
-                const version = config.version || versionInfo.version;
-                const status = versionInfo.status || 'stable';
-                const statusIcon = this.getStatusIcon(status);
+                // Simple display: just version name
+                const displayName = versionInfo.config?.title ?
+                    `${versionInfo.config.title} ${versionInfo.version}` :
+                    versionInfo.version;
 
-                option.textContent = `${title} ${version} ${statusIcon}`;
+                option.textContent = displayName;
                 option.selected = versionInfo.version === APIState.currentVersion;
                 versionSelect.appendChild(option);
             });
@@ -241,90 +213,130 @@
 
         // Update endpoints list in UI
         updateEndpointsList() {
-            console.log('🎨 updateEndpointsList() called');
             if (typeof EndpointRenderer !== 'undefined' && EndpointRenderer.render) {
-                console.log('✅ EndpointRenderer available, calling render...');
                 EndpointRenderer.render();
-                console.log('🏁 EndpointRenderer.render() completed');
             } else {
-                console.error('❌ EndpointRenderer or render method not available:', {
-                    EndpointRenderer: typeof EndpointRenderer,
-                    render: typeof EndpointRenderer?.render
-                });
+                console.error('EndpointRenderer not available');
             }
         },
 
         // Update statistics display
         updateStatsDisplay() {
-            console.log('📊 updateStatsDisplay() called');
             const stats = this.calculateStats();
-            console.log('📈 Calculated stats:', stats);
             APIState.apiStats = stats;
 
             if (typeof UIController !== 'undefined' && UIController.updateStatistics) {
-                console.log('✅ UIController available, calling updateStatistics...');
                 UIController.updateStatistics(stats);
-                console.log('🏁 updateStatistics() completed');
-            } else {
-                console.error('❌ UIController or updateStatistics not available:', {
-                    UIController: typeof UIController,
-                    updateStatistics: typeof UIController?.updateStatistics
-                });
             }
         },
 
         // Update version display information
         updateVersionDisplay() {
-            console.log('🏷️ updateVersionDisplay() called');
             const versionInfo = APIState.availableVersions.find(v => v.version === APIState.currentVersion);
-            console.log('📋 Version info found:', versionInfo);
-            if (!versionInfo) {
-                console.warn('⚠️ No version info found for current version:', APIState.currentVersion);
-                return;
-            }
+            if (!versionInfo) return;
 
-            // Update version info display
-            const versionInfoEl = document.getElementById('version-info');
-            console.log('🎯 Version info element:', versionInfoEl);
-            if (versionInfoEl && versionInfo.config) {
-                console.log('✅ Updating version info display...');
-                const config = versionInfo.config;
-                versionInfoEl.innerHTML = `
-                    <h3>${config.title || 'API'} ${config.version || versionInfo.version}</h3>
-                    <p>${config.description || 'No description available'}</p>
-                    <span class="status-badge status-${versionInfo.status || 'stable'}">${versionInfo.status || 'stable'}</span>
-                `;
-                console.log('🏁 Version display updated');
-            } else {
-                console.warn('⚠️ Version info element not found or no config available');
+            // Simple version display - just update the page title if available
+            const title = versionInfo.config?.title || 'API Documentation';
+            const version = versionInfo.config?.version || versionInfo.version;
+
+            if (document.title.includes('API')) {
+                document.title = `${title} ${version} - PocketBase`;
             }
         },
 
         // Initialize filter options
         initializeFilters() {
-            console.log('🔧 initializeFilters() called');
             if (typeof UIController !== 'undefined') {
-                console.log('✅ UIController available, initializing filters...');
                 const stats = APIState.apiStats || this.calculateStats();
-                console.log('📈 Using stats for filters:', stats);
                 if (UIController.populateFilterOptions) {
-                    console.log('🔄 Calling populateFilterOptions...');
                     UIController.populateFilterOptions(stats);
-                    console.log('✅ populateFilterOptions completed');
                 }
 
                 // Show filters section
                 const filtersSection = document.getElementById('api-filters');
-                console.log('🎯 Filters section element:', filtersSection);
                 if (filtersSection) {
                     filtersSection.style.display = 'block';
-                    console.log('✅ Filters section shown');
-                } else {
-                    console.warn('⚠️ Filters section element not found');
                 }
-            } else {
-                console.error('❌ UIController not available for filter initialization');
             }
+        },
+
+        // Update raw schema display
+        updateRawSchema(format = 'json') {
+            const rawContent = document.getElementById('raw-schema-content');
+            if (!rawContent) {
+                console.warn('Raw schema content element not found');
+                return;
+            }
+
+            if (!APIState.openApiSchema) {
+                rawContent.innerHTML = '<code>No schema data available</code>';
+                return;
+            }
+
+            try {
+                let content;
+                if (format === 'yaml' && typeof SchemaProcessor !== 'undefined') {
+                    content = SchemaProcessor.jsonToYaml(APIState.openApiSchema);
+                } else {
+                    content = JSON.stringify(APIState.openApiSchema, null, 2);
+                }
+
+                // Use SchemaProcessor for syntax highlighting if available
+                if (typeof SchemaProcessor !== 'undefined') {
+                    const highlighted = SchemaProcessor.syntaxHighlight(content, format);
+                    rawContent.innerHTML = highlighted;
+                } else {
+                    rawContent.innerHTML = `<code>${this._escapeHtml(content)}</code>`;
+                }
+
+                console.log(`Raw schema updated in ${format} format`);
+            } catch (error) {
+                console.error('Failed to update raw schema:', error);
+                rawContent.innerHTML = `<code class="txt-danger">Error formatting schema: ${error.message}</code>`;
+            }
+        },
+
+        // Update components schema display
+        updateComponents(format = 'json') {
+            const componentsContent = document.getElementById('components-content');
+            if (!componentsContent) {
+                console.warn('Components content element not found');
+                return;
+            }
+
+            if (!APIState.openApiSchema?.components || Object.keys(APIState.openApiSchema.components).length === 0) {
+                componentsContent.innerHTML = '<code>No components available</code>';
+                return;
+            }
+
+            try {
+                let content;
+                if (format === 'yaml' && typeof SchemaProcessor !== 'undefined') {
+                    content = SchemaProcessor.jsonToYaml(APIState.openApiSchema.components);
+                } else {
+                    content = JSON.stringify(APIState.openApiSchema.components, null, 2);
+                }
+
+                // Use SchemaProcessor for syntax highlighting if available
+                if (typeof SchemaProcessor !== 'undefined') {
+                    const highlighted = SchemaProcessor.syntaxHighlight(content, format);
+                    componentsContent.innerHTML = highlighted;
+                } else {
+                    componentsContent.innerHTML = `<code>${this._escapeHtml(content)}</code>`;
+                }
+
+                console.log(`Components updated in ${format} format`);
+            } catch (error) {
+                console.error('Failed to update components:', error);
+                componentsContent.innerHTML = `<code class="txt-danger">Error formatting components: ${error.message}</code>`;
+            }
+        },
+
+        // Helper method for HTML escaping
+        _escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         },
 
         // Calculate statistics from endpoints
@@ -356,17 +368,7 @@
             return stats;
         },
 
-        // Get status icon for version status
-        getStatusIcon(status) {
-            const icons = {
-                'stable': '✅',
-                'testing': '🧪',
-                'beta': '🔬',
-                'deprecated': '⚠️',
-                'maintenance': '🔧'
-            };
-            return icons[status] || '📋';
-        },
+
 
         // Update status message
         updateStatus(type, message) {

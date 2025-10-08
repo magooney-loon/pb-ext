@@ -1,0 +1,985 @@
+{{define "api_sidebar_css"}}
+<style>
+/* =============================================================================
+   API TESTER SIDEBAR STYLES
+   ============================================================================= */
+
+/* =============================================================================
+   API TESTER SIDEBAR
+   ============================================================================= */
+
+/* Main Sidebar Container */
+.api-tester-sidebar {
+    position: fixed;
+    right: -540px;
+    top: 0;
+    width: 540px;
+    height: 100vh;
+    background: var(--baseColor, #ffffff);
+    border-left: 1px solid var(--baseAlt2Color, #e5e5e5);
+    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.05);
+    display: flex;
+    flex-direction: column;
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 9999;
+    overflow: hidden;
+}
+
+.api-tester-sidebar.open {
+    right: 0;
+}
+
+/* Sidebar Header */
+.api-tester-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--baseAlt2Color, #e5e5e5);
+    background: var(--baseAlt1Color, #f8f9fa);
+    flex-shrink: 0;
+}
+
+.api-tester-header h5 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--txtPrimaryColor, #333);
+}
+
+/* Endpoint Info Section */
+.endpoint-info {
+    padding: 16px 20px;
+    background: linear-gradient(135deg, var(--baseAlt1Color, #f8f9fa) 0%, var(--baseColor, #ffffff) 100%);
+    border-bottom: 1px solid var(--baseAlt2Color, #e5e5e5);
+}
+
+.endpoint-info code {
+    background: var(--baseColor, #ffffff);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+    font-size: 13px;
+    word-break: break-all;
+}
+
+.endpoint-info .http-method {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 60px;
+    height: 24px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    text-transform: uppercase;
+    color: white;
+}
+
+/* Auth Status */
+.auth-status {
+    margin-top: 12px;
+}
+
+.auth-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.auth-badge.auth-required {
+    background-color: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.auth-badge.auth-optional {
+    background-color: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+/* Tab Navigation */
+.api-tester-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 20px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border-bottom: 1px solid var(--baseAlt2Color, #e5e5e5);
+}
+
+.tester-tab {
+    flex: 1;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: var(--txtHintColor, #666);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.tester-tab:hover {
+    color: var(--txtPrimaryColor, #333);
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.tester-tab.active {
+    color: var(--primaryColor, #3b82f6);
+    border-bottom-color: var(--primaryColor, #3b82f6);
+    background: var(--baseColor, #ffffff);
+}
+
+.tester-tab i {
+    font-size: 16px;
+}
+
+/* Content Area */
+.api-tester-content {
+    flex: 1;
+    background: var(--baseColor, #ffffff);
+    min-height: 0;
+    position: relative;
+}
+
+.tester-tab-content {
+    display: none;
+    position: absolute;
+    padding: 9px;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow-y: auto;
+    padding-bottom: 20px;
+    padding-top: 20px;
+    scroll-behavior: smooth;
+}
+
+.tester-tab-content.active {
+    display: block;
+}
+
+/* Scrollbar styling for tab content */
+.tester-tab-content::-webkit-scrollbar {
+    width: 10px;
+}
+
+.tester-tab-content::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 5px;
+}
+
+.tester-tab-content::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+.tester-tab-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
+    background-clip: content-box;
+}
+
+/* Parameters Tab */
+#parameters-tab {
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+/* Schema Form Container */
+#schema-form-container {
+    padding-bottom: 40px;
+}
+
+/* =============================================================================
+   FORMS & INPUTS
+   ============================================================================= */
+
+/* Form Sections */
+.form-section {
+    margin-bottom: 24px;
+}
+
+.section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txtPrimaryColor, #333);
+    margin: 0 0 16px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-title i {
+    font-size: 16px;
+    color: var(--primaryColor, #3b82f6);
+}
+
+.form-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txtPrimaryColor, #333);
+    margin: 0 0 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.form-section-title i {
+    color: var(--primaryColor, #3b82f6);
+    font-size: 16px;
+}
+
+/* Form Fields */
+.form-field {
+    margin-bottom: 16px;
+}
+
+.form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--txtPrimaryColor, #333);
+}
+
+.form-label .txt-danger {
+    color: #ef4444;
+    margin-left: 2px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 6px;
+    font-size: 14px;
+    color: var(--txtPrimaryColor, #333);
+    background: var(--baseColor, #ffffff);
+    transition: all 0.2s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primaryColor, #3b82f6);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-control:disabled {
+    background: var(--baseAlt1Color, #f8f9fa);
+    color: var(--txtHintColor, #666);
+    cursor: not-allowed;
+}
+
+textarea.form-control {
+    resize: vertical;
+    min-height: 80px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.field-help {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--txtHintColor, #666);
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.field-help i {
+    font-size: 14px;
+    margin-top: 1px;
+}
+
+/* Toggle controls */
+.form-control-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+.form-control-toggle input[type="checkbox"] {
+    margin: 0;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--successColor, #22c55e);
+}
+
+.form-control-toggle label {
+    margin: 0;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--txtPrimaryColor, #333);
+    user-select: none;
+}
+
+.form-control-toggle:hover label {
+    color: var(--primaryColor, #3b82f6);
+}
+
+/* Send Request Buttons */
+.send-request-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.send-request-buttons .btn {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    text-align: center;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.send-request-buttons .btn i {
+    font-size: 14px;
+}
+
+/* Different colors for each auth mode */
+#send-request-admin-btn {
+    background: var(--dangerColor, #ef4444);
+    border-color: var(--dangerColor, #ef4444);
+    color: white;
+}
+
+#send-request-admin-btn:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+#send-request-auth-btn {
+    background: var(--primaryColor, #3b82f6);
+    border-color: var(--primaryColor, #3b82f6);
+    color: white;
+}
+
+#send-request-auth-btn:hover {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+
+#send-request-guest-btn {
+    background: #6b7280;
+    border-color: #6b7280;
+    color: white;
+}
+
+#send-request-guest-btn:hover {
+    background: #4b5563;
+    border-color: #4b5563;
+    color: white;
+}
+
+/* Card styles for form sections */
+.card {
+    background: var(--baseColor, #ffffff);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.card-body {
+    padding: 16px;
+}
+
+/* Query Parameters */
+.query-parameters {
+    position: relative;
+}
+
+.query-param-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.query-param-name,
+.query-param-value {
+    flex: 1;
+    min-width: 0;
+}
+
+.query-param-name {
+    max-width: 140px;
+}
+
+.query-param-value {
+    max-width: 180px;
+}
+
+.add-query-param {
+    flex-shrink: 0;
+    padding: 6px 8px;
+    min-width: 32px;
+}
+
+.added-query-params {
+    margin-top: 8px;
+}
+
+.query-param-added {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 8px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 16px;
+    margin-right: 6px;
+    font-size: 12px;
+}
+
+.query-param-added .param-display {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.query-param-added .param-name {
+    font-weight: 500;
+    color: var(--txtPrimaryColor, #333);
+}
+
+.query-param-added .param-value {
+    color: var(--txtHintColor, #666);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.query-param-added input[name^="query-"] {
+    display: none;
+}
+
+.remove-query-param {
+    flex-shrink: 0;
+    padding: 4px;
+    border: none;
+    background: transparent;
+    color: var(--txtHintColor, #666);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.remove-query-param:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+/* =============================================================================
+   RESPONSE SECTION
+   ============================================================================= */
+
+.response-tabs {
+    display: flex;
+    gap: 2px;
+    margin-top: 12px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    padding: 4px;
+    border-radius: 6px;
+}
+
+.response-tab {
+    flex: 1;
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--txtHintColor, #666);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.response-tab:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.response-tab.active {
+    background: var(--baseColor, #ffffff);
+    color: var(--primaryColor, #3b82f6);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Response Content */
+.response-content {
+    margin-top: 16px;
+    position: relative;
+    flex: 1;
+    min-height: 300px;
+}
+
+/* Ensure response content area has proper stacking */
+.response-content > div {
+    position: relative;
+    z-index: 1;
+}
+
+.response-empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    padding: 40px 20px;
+}
+
+.response-empty-state .txt-center {
+    color: var(--txtHintColor, #666);
+}
+
+.response-empty-state i {
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.3;
+}
+
+.response-tab-content {
+    display: none;
+    min-height: 200px;
+}
+
+.response-tab-content.active {
+    display: block !important;
+}
+
+/* Response tab content specific styling */
+#response-body,
+#response-headers {
+    display: none;
+    min-height: 200px;
+}
+
+#response-body.active,
+#response-headers.active {
+    display: block !important;
+}
+
+/* When response tabs are shown, hide empty state */
+.response-content:has(.response-tab-content:not([style*="display: none"])) #response-empty-state {
+    display: none !important;
+}
+
+.response-tab-content .code-block,
+#response-body .code-block,
+#response-headers .code-block {
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 6px;
+    margin: 0;
+    padding: 12px;
+    overflow-y: auto;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    width: 100%;
+    box-sizing: border-box;
+    max-height: 400px;
+}
+
+.response-tab-content .code-block pre,
+#response-body .code-block pre,
+#response-headers .code-block pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--txtPrimaryColor, #333);
+}
+
+.response-tab-content .code-block code,
+#response-body .code-block code,
+#response-headers .code-block code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+}
+
+/* Response Status */
+.response-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.response-status-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.response-status.success .status-code,
+.response-status-info.success .status-code {
+    color: #22c55e;
+}
+
+.response-status.error .status-code,
+.response-status-info.error .status-code {
+    color: #ef4444;
+}
+
+.status-code {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.status-text {
+    color: var(--txtHintColor, #666);
+}
+
+.duration {
+    color: var(--txtHintColor, #666);
+    font-size: 11px;
+}
+
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge.status-ready {
+    background: var(--baseAlt2Color, #e5e5e5);
+    color: var(--txtHintColor, #666);
+}
+
+.status-badge.status-success {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+}
+
+.status-badge.status-info {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+}
+
+.status-badge.status-warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.status-badge.status-error {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+.status-badge.status-unknown {
+    background: var(--baseAlt2Color, #e5e5e5);
+    color: var(--txtHintColor, #666);
+}
+
+.response-time {
+    color: var(--txtHintColor, #666);
+    font-size: 11px;
+}
+
+/* =============================================================================
+   BUTTONS
+   ============================================================================= */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: var(--primaryColor, #3b82f6);
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #2563eb;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.btn-secondary {
+    background: var(--baseAlt2Color, #e5e5e5);
+    color: var(--txtPrimaryColor, #333);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: var(--baseAlt3Color, #d4d4d4);
+}
+
+.btn-success {
+    background: var(--successColor, #22c55e);
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: var(--successColorHover, #16a34a);
+}
+
+.btn-transparent {
+    background: transparent;
+    color: var(--txtHintColor, #666);
+}
+
+.btn-transparent:hover {
+    background: var(--baseAlt1Color, #f8f9fa);
+    color: var(--txtPrimaryColor, #333);
+}
+
+.btn-xs {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.btn-block {
+    width: 100%;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn i {
+    font-size: 16px;
+}
+
+/* Actions */
+.tester-actions {
+    padding: 20px;
+    border-top: 1px solid var(--baseAlt2Color, #e5e5e5);
+    background: var(--baseAlt1Color, #f8f9fa);
+    flex-shrink: 0;
+}
+
+/* HTTP Method badges */
+.http-method {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: white;
+    min-width: 50px;
+    text-align: center;
+}
+
+.http-method.get,
+.http-method.method-get {
+    background: #2196f3;
+}
+
+.http-method.post,
+.http-method.method-post {
+    background: #4caf50;
+}
+
+.http-method.put,
+.http-method.method-put {
+    background: #ff9800;
+}
+
+.http-method.patch,
+.http-method.method-patch {
+    background: #9c27b0;
+}
+
+.http-method.delete,
+.http-method.method-delete {
+    background: #f44336;
+}
+
+.http-method.options {
+    background: #607d8b;
+}
+
+.http-method.head {
+    background: #795548;
+}
+
+/* Empty states */
+.empty-fields-state {
+    padding: 24px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 2px dashed var(--baseAlt2Color, #e5e5e5);
+    border-radius: 8px;
+    margin: 16px 0;
+    text-align: center;
+}
+
+.empty-fields-state i {
+    font-size: 32px;
+    color: var(--txtHintColor, #666);
+    opacity: 0.5;
+    margin-bottom: 8px;
+}
+
+/* Request info display */
+.request-info {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.request-summary div {
+    margin-bottom: 4px;
+}
+
+.request-summary div:last-child {
+    margin-bottom: 0;
+}
+
+/* =============================================================================
+   UTILITIES
+   ============================================================================= */
+
+/* Text utilities */
+.txt-mono {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+.txt-sm { font-size: 13px; }
+.txt-xs { font-size: 11px; }
+.txt-hint { color: var(--txtHintColor, #666); }
+.txt-danger { color: #ef4444; }
+.txt-success { color: #22c55e; }
+.txt-center { text-align: center; }
+.txt-bold { font-weight: 600; }
+
+/* Spacing utilities */
+.mb-2 { margin-bottom: 8px; }
+.mb-3 { margin-bottom: 12px; }
+.mt-2 { margin-top: 8px; }
+.mt-3 { margin-top: 12px; }
+.m-b-sm { margin-bottom: 12px; }
+.m-b-xs { margin-bottom: 8px; }
+.m-t-sm { margin-top: 12px; }
+.p-3 { padding: 12px; }
+.p-4 { padding: 16px; }
+
+/* Flex utilities */
+.flex { display: flex; }
+.flex-fill { flex: 1; }
+.align-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2 { gap: 8px; }
+.ml-auto { margin-left: auto; }
+
+/* =============================================================================
+   ANIMATIONS & LOADING STATES
+   ============================================================================= */
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.api-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: var(--txtHintColor, #666);
+}
+
+.api-loading i {
+    margin-right: 8px;
+    animation: spin 1s linear infinite;
+}
+
+/* =============================================================================
+   RESPONSIVE DESIGN
+   ============================================================================= */
+
+@media (max-width: 768px) {
+    .api-tester-sidebar {
+        width: 100%;
+        right: -100%;
+    }
+
+    .query-param-row {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .query-param-name,
+    .query-param-value {
+        width: 100%;
+    }
+
+    .send-request-buttons {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .api-tester-sidebar {
+        width: 100vw;
+        right: -100vw;
+    }
+
+    .api-tester-header {
+        padding: 12px 16px;
+    }
+
+    .endpoint-info {
+        padding: 12px 16px;
+    }
+
+    .tester-tab-content {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+}
+
+</style>
+{{end}}

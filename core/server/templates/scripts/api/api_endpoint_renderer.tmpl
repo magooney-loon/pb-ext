@@ -218,31 +218,22 @@
 
                     console.log(`Opening API tester for: ${method.toUpperCase()} ${path}`);
 
-                    if (window.APITester && window.APITester.openSidebar) {
+                    // Use simplified approach - direct call to APITesterSidebar
+                    if (typeof APITesterSidebar !== 'undefined' && APITesterSidebar.openSidebar) {
                         try {
                             const endpoint = JSON.parse(endpointData);
-                            window.APITester.openSidebar(method, path, endpoint);
+                            APITesterSidebar.openSidebar(method, path, endpoint);
                         } catch (error) {
-                            console.error('Failed to parse endpoint data:', error);
-                            // Fallback to basic data
-                            window.APITester.openSidebar(method, path, {
+                            console.error('Failed to open API tester:', error);
+                            // Simple fallback with basic endpoint data
+                            APITesterSidebar.openSidebar(method, path, {
                                 method: method,
                                 path: path,
-                                description: 'API endpoint'
+                                description: 'Basic endpoint information'
                             });
                         }
                     } else {
-                        console.error('APITester not available or missing openSidebar method');
-
-                        // Try fallback to APITesterSidebar directly
-                        if (window.APITesterSidebar && window.APITesterSidebar.openSidebar) {
-                            try {
-                                const endpoint = JSON.parse(endpointData);
-                                window.APITesterSidebar.openSidebar(method, path, endpoint);
-                            } catch (error) {
-                                console.error('Fallback also failed:', error);
-                            }
-                        }
+                        console.error('APITesterSidebar not available');
                     }
                     return;
                 }

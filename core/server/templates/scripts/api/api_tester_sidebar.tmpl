@@ -227,8 +227,10 @@
                 const emptyState = this._getElementById('response-empty-state');
 
                 // Check if we have response content in a more robust way
-                const hasResponse = bodyContent && bodyContent.textContent.trim() &&
-                    !bodyContent.textContent.includes('No response yet');
+                const bodyCode = bodyContent ? bodyContent.querySelector('code') : null;
+                const hasResponse = bodyCode && bodyCode.textContent.trim() &&
+                    !bodyCode.textContent.includes('No response yet') &&
+                    bodyCode.textContent !== '';
 
                 if (!hasResponse) {
                     // Show empty state, hide content
@@ -239,6 +241,7 @@
                     // Hide empty state, show appropriate content
                     if (emptyState) emptyState.style.display = 'none';
 
+                    // Show the selected tab content
                     if (bodyContent) {
                         bodyContent.classList.toggle('active', tabName === 'body');
                         bodyContent.style.display = tabName === 'body' ? 'block' : 'none';
@@ -250,9 +253,11 @@
                     }
 
                     // Re-apply syntax highlighting when tab becomes visible
-                    if (tabName === 'body' && typeof SchemaProcessor !== 'undefined') {
-                        if (bodyContent) {
+                    if (typeof SchemaProcessor !== 'undefined') {
+                        if (tabName === 'body' && bodyContent) {
                             this._refreshSyntaxHighlighting(bodyContent);
+                        } else if (tabName === 'headers' && headersContent) {
+                            this._refreshSyntaxHighlighting(headersContent);
                         }
                     }
                 }
@@ -745,17 +750,20 @@
             const copyBtn = this._getElementById('copy-response-btn');
 
             if (emptyState) emptyState.style.display = 'none';
-            if (copyBtn) copyBtn.style.display = 'block';
+            if (copyBtn) copyBtn.style.display = 'inline-block';
 
-            // Show content based on active response tab
-            const activeResponseTab = this._safeQuery('.response-tab.active');
-            const activeTabName = activeResponseTab ? activeResponseTab.dataset.tab : 'body';
+            // Show content based on active tab
+            const activeTab = this._safeQuery('.response-tab.active');
+            const tabName = activeTab ? activeTab.dataset.tab : 'body';
 
             if (responseBody) {
-                responseBody.style.display = activeTabName === 'body' ? 'block' : 'none';
+                responseBody.classList.toggle('active', tabName === 'body');
+                responseBody.style.display = tabName === 'body' ? 'block' : 'none';
             }
+
             if (responseHeaders) {
-                responseHeaders.style.display = activeTabName === 'headers' ? 'block' : 'none';
+                responseHeaders.classList.toggle('active', tabName === 'headers');
+                responseHeaders.style.display = tabName === 'headers' ? 'block' : 'none';
             }
         },
 
@@ -1138,15 +1146,25 @@
 
             if (responseBody) {
                 responseBody.style.display = 'none';
+                responseBody.classList.remove('active');
                 // Clear the content completely
-                responseBody.innerHTML = '<pre class="code-block"><code></code></pre>';
+                const bodyCode = responseBody.querySelector('code');
+                if (bodyCode) bodyCode.textContent = '';
             }
 
             if (responseHeaders) {
                 responseHeaders.style.display = 'none';
+                responseHeaders.classList.remove('active');
                 // Clear the content completely
-                responseHeaders.innerHTML = '<pre class="code-block"><code></code></pre>';
+                const headersCode = responseHeaders.querySelector('code');
+                if (headersCode) headersCode.textContent = '';
             }
+
+            // Reset response tabs to default (body)
+            const responseTabs = this._safeQueryAll('.response-tab');
+            responseTabs.forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tab === 'body');
+            });
 
             // Reset status
             this._updateResponseStatus('Ready', 'Send a request', 0);
