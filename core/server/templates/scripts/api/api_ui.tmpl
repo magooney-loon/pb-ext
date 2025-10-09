@@ -146,6 +146,7 @@
             }
 
             this._cleanupEndpointListeners();
+            this._endpointSchemas = new Map(); // Clear stored schemas
 
             const endpoints = StateManager.getState('api.filteredEndpoints') || [];
             const allEndpoints = StateManager.getState('api.endpoints') || [];
@@ -165,6 +166,7 @@
                 console.log('✏️ Generating HTML for', endpoints.length, 'endpoints');
                 const html = endpoints.map(endpoint => this._renderEndpoint(endpoint)).join('');
                 container.innerHTML = html;
+                this._populateEndpointSchemas();
                 this._attachEndpointListeners(container);
                 console.log('✅ Endpoints rendered successfully');
 
@@ -300,6 +302,11 @@
         // Render request body
         _renderRequestBody(requestSchema, endpointId) {
             const uniqueId = `request-${endpointId}`;
+
+            // Store schema data for later population
+            this._endpointSchemas = this._endpointSchemas || new Map();
+            this._endpointSchemas.set(uniqueId, { schema: requestSchema, format: 'json' });
+
             return `
                 <div class="mb-2">
                     <div class="flex justify-between align-center mb-2">
@@ -316,7 +323,9 @@
                         </div>
                     </div>
                     <div class="request-body mt-1">
-                        <div id="${uniqueId}">${APIDataManager.formatSchemaForDisplay(requestSchema, 'json')}</div>
+                        <div class="code-block">
+                            <pre id="${uniqueId}" class="code"><code>Loading request schema...</code></pre>
+                        </div>
                     </div>
                 </div>
             `;
@@ -325,6 +334,11 @@
         // Render responses
         _renderResponses(responseSchema, endpointId) {
             const uniqueId = `response-${endpointId}`;
+
+            // Store schema data for later population
+            this._endpointSchemas = this._endpointSchemas || new Map();
+            this._endpointSchemas.set(uniqueId, { schema: responseSchema, format: 'json' });
+
             return `
                 <div class="mb-2">
                     <div class="flex justify-between align-center mb-2">
@@ -347,12 +361,51 @@
                                 <span class="txt-hint">Successful response</span>
                             </div>
                             <div class="response-schema">
-                                <div id="${uniqueId}">${APIDataManager.formatSchemaForDisplay(responseSchema, 'json')}</div>
+                                <div class="code-block">
+                                    <pre id="${uniqueId}" class="code"><code>Loading response schema...</code></pre>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             `;
+        },
+
+        // Populate endpoint schemas after DOM insertion (matches components/raw schema approach)
+        _populateEndpointSchemas() {
+            if (!this._endpointSchemas) return;
+
+            console.log('🔄 Populating', this._endpointSchemas.size, 'endpoint schemas');
+
+            this._endpointSchemas.forEach((data, elementId) => {
+                const container = document.getElementById(elementId);
+                if (!container) {
+                    console.warn('⚠️ Container not found for:', elementId);
+                    return;
+                }
+
+                try {
+                    if (!data.schema) {
+                        container.innerHTML = '<span class="json-null">No schema available</span>';
+                        console.log('⚠️ No schema data for:', elementId);
+                        return;
+                    }
+
+                    const formattedSchema = APIDataManager.formatSchemaForDisplay(data.schema, data.format);
+                    if (formattedSchema) {
+                        container.innerHTML = formattedSchema;
+                        console.log('✅ Populated schema for:', elementId);
+                    } else {
+                        container.innerHTML = '<span class="json-null">Schema formatting failed</span>';
+                        console.warn('⚠️ Schema formatting returned empty for:', elementId);
+                    }
+                } catch (error) {
+                    console.error('💥 Failed to populate schema for:', elementId, error);
+                    container.innerHTML = '<span class="json-null">Error loading schema</span>';
+                }
+            });
+
+            console.log('✅ All endpoint schemas populated');
         },
 
         // Render empty state
@@ -704,6 +757,11 @@
                 const schema = isRequest ? endpoint.request : endpoint.response;
                 const formattedContent = APIDataManager.formatSchemaForDisplay(schema, format);
                 targetElement.innerHTML = formattedContent;
+
+                // Update stored format for this schema
+                if (this._endpointSchemas && this._endpointSchemas.has(targetId)) {
+                    this._endpointSchemas.set(targetId, { schema: schema, format: format });
+                }
             }
         },
 
@@ -941,6 +999,26 @@
                 if (formatCleanup) this._eventCleanup.push(formatCleanup);
             }
 
+            // Setup version selector change listener
+            const versionSelect = document.getElementById('version-select');
+            if (versionSelect) {
+                console.log('🔍 DEBUG: Setting up version selector listener');
+                const versionCleanup = this._addChangeListener(versionSelect, (e) => {
+                    console.log('🔍 DEBUG: Version selector changed, value:', e.target.value);
+                    console.log('🔍 DEBUG: Available options:', Array.from(e.target.options).map(opt => `${opt.value} - ${opt.text}`));
+                    const selectedVersion = e.target.value;
+                    if (selectedVersion) {
+                        console.log('🔄 Processing version change to:', selectedVersion);
+                        this._handleVersionChange(selectedVersion);
+                    } else {
+                        console.warn('⚠️ No version selected');
+                    }
+                });
+                if (versionCleanup) this._eventCleanup.push(versionCleanup);
+            } else {
+                console.warn('⚠️ Version selector not found during listener setup');
+            }
+
             console.log('✅ Event listeners setup complete');
         },
 
@@ -1001,6 +1079,46 @@
             });
         },
 
+        // Handle version change
+        _handleVersionChange(selectedVersion) {
+            console.log('🔄 Version changed to:', selectedVersion);
+
+            try {
+                const currentVersion = StateManager.getState('api.currentVersion');
+                console.log('🔍 DEBUG: Current version in state:', currentVersion);
+
+                // Only proceed if version actually changed
+                if (currentVersion === selectedVersion) {
+                    console.log('ℹ️ Version unchanged, skipping reload');
+                    return;
+                }
+
+                // Update version details first
+                const versions = StateManager.getState('api.versions') || [];
+                console.log('🔍 DEBUG: Available versions for details update:', versions.length);
+
+                if (APIDataManager && typeof APIDataManager.updateVersionDetails === 'function') {
+                    APIDataManager.updateVersionDetails(versions, selectedVersion);
+                    console.log('✅ Version details updated');
+                }
+
+                // Update state
+                console.log('🔄 Updating current version state');
+                StateManager.setState('api.currentVersion', selectedVersion);
+
+                // Reload endpoints
+                console.log('🔄 Reloading endpoints for new version');
+                if (APIDataManager && typeof APIDataManager.loadEndpoints === 'function') {
+                    APIDataManager.loadEndpoints();
+                } else {
+                    console.error('❌ APIDataManager.loadEndpoints not available');
+                }
+            } catch (error) {
+                console.error('💥 Failed to handle version change:', error);
+                ErrorManager.handleError(error, 'Version Change');
+            }
+        },
+
         // Apply current filters to endpoints
         _applyCurrentFilters() {
             const allEndpoints = StateManager.getState('api.endpoints') || [];
@@ -1020,6 +1138,14 @@
 
             element.addEventListener('click', handler);
             return () => element.removeEventListener('click', handler);
+        },
+
+        // Helper: Add change listener with cleanup
+        _addChangeListener(element, handler) {
+            if (!element) return null;
+
+            element.addEventListener('change', handler);
+            return () => element.removeEventListener('change', handler);
         },
 
         // Helper: Add input listener with cleanup

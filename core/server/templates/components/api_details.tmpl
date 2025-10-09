@@ -8,13 +8,20 @@
 
         <!-- Version Selector -->
         <div class="flex align-center gap-2">
-            <span class="txt-sm txt-hint">Version:</span>
-            <select id="version-select" class="form-control form-control-sm" style="min-width: 120px;">
+            <span class="txt-sm txt-hint">API:</span>
+            <select id="version-select" class="form-control form-control-sm" style="min-width: 200px;">
                 <option value="">Loading versions...</option>
             </select>
         </div>
     </header>
 
+    <!-- Version Details -->
+    <div id="version-details" class="version-info mb-3" style="display: none;">
+        <div class="flex align-center justify-between txt-sm txt-hint">
+            <span id="version-description">Loading description...</span>
+            <span id="version-base-url">Loading base URL...</span>
+        </div>
+    </div>
     <div class="api-details-container">
         <!-- Main Content Area -->
         <div class="api-main-content">
@@ -122,7 +129,9 @@
                                 </button>
                             </div>
 
+                            <div class="code-block">
                                 <pre id="components-content" class="code"><code>Loading components...</code></pre>
+                            </div>
 
                         </div>
 
@@ -142,7 +151,9 @@
                                 </button>
                             </div>
 
+                            <div class="code-block">
                                 <pre id="raw-schema-content" class="code"><code>Loading schema...</code></pre>
+                            </div>
 
                         </div>
                     </div>

@@ -132,11 +132,17 @@
         const versionSelect = document.getElementById('version-select');
         if (versionSelect && versions.length > 0) {
             console.log('🔄 Updating version selector with', versions.length, 'versions');
-            versionSelect.innerHTML = versions.map(version =>
-                `<option value="${version.version}" ${version.version === currentVersion ? 'selected' : ''}>
-                    ${version.version} ${version.status ? `(${version.status})` : ''}
-                </option>`
-            ).join('');
+            versionSelect.innerHTML = versions.map(version => {
+                const config = version.config || {};
+                const title = config.title || 'API';
+                const versionText = config.version || 'v1';
+                const status = config.status ? ` (${config.status})` : '';
+                const displayText = `${title} ${versionText}${status}`;
+
+                return `<option value="${version.version}" ${version.version === currentVersion ? 'selected' : ''}>
+                    ${displayText}
+                </option>`;
+            }).join('');
         } else {
             console.warn('⚠️ Version selector not found or no versions available');
         }

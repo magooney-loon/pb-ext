@@ -261,19 +261,19 @@
         // Format schema for display with syntax highlighting
         formatSchemaForDisplay(schema, format = 'json') {
             if (!schema) {
-                return '<div class="code-block"><span class="json-null">No schema available</span></div>';
+                return '<span class="json-null">No schema available</span>';
             }
 
             if (typeof schema === 'string') {
-                return `<div class="code-block"><pre><code>${this._escapeHtml(schema)}</code></pre></div>`;
+                return this._escapeHtml(schema);
             }
 
             try {
                 const formatted = this.syntaxHighlight(schema, format);
-                return `<div class="code-block">${formatted}</div>`;
+                return formatted;
             } catch (error) {
                 console.warn('Schema formatting failed, using fallback:', error);
-                return `<div class="code-block"><pre><code>${this._escapeHtml(JSON.stringify(schema, null, 2))}</code></pre></div>`;
+                return this._escapeHtml(JSON.stringify(schema, null, 2));
             }
         },
 
@@ -286,53 +286,98 @@
                     return '<span class="json-null">null</span>';
                 }
 
-                let str;
-
                 if (format === 'yaml') {
-                    str = this._convertToYaml(obj);
+                    const yamlStr = this._convertToYaml(obj);
+                    return this._highlightYaml(yamlStr);
                 } else {
-                    // Handle already stringified objects
-                    if (typeof obj === 'string') {
-                        try {
-                            // Try to parse and re-stringify for consistent formatting
-                            const parsed = JSON.parse(obj);
-                            str = JSON.stringify(parsed, null, 2);
-                        } catch {
-                            // If parsing fails, use the string as-is
-                            str = obj;
-                        }
-                    } else {
-                        str = JSON.stringify(obj, null, 2);
-                    }
+                    return this._highlightJson(obj);
                 }
-
-                if (!str) {
-                    return '<span class="json-null">No data</span>';
-                }
-
-                // Enhanced regex for better JSON token matching
-                return str.replace(
-                    /("(?:[^"\\]|\\.)*"(?=\s*:))|("(?:[^"\\]|\\.)*")|(\b(?:true|false|null)\b)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}[\],])/g,
-                    (match, key, string, boolean, number, punctuation) => {
-                        if (key) {
-                            return '<span class="json-key">' + this._escapeHtml(match) + '</span>';
-                        } else if (string) {
-                            return '<span class="json-string">' + this._escapeHtml(match) + '</span>';
-                        } else if (boolean) {
-                            return '<span class="json-boolean">' + this._escapeHtml(match) + '</span>';
-                        } else if (number) {
-                            return '<span class="json-number">' + this._escapeHtml(match) + '</span>';
-                        } else if (punctuation) {
-                            return '<span class="json-punctuation">' + this._escapeHtml(match) + '</span>';
-                        }
-                        return this._escapeHtml(match);
-                    }
-                );
 
             } catch (error) {
                 console.warn('Syntax highlighting failed:', error);
                 return '<pre>' + this._escapeHtml(String(obj)) + '</pre>';
             }
+        },
+
+        // JSON syntax highlighting
+        _highlightJson(obj) {
+            let str;
+
+            // Handle already stringified objects
+            if (typeof obj === 'string') {
+                try {
+                    // Try to parse and re-stringify for consistent formatting
+                    const parsed = JSON.parse(obj);
+                    str = JSON.stringify(parsed, null, 2);
+                } catch {
+                    // If parsing fails, use the string as-is
+                    str = obj;
+                }
+            } else {
+                str = JSON.stringify(obj, null, 2);
+            }
+
+            if (!str) {
+                return '<span class="json-null">No data</span>';
+            }
+
+            // Enhanced regex for better JSON token matching
+            return str.replace(
+                /("(?:[^"\\]|\\.)*"(?=\s*:))|("(?:[^"\\]|\\.)*")|(\b(?:true|false|null)\b)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}[\],])/g,
+                (match, key, string, boolean, number, punctuation) => {
+                    if (key) {
+                        return '<span class="json-key">' + this._escapeHtml(match) + '</span>';
+                    } else if (string) {
+                        return '<span class="json-string">' + this._escapeHtml(match) + '</span>';
+                    } else if (boolean) {
+                        return '<span class="json-boolean">' + this._escapeHtml(match) + '</span>';
+                    } else if (number) {
+                        return '<span class="json-number">' + this._escapeHtml(match) + '</span>';
+                    } else if (punctuation) {
+                        return '<span class="json-punctuation">' + this._escapeHtml(match) + '</span>';
+                    }
+                    return this._escapeHtml(match);
+                }
+            );
+        },
+
+        // YAML syntax highlighting
+        _highlightYaml(yamlStr) {
+            if (!yamlStr) {
+                return '<span class="json-null">No data</span>';
+            }
+
+            // Split into lines and process each line individually
+            const lines = yamlStr.split('\n');
+            const highlightedLines = lines.map(line => {
+                // Match YAML key-value pairs
+                const match = line.match(/^(\s*)([\w-]+)(\s*:\s*)(.*)$/);
+                if (match) {
+                    const [, indent, key, colon, value] = match;
+                    let highlightedValue = value;
+
+                    // Highlight different value types
+                    if (/^".*"$/.test(value) || /^'.*'$/.test(value)) {
+                        highlightedValue = '<span class="json-string">' + this._escapeHtml(value) + '</span>';
+                    } else if (/^(true|false|null)$/.test(value)) {
+                        highlightedValue = '<span class="json-boolean">' + this._escapeHtml(value) + '</span>';
+                    } else if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(value)) {
+                        highlightedValue = '<span class="json-number">' + this._escapeHtml(value) + '</span>';
+                    } else if (value.trim()) {
+                        highlightedValue = '<span class="json-string">' + this._escapeHtml(value) + '</span>';
+                    }
+
+                    return this._escapeHtml(indent) +
+                           '<span class="json-key">' + this._escapeHtml(key) + '</span>' +
+                           this._escapeHtml(colon) +
+                           highlightedValue;
+                } else {
+                    // For lines that don't match key-value pattern, just escape HTML
+                    return this._escapeHtml(line);
+                }
+            });
+
+            return highlightedLines.join('\n');
         },
 
         // Improved YAML conversion with proper formatting
@@ -359,15 +404,16 @@
                 if (Array.isArray(obj)) {
                     if (obj.length === 0) return '[]';
                     return obj.map(item => {
-                        const yamlItem = this._convertToYaml(item, indent);
                         if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-                            // For objects in arrays, we need proper indentation
+                            const yamlItem = this._convertToYaml(item, indent + 1);
                             const itemLines = yamlItem.split('\n');
-                            const firstLine = itemLines[0];
-                            const remainingLines = itemLines.slice(1).map(line => `${spaces}  ${line}`);
-                            return `${spaces}- ${firstLine}\n${remainingLines.join('\n')}`;
+                            const indentedLines = itemLines.map((line, i) =>
+                                i === 0 ? line : `${spaces}  ${line}`
+                            );
+                            return `${spaces}- ${indentedLines.join('\n')}`;
+                        } else {
+                            return `${spaces}- ${this._convertToYaml(item, indent)}`;
                         }
-                        return `${spaces}- ${yamlItem}`;
                     }).join('\n');
                 }
 
@@ -375,13 +421,13 @@
                     if (Object.keys(obj).length === 0) return '{}';
                     return Object.entries(obj)
                         .map(([key, value]) => {
-                            const yamlValue = this._convertToYaml(value, indent + 1);
-                            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                            if (typeof value === 'object' && value !== null) {
+                                const yamlValue = this._convertToYaml(value, indent + 1);
                                 return `${spaces}${key}:\n${yamlValue}`;
-                            } else if (Array.isArray(value) && value.length > 0) {
-                                return `${spaces}${key}:\n${yamlValue}`;
+                            } else {
+                                const simpleValue = this._convertToYaml(value, 0);
+                                return `${spaces}${key}: ${simpleValue}`;
                             }
-                            return `${spaces}${key}: ${yamlValue}`;
                         })
                         .join('\n');
                 }
@@ -626,14 +672,53 @@
                 return;
             }
 
-            const options = versions.map(version =>
-                `<option value="${version.version}" ${version.version === currentVersion ? 'selected' : ''}>
-                    ${version.version} ${version.status ? `(${version.status})` : ''}
-                </option>`
-            ).join('');
+            const options = versions.map(version => {
+                const config = version.config || {};
+                const title = config.title || 'API';
+                const versionText = config.version || 'v1';
+                const status = config.status ? ` (${config.status})` : '';
+                const displayText = `${title} ${versionText}${status}`;
+
+                return `<option value="${version.version}" ${version.version === currentVersion ? 'selected' : ''}>
+                    ${displayText}
+                </option>`;
+            }).join('');
 
             selector.innerHTML = options;
+
+            // Update version details display
+            this.updateVersionDetails(versions, currentVersion);
+
             console.log('✅ Version selector updated with', versions.length, 'options');
+        },
+
+        // Update version details display
+        updateVersionDetails(versions, currentVersion) {
+            const currentVersionData = versions.find(v => v.version === currentVersion);
+            console.log('🔍 DEBUG: Version data for', currentVersion, ':', currentVersionData);
+
+            if (!currentVersionData) {
+                console.warn('⚠️ No version data found for:', currentVersion);
+                return;
+            }
+
+            const detailsContainer = document.getElementById('version-details');
+            const descriptionEl = document.getElementById('version-description');
+            const baseUrlEl = document.getElementById('version-base-url');
+
+            if (detailsContainer && descriptionEl && baseUrlEl) {
+                const config = currentVersionData.config || {};
+                const description = config.description || 'No description available';
+                const baseUrl = config.base_url || '';
+
+                descriptionEl.textContent = description;
+                baseUrlEl.textContent = baseUrl;
+                detailsContainer.style.display = 'block';
+
+                console.log('✅ Version details updated:', { description, baseUrl });
+            } else {
+                console.error('❌ Required DOM elements not found for version details');
+            }
         },
 
         // Extract fields from schema object

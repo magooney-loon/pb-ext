@@ -338,17 +338,16 @@ max-height: 100vh;
     border: 1px solid var(--baseAlt2Color, #e5e5e5);
     border-radius: 4px;
     overflow: auto;
-    max-height: 100vh;
+    max-height: 69vh;
     position: relative;
 }
 
 .code-block pre {
     margin: 0;
-    padding: 12px;
     white-space: pre-wrap;
     word-wrap: break-word;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    font-size: 12px;
+    font-size: 18px;
     line-height: 1.4;
 }
 
@@ -481,6 +480,27 @@ max-height: 100vh;
 .badge-xs {
     font-size: 9px;
     padding: 1px 4px;
+}
+
+/* Version info styling */
+.version-info {
+    padding: 8px 16px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 4px;
+    margin-bottom: 16px;
+}
+
+#version-description {
+    font-style: italic;
+}
+
+#version-base-url {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 11px;
+    background: var(--baseAlt2Color, #e5e5e5);
+    padding: 2px 6px;
+    border-radius: 3px;
 }
 
 /* =============================================================================
