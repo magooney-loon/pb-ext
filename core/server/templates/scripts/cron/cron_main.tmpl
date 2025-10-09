@@ -27,11 +27,7 @@ if (!window.cronSystemInitialized) {
          */
         getAuthToken() {
             const possibleTokenKeys = [
-                '__pb_superuser_auth__',
-                'pb_superuser_token',
-                'pocketbase_superuser_auth',
-                'pb_superuser_auth',
-                '__pb_auth__'
+                '__pb_superuser_auth__'
             ];
 
             for (const key of possibleTokenKeys) {
@@ -359,48 +355,107 @@ if (!window.cronSystemInitialized) {
         }
 
         getCronDescription(expression) {
-            // Basic cron description generator
+            // Handle macros first
+            const macros = {
+                '@yearly': 'Yearly (January 1st at midnight)',
+                '@annually': 'Yearly (January 1st at midnight)',
+                '@monthly': 'Monthly (1st day at midnight)',
+                '@weekly': 'Weekly (Sunday at midnight)',
+                '@daily': 'Daily at midnight',
+                '@midnight': 'Daily at midnight',
+                '@hourly': 'Every hour'
+            };
+
+            if (macros[expression]) {
+                return macros[expression];
+            }
+
             const parts = expression.trim().split(/\s+/);
             if (parts.length !== 5) return expression;
 
             try {
                 const [min, hour, day, month, dow] = parts;
-                let desc = 'Runs ';
 
+                // Handle common patterns first
                 if (min === '*' && hour === '*' && day === '*' && month === '*' && dow === '*') {
                     return 'Every minute';
                 }
 
-                if (min !== '*' && hour !== '*') {
-                    desc += `at ${hour.padStart(2, '0')}:${min.padStart(2, '0')} `;
-                } else if (min !== '*') {
-                    desc += `at minute ${min} `;
-                } else if (hour !== '*') {
-                    desc += `every minute of hour ${hour} `;
+                // Handle step values in minutes
+                if (min.startsWith('*/') && hour === '*' && day === '*' && month === '*' && dow === '*') {
+                    const step = parseInt(min.substring(2));
+                    if (step === 1) return 'Every minute';
+                    return `Every ${step} minutes`;
                 }
 
-                if (dow !== '*') {
+                // Handle step values in hours
+                if (min === '0' && hour.startsWith('*/') && day === '*' && month === '*' && dow === '*') {
+                    const step = parseInt(hour.substring(2));
+                    if (step === 1) return 'Every hour';
+                    return `Every ${step} hours`;
+                }
+
+                // Handle daily patterns
+                if (min !== '*' && hour !== '*' && day === '*' && month === '*' && dow === '*') {
+                    const h = parseInt(hour);
+                    const m = parseInt(min);
+                    const time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                    if (h === 0 && m === 0) return 'Daily at midnight';
+                    return `Daily at ${time}`;
+                }
+
+                // Handle weekly patterns
+                if (min !== '*' && hour !== '*' && day === '*' && month === '*' && dow !== '*') {
                     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                    if (dow.includes(',')) {
-                        const dayList = dow.split(',').map(d => days[parseInt(d)]).join(', ');
-                        desc += `on ${dayList} `;
-                    } else if (dow.includes('/')) {
-                        desc += `every ${dow.split('/')[1]} days `;
-                    } else {
-                        desc += `on ${days[parseInt(dow)]} `;
-                    }
-                } else if (day !== '*') {
-                    desc += `on day ${day} `;
+                    const dayName = days[parseInt(dow)] || dow;
+                    const h = parseInt(hour);
+                    const m = parseInt(min);
+                    const time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                    if (h === 0 && m === 0) return `Weekly on ${dayName} at midnight`;
+                    return `Weekly on ${dayName} at ${time}`;
                 }
 
-                if (month !== '*') {
-                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                    desc += `in ${months[parseInt(month) - 1]} `;
+                // Handle hourly patterns
+                if (min === '0' && hour === '*' && day === '*' && month === '*' && dow === '*') {
+                    return 'Every hour';
                 }
 
-                return desc.trim();
+                // Handle monthly patterns
+                if (min !== '*' && hour !== '*' && day !== '*' && month === '*' && dow === '*') {
+                    const h = parseInt(hour);
+                    const m = parseInt(min);
+                    const d = parseInt(day);
+                    const time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                    if (h === 0 && m === 0) return `Monthly on day ${d} at midnight`;
+                    return `Monthly on day ${d} at ${time}`;
+                }
+
+                // Fallback for complex expressions
+                let desc = [];
+
+                if (min.startsWith('*/')) {
+                    desc.push(`every ${min.substring(2)} min`);
+                } else if (min !== '*') {
+                    desc.push(`min ${min}`);
+                }
+
+                if (hour.startsWith('*/')) {
+                    desc.push(`every ${hour.substring(2)}h`);
+                } else if (hour !== '*') {
+                    desc.push(`${hour}h`);
+                }
+
+                if (day !== '*') desc.push(`day ${day}`);
+                if (month !== '*') desc.push(`month ${month}`);
+                if (dow !== '*') {
+                    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                    desc.push(days[parseInt(dow)] || `dow ${dow}`);
+                }
+
+                return desc.length > 0 ? desc.join(', ') : 'Custom schedule';
+
             } catch (e) {
-                return expression;
+                return 'Custom schedule';
             }
         }
 

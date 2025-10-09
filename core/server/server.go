@@ -166,8 +166,6 @@ func (s *Server) Start() error {
 		}
 
 		// Initialize API documentation system
-		// NOTE: API docs routes are now handled by the version manager to prevent conflicts
-		// s.RegisterAPIDocsRoutes(e)
 		app.Logger().Info("📚 AST API system initialized")
 
 		// Initialize cron jobs API
