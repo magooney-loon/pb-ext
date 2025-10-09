@@ -109,9 +109,6 @@
 
                 const listeners = this._listeners.get(event);
                 if (!listeners || listeners.size === 0) {
-                    if (this._debugMode) {
-                        console.debug(`EventBus: No listeners for event '${event}'`);
-                    }
                     return;
                 }
 
@@ -154,12 +151,7 @@
         // Setup default middleware
         _setupDefaultMiddleware() {
             // Debug logging middleware
-            if (this._debugMode) {
-                this._middleware.push((data, event) => {
-                    console.debug(`EventBus: ${event}`, data);
-                    return data;
-                });
-            }
+
         },
 
         // Generate unique listener ID
@@ -585,7 +577,6 @@
         // Enable debug mode
         enableDebugMode() {
             EventBus.setDebugMode(true);
-            console.log('APICore: Debug mode enabled');
         },
 
         // Reset entire system

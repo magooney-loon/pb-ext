@@ -16,19 +16,10 @@
             if (this._initialized) return;
 
             try {
-                console.log('🎨 APIUIManager: Starting initialization...');
-
                 this._setupTabs();
-                console.log('✅ APIUIManager: Tabs setup complete');
-
                 this._setupFilters();
-                console.log('✅ APIUIManager: Filters setup complete');
-
                 this._setupEventListeners();
-                console.log('✅ APIUIManager: Event listeners setup complete');
-
                 this._initializeFilterUI();
-                console.log('✅ APIUIManager: Filter UI initialized');
 
                 EventBus.emit(APIEvents.UI.TAB_CHANGED, {
                     component: 'APIUIManager',
@@ -37,10 +28,10 @@
                     timestamp: new Date().toISOString()
                 });
 
-                console.log('🎉 APIUIManager: Initialization complete!');
+
 
             } catch (error) {
-                console.error('💥 APIUIManager: Initialization failed:', error);
+                console.error('APIUIManager: Initialization failed:', error);
                 ErrorManager.handleError(error, 'APIUIManager Initialization');
             }
         },
@@ -51,13 +42,10 @@
 
         // Setup tab functionality
         _setupTabs() {
-            console.log('🔧 Setting up tabs...');
             const tabButtons = document.querySelectorAll('#api-tabs .tab-item');
-            console.log('📊 Found', tabButtons.length, 'tab buttons');
 
             tabButtons.forEach((button, index) => {
                 const tabName = button.dataset.tab;
-                console.log(`🔘 Setting up tab button ${index + 1}: ${tabName}`);
 
                 const cleanup = this._addClickListener(button, (e) => {
                     e.preventDefault();
@@ -67,7 +55,6 @@
             });
 
             // Initialize default tab
-            console.log('🎯 Initializing default tab:', this._currentTab);
             this._switchTab(this._currentTab);
         },
 
@@ -138,10 +125,9 @@
 
         // Render endpoints list
         _renderEndpoints() {
-            console.log('🔄 Rendering endpoints...');
             const container = document.getElementById('endpoints-list');
             if (!container) {
-                console.error('❌ endpoints-list container not found');
+                console.error('endpoints-list container not found');
                 return;
             }
 
@@ -151,27 +137,19 @@
             const endpoints = StateManager.getState('api.filteredEndpoints') || [];
             const allEndpoints = StateManager.getState('api.endpoints') || [];
 
-            console.log('📊 Rendering:', {
-                filtered: endpoints.length,
-                total: allEndpoints.length
-            });
-
             if (endpoints.length === 0) {
-                console.log('⚠️ No endpoints to render - showing empty state');
                 this._renderEmptyEndpoints(container, allEndpoints.length > 0);
                 return;
             }
 
             try {
-                console.log('✏️ Generating HTML for', endpoints.length, 'endpoints');
                 const html = endpoints.map(endpoint => this._renderEndpoint(endpoint)).join('');
                 container.innerHTML = html;
                 this._populateEndpointSchemas();
                 this._attachEndpointListeners(container);
-                console.log('✅ Endpoints rendered successfully');
 
             } catch (error) {
-                console.error('💥 Failed to render endpoints:', error);
+                console.error('Failed to render endpoints:', error);
                 ErrorManager.handleError(error, 'Rendering Endpoints');
                 this._renderErrorState(container, error);
             }
@@ -375,37 +353,29 @@
         _populateEndpointSchemas() {
             if (!this._endpointSchemas) return;
 
-            console.log('🔄 Populating', this._endpointSchemas.size, 'endpoint schemas');
-
             this._endpointSchemas.forEach((data, elementId) => {
                 const container = document.getElementById(elementId);
                 if (!container) {
-                    console.warn('⚠️ Container not found for:', elementId);
                     return;
                 }
 
                 try {
                     if (!data.schema) {
                         container.innerHTML = '<span class="json-null">No schema available</span>';
-                        console.log('⚠️ No schema data for:', elementId);
                         return;
                     }
 
                     const formattedSchema = APIDataManager.formatSchemaForDisplay(data.schema, data.format);
                     if (formattedSchema) {
                         container.innerHTML = formattedSchema;
-                        console.log('✅ Populated schema for:', elementId);
                     } else {
                         container.innerHTML = '<span class="json-null">Schema formatting failed</span>';
-                        console.warn('⚠️ Schema formatting returned empty for:', elementId);
                     }
                 } catch (error) {
-                    console.error('💥 Failed to populate schema for:', elementId, error);
+                    console.error('Failed to populate schema for:', elementId, error);
                     container.innerHTML = '<span class="json-null">Error loading schema</span>';
                 }
             });
-
-            console.log('✅ All endpoint schemas populated');
         },
 
         // Render empty state
@@ -419,7 +389,7 @@
                     <i class="ri-route-line ri-2x mb-2"></i>
                     <h4>${message}</h4>
                     ${hasEndpoints ? `
-                        <button onclick="APIUIManager.clearFilters()" class="btn btn-sm btn-outline mt-2">
+                        <button onclick="APIUIManager.clearFilters()" class="btn btn-sm btn-outline"">
                             <i class="ri-close-line"></i> Clear Filters
                         </button>
                     ` : ''}
@@ -444,16 +414,9 @@
 
         // Setup filter functionality
         _setupFilters() {
-            console.log('🔧 Setting up filters...');
             const filterInputs = document.querySelectorAll('#api-filters input, #api-filters select');
-            console.log('📊 Found', filterInputs.length, 'filter inputs');
 
             filterInputs.forEach((input, index) => {
-                console.log(`🔘 Setting up filter ${index + 1}:`, {
-                    id: input.id,
-                    name: input.name || 'unnamed',
-                    type: input.type || input.tagName
-                });
 
                 // Map input IDs to filter names
                 const filterNameMap = {
@@ -589,52 +552,41 @@
 
         // Render raw schema tab
         _renderRawSchema(format = 'json') {
-            console.log('🔄 Rendering raw schema...');
             const container = document.getElementById('raw-schema-content');
             if (!container) {
-                console.error('❌ raw-schema-content container not found');
+                console.error('raw-schema-content container not found');
                 return;
             }
 
             const schema = StateManager.getState('api.schema');
-            console.log('📊 Schema available:', !!schema);
 
             if (!schema) {
-                console.log('⚠️ No schema available');
                 container.innerHTML = '<code>No schema available</code>';
                 return;
             }
 
-            console.log('✏️ Formatting schema for display...');
             const formattedSchema = APIDataManager.formatSchemaForDisplay(schema, format);
             container.innerHTML = formattedSchema;
-            console.log('✅ Raw schema rendered');
         },
 
         // Render components tab
         _renderComponents(format = 'json') {
-            console.log('🔄 Rendering components...');
             const container = document.getElementById('components-content');
             if (!container) {
-                console.error('❌ components-content container not found');
+                console.error('components-content container not found');
                 return;
             }
 
             const schema = StateManager.getState('api.schema');
             const components = schema?.components;
 
-            console.log('📊 Components available:', !!components);
-
             if (!components) {
-                console.log('⚠️ No components available');
                 container.innerHTML = '<code>No components available</code>';
                 return;
             }
 
-            console.log('✏️ Formatting components for display...');
             const formattedComponents = APIDataManager.formatSchemaForDisplay(components, format);
             container.innerHTML = formattedComponents;
-            console.log('✅ Components rendered');
         },
 
         // =============================================================================
@@ -644,8 +596,6 @@
         // Populate filter dropdown options based on endpoint data
         _populateFilterOptions(endpoints) {
             if (!endpoints || endpoints.length === 0) return;
-
-            console.log('🔧 Populating filter options for', endpoints.length, 'endpoints');
 
             // Extract unique methods
             const methods = [...new Set(endpoints.map(ep => ep.method.toLowerCase()))].sort();
@@ -690,8 +640,6 @@
                     tagSelect.appendChild(option);
                 });
             }
-
-            console.log('✅ Filter options populated:', { methods: methods.length, authTypes: authTypes.length, tags: tags.length });
         },
 
         // Update filter UI state and clear button visibility
@@ -699,16 +647,9 @@
             const filters = StateManager.getState('ui.filters') || {};
             const hasActiveFilters = Object.values(filters).some(value => value && value.toString().trim() !== '');
 
-            // Update clear button visibility
-            const clearBtn = document.getElementById('clear-filters-btn');
+            // Update active filters display
             const activeFiltersDiv = document.getElementById('active-filters');
             const filterTagsDiv = document.getElementById('filter-tags');
-
-            if (clearBtn) {
-                clearBtn.style.display = hasActiveFilters ? 'inline-flex' : 'none';
-            }
-
-            // Update active filters display
             if (activeFiltersDiv && filterTagsDiv) {
                 if (hasActiveFilters) {
                     activeFiltersDiv.style.display = 'block';
@@ -861,7 +802,6 @@
 
         // Clear all filters
         clearFilters() {
-            console.log('🧹 Clearing all filters');
 
             // Reset filter inputs
             const filterInputs = document.querySelectorAll('#api-filters input, #api-filters select');
@@ -886,8 +826,6 @@
             this._renderEndpoints();
             this._updateFilterUI();
             this._updateStatistics();
-
-            console.log('✅ All filters cleared');
         },
 
         // Initialize filter UI on startup
@@ -910,7 +848,6 @@
 
         // Toggle format display (JSON/YAML)
         _toggleFormat(tabType, format, activeButton, inactiveButton) {
-            console.log(`🔄 Toggling ${tabType} format to ${format}`);
 
             // Update button states
             activeButton.classList.add('active');
@@ -926,18 +863,11 @@
 
         // Update statistics display
         _updateStatistics() {
-            console.log('📈 Updating statistics...');
             const stats = StateManager.getState('api.stats');
             const allEndpoints = StateManager.getState('api.endpoints') || [];
             const filteredEndpoints = StateManager.getState('api.filteredEndpoints') || [];
             const totalCount = allEndpoints.length;
             const filteredCount = filteredEndpoints.length;
-
-            console.log('📊 Statistics:', {
-                stats: !!stats,
-                filteredCount,
-                totalCount
-            });
 
             // Update main counts
             const updates = [
@@ -950,9 +880,6 @@
                 const element = document.getElementById(id);
                 if (element) {
                     element.textContent = value;
-                    console.log(`✅ Updated ${id}: ${value}`);
-                } else {
-                    console.warn(`⚠️ Element not found: ${id}`);
                 }
             });
 
@@ -968,18 +895,15 @@
                     const element = document.getElementById(id);
                     if (element) {
                         element.textContent = value;
-                        console.log(`✅ Updated ${id}: ${value}`);
                     }
                 });
 
                 // Update method breakdown
                 if (stats.methodCounts) {
-                    console.log('🔢 Updating method counts:', stats.methodCounts);
                     Object.entries(stats.methodCounts).forEach(([method, count]) => {
                         const element = document.getElementById(`${method}-count`);
                         if (element) {
                             element.textContent = count;
-                            console.log(`✅ Updated ${method}-count: ${count}`);
                         }
                     });
                 }
@@ -992,11 +916,8 @@
 
         // Setup main event listeners
         _setupEventListeners() {
-            console.log('🔧 Setting up event listeners...');
-
             // Listen for data updates
             EventBus.on(APIEvents.DATA.ENDPOINTS_UPDATED, (data) => {
-                console.log('📡 Received ENDPOINTS_UPDATED event:', data);
                 this._populateFilterOptions(data.endpoints);
                 this._applyCurrentFilters();
                 this._renderTabContent(this._currentTab);
@@ -1004,7 +925,6 @@
             });
 
             EventBus.on(APIEvents.DATA.SCHEMA_UPDATED, (data) => {
-                console.log('📡 Received SCHEMA_UPDATED event:', data);
                 if (this._currentTab === 'raw' || this._currentTab === 'components') {
                     this._renderTabContent(this._currentTab);
                 }
@@ -1082,24 +1002,14 @@
             // Setup version selector change listener
             const versionSelect = document.getElementById('version-select');
             if (versionSelect) {
-                console.log('🔍 DEBUG: Setting up version selector listener');
                 const versionCleanup = this._addChangeListener(versionSelect, (e) => {
-                    console.log('🔍 DEBUG: Version selector changed, value:', e.target.value);
-                    console.log('🔍 DEBUG: Available options:', Array.from(e.target.options).map(opt => `${opt.value} - ${opt.text}`));
                     const selectedVersion = e.target.value;
                     if (selectedVersion) {
-                        console.log('🔄 Processing version change to:', selectedVersion);
                         this._handleVersionChange(selectedVersion);
-                    } else {
-                        console.warn('⚠️ No version selected');
                     }
                 });
                 if (versionCleanup) this._eventCleanup.push(versionCleanup);
-            } else {
-                console.warn('⚠️ Version selector not found during listener setup');
             }
-
-            console.log('✅ Event listeners setup complete');
         },
 
         // Attach endpoint-specific event listeners
@@ -1161,40 +1071,32 @@
 
         // Handle version change
         _handleVersionChange(selectedVersion) {
-            console.log('🔄 Version changed to:', selectedVersion);
-
             try {
                 const currentVersion = StateManager.getState('api.currentVersion');
-                console.log('🔍 DEBUG: Current version in state:', currentVersion);
 
                 // Only proceed if version actually changed
                 if (currentVersion === selectedVersion) {
-                    console.log('ℹ️ Version unchanged, skipping reload');
                     return;
                 }
 
                 // Update version details first
                 const versions = StateManager.getState('api.versions') || [];
-                console.log('🔍 DEBUG: Available versions for details update:', versions.length);
 
                 if (APIDataManager && typeof APIDataManager.updateVersionDetails === 'function') {
                     APIDataManager.updateVersionDetails(versions, selectedVersion);
-                    console.log('✅ Version details updated');
                 }
 
                 // Update state
-                console.log('🔄 Updating current version state');
                 StateManager.setState('api.currentVersion', selectedVersion);
 
                 // Reload endpoints
-                console.log('🔄 Reloading endpoints for new version');
                 if (APIDataManager && typeof APIDataManager.loadEndpoints === 'function') {
                     APIDataManager.loadEndpoints();
                 } else {
-                    console.error('❌ APIDataManager.loadEndpoints not available');
+                    console.error('APIDataManager.loadEndpoints not available');
                 }
             } catch (error) {
-                console.error('💥 Failed to handle version change:', error);
+                console.error('Failed to handle version change:', error);
                 ErrorManager.handleError(error, 'Version Change');
             }
         },

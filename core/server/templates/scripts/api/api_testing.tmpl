@@ -36,7 +36,7 @@
         // =============================================================================
 
         // Open testing sidebar with endpoint
-        openSidebar(endpoint) {
+        openSidebar(endpoint, emitEvent = true) {
             try {
                 this._currentEndpoint = endpoint;
                 StateManager.setState('testing.activeTest', endpoint);
@@ -44,8 +44,14 @@
                 // Show sidebar
                 const sidebar = document.getElementById('api-tester-sidebar');
                 if (sidebar) {
-                    sidebar.classList.add('active');
+                    sidebar.classList.add('open');
                 }
+
+                // Reset sidebar to defaults first
+                this.resetToDefaults();
+
+                // Setup sidebar UI (close button, tabs, etc.)
+                this._setupSidebar();
 
                 // Build form for endpoint
                 this._buildTestForm(endpoint);
@@ -53,10 +59,13 @@
                 // Update URL display
                 this._updateUrlDisplay(endpoint);
 
-                EventBus.emit(APIEvents.UI.SIDEBAR_OPENED, {
-                    type: 'testing',
-                    endpoint: endpoint
-                });
+                // Only emit event if not called from event listener (prevents infinite loop)
+                if (emitEvent) {
+                    EventBus.emit(APIEvents.UI.SIDEBAR_OPENED, {
+                        type: 'testing',
+                        endpoint: endpoint
+                    });
+                }
 
             } catch (error) {
                 ErrorManager.handleError(error, 'Opening Test Sidebar');
@@ -68,9 +77,10 @@
             try {
                 const sidebar = document.getElementById('api-tester-sidebar');
                 if (sidebar) {
-                    sidebar.classList.remove('active');
+                    sidebar.classList.remove('open');
                 }
 
+                this.cleanup();
                 this._currentEndpoint = null;
                 StateManager.setState('testing.activeTest', null);
 
@@ -89,10 +99,13 @@
 
         // Build test form for endpoint
         _buildTestForm(endpoint) {
-            const container = document.getElementById('api-test-form');
+            const container = document.getElementById('schema-form-container');
             if (!container) return;
 
             const sections = [];
+
+            // Always add optional query parameters section at the top
+            sections.push(this._buildOptionalQuerySection());
 
             // Build path parameters section
             const pathParams = APIDataManager.extractPathParameters(endpoint);
@@ -122,15 +135,46 @@
                 sections.push(this._buildRequestBodySection(requestFields, endpoint));
             }
 
-            // Build authentication section
-            if (endpoint.auth?.required) {
-                sections.push(this._buildAuthSection(endpoint.auth));
+            if (sections.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-fields-state">
+                        <i class="ri-inbox-line"></i>
+                        <p>No parameters required</p>
+                        <p class="txt-sm txt-hint">This endpoint doesn't require any parameters.</p>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = sections.join('');
             }
-
-            container.innerHTML = sections.join('');
 
             // Attach form event listeners
             this._attachFormListeners(container);
+        },
+
+        // Build optional query parameters section (always shown)
+        _buildOptionalQuerySection() {
+            return `
+                <div class="form-section">
+                    <h6 class="section-title">
+                        <i class="ri-add-line"></i>
+                        Optional Query Parameters
+                    </h6>
+                    <div class="query-params-container">
+                        <div class="query-param-row" id="query-param-template" style="display: none;">
+                            <input type="text" class="form-control query-param-name" placeholder="Parameter name">
+                            <input type="text" class="form-control query-param-value" placeholder="Value">
+                            <button type="button" class="btn btn-xs btn-secondary remove-param-btn">
+                                <i class="ri-close-line"></i>
+                            </button>
+                        </div>
+                        <div id="query-params-list"></div>
+                        <button type="button" class="btn btn-xs btn-secondary add-query-param-btn">
+                            <i class="ri-add-line"></i>
+                            Add Query Parameter
+                        </button>
+                    </div>
+                </div>
+            `;
         },
 
         // Build path parameters section
@@ -225,12 +269,13 @@
                                   name="requestBody"
                                   class="form-control code-input"
                                   rows="8"
-                                  placeholder='{\n  "key": "value"\n}'></textarea>
+                                  placeholder='{\n  "key": "value"\n}'
+                                  style="font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 13px;"></textarea>
                         <div class="form-actions mt-2">
-                            <button type="button" class="btn btn-xs btn-outline" onclick="APITestingManager.loadExampleBody()">
+                            <button type="button" class="btn btn-xs btn-outline load-example-btn">
                                 Load Example
                             </button>
-                            <button type="button" class="btn btn-xs btn-outline" onclick="APITestingManager.formatJsonBody()">
+                            <button type="button" class="btn btn-xs btn-outline format-json-btn">
                                 Format JSON
                             </button>
                         </div>
@@ -602,15 +647,18 @@
             // Listen for sidebar open requests
             EventBus.on(APIEvents.UI.SIDEBAR_OPENED, (data) => {
                 if (data.type === 'testing' && data.endpoint) {
-                    this.openSidebar(data.endpoint);
+                    this.openSidebar(data.endpoint, false); // Don't emit event to prevent loop
                 }
             });
         },
 
         // Setup sidebar UI
         _setupSidebar() {
+            // Clean up any existing event listeners first
+            this.cleanup();
+
             // Close button
-            const closeBtn = document.getElementById('close-sidebar-btn');
+            const closeBtn = document.getElementById('close-tester-btn');
             if (closeBtn) {
                 const cleanup = this._addClickListener(closeBtn, () => {
                     this.closeSidebar();
@@ -631,10 +679,62 @@
             const resetBtn = document.getElementById('reset-form-btn');
             if (resetBtn) {
                 const cleanup = this._addClickListener(resetBtn, () => {
-                    this.resetForm();
+                    this.resetToDefaults();
                 });
                 this._eventCleanup.push(cleanup);
             }
+
+            // Send request buttons
+            const adminBtn = document.getElementById('send-request-admin-btn');
+            if (adminBtn) {
+                const cleanup = this._addClickListener(adminBtn, () => {
+                    this.sendRequest('admin');
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            const authBtn = document.getElementById('send-request-auth-btn');
+            if (authBtn) {
+                const cleanup = this._addClickListener(authBtn, () => {
+                    this.sendRequest('auth');
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            const guestBtn = document.getElementById('send-request-guest-btn');
+            if (guestBtn) {
+                const cleanup = this._addClickListener(guestBtn, () => {
+                    this.sendRequest('guest');
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            // Setup main tester tabs (Parameters/Response)
+            this._setupTesterTabs();
+        },
+
+        // Setup tester tab switching
+        _setupTesterTabs() {
+            const tabs = document.querySelectorAll('.tester-tab');
+            const contents = document.querySelectorAll('.tester-tab-content');
+
+            tabs.forEach(tab => {
+                const cleanup = this._addClickListener(tab, () => {
+                    const targetTab = tab.dataset.tab;
+
+                    // Update active tab
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+
+                    // Update active content
+                    contents.forEach(c => c.classList.remove('active'));
+                    const targetContent = document.getElementById(`${targetTab}-tab`);
+                    if (targetContent) {
+                        targetContent.classList.add('active');
+                    }
+                });
+                this._eventCleanup.push(cleanup);
+            });
         },
 
         // Setup form handlers
@@ -676,7 +776,7 @@
 
         // Attach form listeners
         _attachFormListeners(container) {
-            // URL update on path parameter changes
+            // Path parameter input listeners
             const pathInputs = container.querySelectorAll('input[name*="pathParams"]');
             pathInputs.forEach(input => {
                 const cleanup = this._addInputListener(input, () => {
@@ -684,25 +784,557 @@
                 });
                 this._eventCleanup.push(cleanup);
             });
+
+            // Add query parameter button
+            const addQueryBtn = container.querySelector('.add-query-param-btn');
+            if (addQueryBtn) {
+                const cleanup = this._addClickListener(addQueryBtn, () => {
+                    this._addQueryParamRow();
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            // Setup response tab switching
+            this._setupResponseTabs();
+
+            // Setup copy response button
+            const copyResponseBtn = document.getElementById('copy-response-btn');
+            if (copyResponseBtn) {
+                const cleanup = this._addClickListener(copyResponseBtn, () => {
+                    this._copyResponseBody();
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            // Setup JSON format button for request body
+            const formatBtn = container.querySelector('.format-json-btn');
+            if (formatBtn) {
+                const cleanup = this._addClickListener(formatBtn, () => {
+                    this._formatRequestBodyJson();
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            // Setup load example button for request body
+            const loadExampleBtn = container.querySelector('.load-example-btn');
+            if (loadExampleBtn) {
+                const cleanup = this._addClickListener(loadExampleBtn, () => {
+                    this._loadExampleRequestBody();
+                });
+                this._eventCleanup.push(cleanup);
+            }
         },
 
-        // Update URL display
-        _updateUrlDisplay(endpoint) {
-            const urlDisplay = document.getElementById('request-url-display');
-            if (!urlDisplay || !endpoint) return;
+        // Format JSON in request body textarea
+        _formatRequestBodyJson() {
+            const textarea = document.getElementById('request-body');
+            if (textarea && textarea.value.trim()) {
+                try {
+                    const jsonData = JSON.parse(textarea.value);
+                    textarea.value = JSON.stringify(jsonData, null, 2);
+                } catch (e) {
+                    console.warn('Invalid JSON in request body:', e);
+                }
+            }
+        },
 
-            // Get current path parameter values
-            const pathParams = {};
+        // Load example request body
+        _loadExampleRequestBody() {
+            if (!this._currentEndpoint) return;
+
+            const textarea = document.getElementById('request-body');
+            if (!textarea) return;
+
+            // Generate example from actual request schema
+            if (this._currentEndpoint.request) {
+                try {
+                    const example = APIDataManager.generateExampleFromSchema(this._currentEndpoint.request);
+                    if (example && typeof example === 'object') {
+                        textarea.value = JSON.stringify(example, null, 2);
+                    } else {
+                        console.warn('No valid example generated from schema');
+                        this._loadFallbackExample(textarea);
+                    }
+                } catch (error) {
+                    console.error('Failed to generate example from schema:', error);
+                    this._loadFallbackExample(textarea);
+                }
+            } else {
+                console.warn('No request schema available for endpoint');
+                this._loadFallbackExample(textarea);
+            }
+        },
+
+        // Load fallback example when schema is unavailable
+        _loadFallbackExample(textarea) {
+            const fallbackExample = {
+                "key": "value",
+                "example": "Please replace with your actual data"
+            };
+            textarea.value = JSON.stringify(fallbackExample, null, 2);
+        },
+
+        // Add query parameter row
+        _addQueryParamRow() {
+            const list = document.getElementById('query-params-list');
+            const template = document.getElementById('query-param-template');
+
+            if (list && template) {
+                const newRow = template.cloneNode(true);
+                newRow.id = `query-param-${Date.now()}`;
+                newRow.style.display = 'flex';
+                newRow.style.gap = '8px';
+                newRow.style.marginBottom = '8px';
+                newRow.style.alignItems = 'center';
+
+                // Add remove functionality
+                const removeBtn = newRow.querySelector('.remove-param-btn');
+                if (removeBtn) {
+                    removeBtn.addEventListener('click', () => {
+                        newRow.remove();
+                        // Update URL when parameter is removed
+                        this._updateUrlDisplay(this._currentEndpoint);
+                    });
+                }
+
+                // Add input listeners to update URL
+                const nameInput = newRow.querySelector('.query-param-name');
+                const valueInput = newRow.querySelector('.query-param-value');
+                if (nameInput && valueInput) {
+                    nameInput.addEventListener('input', () => this._updateUrlDisplay(this._currentEndpoint));
+                    valueInput.addEventListener('input', () => this._updateUrlDisplay(this._currentEndpoint));
+                }
+
+                list.appendChild(newRow);
+            }
+        },
+
+        // Send API request with specified auth mode
+        sendRequest(authMode = 'guest') {
+            if (!this._currentEndpoint) {
+                console.error('No current endpoint to test');
+                return;
+            }
+
+            try {
+                // Collect form data
+                const formData = this._collectFormData();
+
+                // Build request URL
+                let url = this._currentEndpoint.path;
+
+                // Replace path parameters
+                if (formData.pathParams) {
+                    Object.entries(formData.pathParams).forEach(([key, value]) => {
+                        if (value && value.trim()) {
+                            url = url.replace(`{${key}}`, encodeURIComponent(value));
+                        }
+                    });
+                }
+
+                // Add query parameters
+                const queryParams = new URLSearchParams();
+                if (formData.queryParams) {
+                    Object.entries(formData.queryParams).forEach(([key, value]) => {
+                        if (key && value) {
+                            queryParams.append(key, value);
+                        }
+                    });
+                }
+
+                // Add custom query parameters from the optional section
+                const customQueryParams = this._getCustomQueryParams();
+                Object.entries(customQueryParams).forEach(([key, value]) => {
+                    if (key && value) {
+                        queryParams.append(key, value);
+                    }
+                });
+
+                if (queryParams.toString()) {
+                    url += '?' + queryParams.toString();
+                }
+
+                // Prepare request options
+                const options = {
+                    method: this._currentEndpoint.method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...this._getAuthHeaders(authMode)
+                    }
+                };
+
+                // Add request body if needed
+                if (formData.requestBody && Object.keys(formData.requestBody).length > 0 &&
+                    ['POST', 'PUT', 'PATCH'].includes(this._currentEndpoint.method.toUpperCase())) {
+                    options.body = JSON.stringify(formData.requestBody);
+                }
+
+                // Update UI to show loading
+                this._showRequestLoading();
+
+                // Make the request
+                const startTime = Date.now();
+                fetch(url, options)
+                    .then(async response => {
+                        const endTime = Date.now();
+                        const duration = endTime - startTime;
+
+                        const responseData = {
+                            status: response.status,
+                            statusText: response.statusText,
+                            headers: Object.fromEntries(response.headers.entries()),
+                            body: await response.text(),
+                            duration: duration
+                        };
+
+                        this._showResponse(responseData);
+                    })
+                    .catch(error => {
+                        console.error('Request failed:', error);
+                        this._showRequestError(error);
+                    });
+
+            } catch (error) {
+                console.error('Failed to send request:', error);
+                this._showRequestError(error);
+            }
+        },
+
+        // Collect form data
+        _collectFormData() {
+            const formData = {
+                pathParams: {},
+                queryParams: {},
+                requestBody: {}
+            };
+
+            // Collect path parameters
             const pathInputs = document.querySelectorAll('input[name*="pathParams"]');
             pathInputs.forEach(input => {
                 const paramName = input.name.match(/\[([^\]]+)\]/)?.[1];
                 if (paramName) {
-                    pathParams[paramName] = input.value || `{${paramName}}`;
+                    formData.pathParams[paramName] = input.value;
                 }
             });
 
-            const url = APIDataManager.buildUrl(endpoint, pathParams);
-            urlDisplay.textContent = `${endpoint.method.toUpperCase()} ${url}`;
+            // Collect custom query parameters
+            const queryRows = document.querySelectorAll('#query-params-list > div');
+            queryRows.forEach(row => {
+                const nameInput = row.querySelector('.query-param-name');
+                const valueInput = row.querySelector('.query-param-value');
+                if (nameInput && valueInput && nameInput.value && valueInput.value) {
+                    formData.queryParams[nameInput.value] = valueInput.value;
+                }
+            });
+
+            // Collect request body fields
+            const bodyInputs = document.querySelectorAll('input[name*="requestBody"], textarea[name*="requestBody"], select[name*="requestBody"]');
+
+            bodyInputs.forEach(input => {
+                if (input.name === 'requestBody') {
+                    // This is the main JSON textarea
+                    if (input.value && input.value.trim()) {
+                        try {
+                            // Try to parse as JSON
+                            const jsonData = JSON.parse(input.value);
+                            formData.requestBody = jsonData;
+                        } catch (e) {
+                            console.warn('Failed to parse JSON, treating as string:', e);
+                            formData.requestBody = { data: input.value };
+                        }
+                    }
+                } else {
+                    // This is an individual field with name like "requestBody[fieldName]"
+                    const fieldName = input.name.match(/\[([^\]]+)\]/)?.[1];
+
+                    if (fieldName && input.value !== '') {
+                        // Handle different input types
+                        let value = input.value;
+                        if (input.type === 'checkbox') {
+                            value = input.checked;
+                        } else if (input.type === 'number') {
+                            value = Number(input.value);
+                        }
+                        formData.requestBody[fieldName] = value;
+                    }
+                }
+            });
+
+            return formData;
+        },
+
+        // Get custom query parameters
+        _getCustomQueryParams() {
+            const params = {};
+            const queryRows = document.querySelectorAll('#query-params-list > div');
+            queryRows.forEach(row => {
+                const nameInput = row.querySelector('.query-param-name');
+                const valueInput = row.querySelector('.query-param-value');
+                if (nameInput && valueInput && nameInput.value && valueInput.value) {
+                    params[nameInput.value] = valueInput.value;
+                }
+            });
+            return params;
+        },
+
+        // Copy response body to clipboard
+        _copyResponseBody() {
+            const responseBody = document.querySelector('#response-body .code-block code');
+            if (!responseBody) return;
+
+            const textContent = responseBody.textContent || responseBody.innerText;
+
+            if (!textContent.trim()) {
+                console.warn('No response content to copy');
+                return;
+            }
+
+            navigator.clipboard.writeText(textContent).then(() => {
+                // Visual feedback
+                const copyBtn = document.getElementById('copy-response-btn');
+                if (copyBtn) {
+                    const originalText = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '<i class="ri-check-line" style="color: #374151;"></i>';
+                    copyBtn.style.backgroundColor = '#f3f4f6';
+                    copyBtn.style.borderColor = '#d1d5db';
+
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalText;
+                        copyBtn.style.backgroundColor = '';
+                        copyBtn.style.borderColor = '';
+                    }, 1500);
+                }
+            }).catch(err => {
+                console.error('Failed to copy response:', err);
+            });
+        },
+
+        // Setup response tab switching
+        _setupResponseTabs() {
+            const tabs = document.querySelectorAll('.response-tab');
+            const contents = document.querySelectorAll('.response-tab-content');
+
+            tabs.forEach(tab => {
+                const cleanup = this._addClickListener(tab, () => {
+                    const targetTab = tab.dataset.tab;
+
+                    // Update active tab
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+
+                    // Update active content
+                    contents.forEach(c => c.classList.remove('active'));
+                    const targetContent = document.getElementById(`response-${targetTab}`);
+                    if (targetContent) {
+                        targetContent.classList.add('active');
+
+                        // Show empty state if no content
+                        this._checkResponseTabEmpty(targetTab);
+                    }
+                });
+                this._eventCleanup.push(cleanup);
+            });
+        },
+
+        // Check if response tab is empty and show appropriate state
+        _checkResponseTabEmpty(tabName) {
+            const content = document.querySelector(`#response-${tabName} .code-block code`);
+            if (content && (!content.textContent || content.textContent.trim() === '')) {
+                const emptyMessage = tabName === 'body' ? 'No response body available' : 'No response headers available';
+                content.innerHTML = `<span class="json-null">${emptyMessage}</span>`;
+            }
+        },
+
+        // Get auth headers based on mode
+        _getAuthHeaders(authMode) {
+            const headers = {};
+
+            switch (authMode) {
+                case 'admin':
+                    // Get superuser token from localStorage
+                    const adminAuth = localStorage.getItem('__pb_superuser_auth__');
+                    if (adminAuth) {
+                        try {
+                            const adminData = JSON.parse(adminAuth);
+                            if (adminData.token) {
+                                headers['Authorization'] = `Bearer ${adminData.token}`;
+                            }
+                        } catch (e) {
+                            console.warn('Invalid admin auth data in localStorage');
+                        }
+                    }
+                    break;
+                case 'auth':
+                    // Get user token from localStorage
+                    const userAuth = localStorage.getItem('pocketbase_auth');
+                    if (userAuth) {
+                        try {
+                            const userData = JSON.parse(userAuth);
+                            if (userData.token) {
+                                headers['Authorization'] = `Bearer ${userData.token}`;
+                            }
+                        } catch (e) {
+                            console.warn('Invalid user auth data in localStorage');
+                        }
+                    }
+                    break;
+                case 'guest':
+                default:
+                    // No auth headers for guest
+                    break;
+            }
+
+            return headers;
+        },
+
+        // Show request loading state
+        _showRequestLoading() {
+            const statusInfo = document.getElementById('response-status-info');
+            if (statusInfo) {
+                statusInfo.innerHTML = `
+                    <span class="status-badge status-info">Sending...</span>
+                    <span class="response-time">Please wait</span>
+                `;
+            }
+
+            // Switch to response tab
+            const responseTab = document.querySelector('.tester-tab[data-tab="response"]');
+            if (responseTab) {
+                responseTab.click();
+            }
+        },
+
+        // Show response data
+        _showResponse(responseData) {
+            // Update status info
+            const statusInfo = document.getElementById('response-status-info');
+            if (statusInfo) {
+                const statusClass = responseData.status < 300 ? 'status-success' :
+                                  responseData.status < 500 ? 'status-warning' : 'status-error';
+
+                statusInfo.innerHTML = `
+                    <span class="status-badge ${statusClass}">${responseData.status}</span>
+                    <span class="response-time">${responseData.duration}ms</span>
+                `;
+            }
+
+            // Show response body with syntax highlighting
+            const responseBody = document.querySelector('#response-body .code-block code');
+            if (responseBody) {
+                if (responseData.body && responseData.body.trim()) {
+                    try {
+                        const jsonData = JSON.parse(responseData.body);
+                        const highlighted = APIDataManager.formatSchemaForDisplay(jsonData, 'json');
+                        responseBody.innerHTML = highlighted;
+                    } catch {
+                        // Not JSON, show as plain text with escaping
+                        responseBody.textContent = responseData.body;
+                    }
+                } else {
+                    responseBody.innerHTML = '<span class="json-null">No response body</span>';
+                }
+            }
+
+            // Show response headers with syntax highlighting
+            const responseHeaders = document.querySelector('#response-headers .code-block code');
+            if (responseHeaders) {
+                if (responseData.headers && Object.keys(responseData.headers).length > 0) {
+                    const highlighted = APIDataManager.formatSchemaForDisplay(responseData.headers, 'json');
+                    responseHeaders.innerHTML = highlighted;
+                } else {
+                    responseHeaders.innerHTML = '<span class="json-null">No response headers</span>';
+                }
+            }
+
+            // Hide empty state
+            const emptyState = document.getElementById('response-empty-state');
+            if (emptyState) {
+                emptyState.style.display = 'none';
+            }
+
+            // Show copy button
+            const copyBtn = document.getElementById('copy-response-btn');
+            if (copyBtn) {
+                copyBtn.style.display = 'block';
+            }
+        },
+
+        // Show request error
+        _showRequestError(error) {
+            const statusInfo = document.getElementById('response-status-info');
+            if (statusInfo) {
+                statusInfo.innerHTML = `
+                    <span class="status-badge status-error">Error</span>
+                    <span class="response-time">Request failed</span>
+                `;
+            }
+
+            const responseBody = document.querySelector('#response-body .code-block code');
+            if (responseBody) {
+                responseBody.textContent = `Error: ${error.message || error}`;
+            }
+        },
+
+        // Update URL display
+        _updateUrlDisplay(endpoint, forceClean = false) {
+            if (!endpoint) return;
+
+            // Update method
+            const methodElement = document.getElementById('tester-method');
+            if (methodElement) {
+                methodElement.textContent = endpoint.method.toUpperCase();
+                methodElement.className = `http-method ${endpoint.method.toLowerCase()}`;
+            }
+
+            // Update path
+            const pathElement = document.getElementById('tester-path');
+            if (pathElement) {
+                let url = endpoint.path;
+
+                if (!forceClean) {
+                    // Get current path parameter values
+                    const pathParams = {};
+                    const pathInputs = document.querySelectorAll('input[name*="pathParams"]');
+                    pathInputs.forEach(input => {
+                        const paramName = input.name.match(/\[([^\]]+)\]/)?.[1];
+                        if (paramName) {
+                            pathParams[paramName] = input.value || `{${paramName}}`;
+                        }
+                    });
+
+                    // Build URL without encoding placeholders
+                    Object.entries(pathParams).forEach(([key, value]) => {
+                        if (value && value !== `{${key}}`) {
+                            url = url.replace(`{${key}}`, encodeURIComponent(value));
+                        }
+                    });
+
+                    // Add custom query parameters to URL display
+                    const customQueryParams = this._getCustomQueryParams();
+                    const queryString = new URLSearchParams(customQueryParams).toString();
+                    if (queryString) {
+                        url += '?' + queryString;
+                    }
+                }
+
+                pathElement.textContent = url;
+            }
+
+            // Update description
+            const descElement = document.getElementById('tester-description');
+            if (descElement) {
+                descElement.textContent = endpoint.description || 'No description available';
+            }
+
+            // Update auth info
+            const authElement = document.getElementById('tester-auth-info');
+            if (authElement) {
+                if (endpoint.auth?.required) {
+                    authElement.innerHTML = `<span class="auth-badge auth-required">${endpoint.auth.description || 'Authentication required'}</span>`;
+                } else {
+                    authElement.innerHTML = `<span class="auth-badge">No auth required</span>`;
+                }
+            }
         },
 
         // Reset form
@@ -712,10 +1344,76 @@
                 form.reset();
                 this._updateUrlDisplay(this._currentEndpoint);
             }
+        },
 
-            const resultContainer = document.getElementById('api-test-result');
-            if (resultContainer) {
-                resultContainer.innerHTML = '';
+        // Reset to defaults (full sidebar reset)
+        resetToDefaults() {
+            // Clear form container
+            const container = document.getElementById('schema-form-container');
+            if (container) {
+                container.innerHTML = `
+                    <div class="txt-center txt-hint">
+                        <i class="ri-loader-4-line animate-spin"></i>
+                        <p>Loading schema...</p>
+                    </div>
+                `;
+            }
+
+            // Clear custom query parameters
+            const queryParamsList = document.getElementById('query-params-list');
+            if (queryParamsList) {
+                queryParamsList.innerHTML = '';
+            }
+
+            // Reset response area
+            const emptyState = document.getElementById('response-empty-state');
+            if (emptyState) {
+                emptyState.style.display = 'block';
+            }
+
+            const responseBody = document.querySelector('#response-body .code-block code');
+            if (responseBody) {
+                responseBody.innerHTML = '<span class="json-null">No response body available</span>';
+            }
+
+            const responseHeaders = document.querySelector('#response-headers .code-block code');
+            if (responseHeaders) {
+                responseHeaders.innerHTML = '<span class="json-null">No response headers available</span>';
+            }
+
+            // Reset status info
+            const statusInfo = document.getElementById('response-status-info');
+            if (statusInfo) {
+                statusInfo.innerHTML = `
+                    <span class="status-badge status-ready">Ready</span>
+                    <span class="response-time">Send a request</span>
+                `;
+            }
+
+            // Hide copy button
+            const copyBtn = document.getElementById('copy-response-btn');
+            if (copyBtn) {
+                copyBtn.style.display = 'none';
+            }
+
+            // Reset to Parameters tab
+            const paramTab = document.querySelector('.tester-tab[data-tab="parameters"]');
+            const responseTab = document.querySelector('.tester-tab[data-tab="response"]');
+            const paramContent = document.getElementById('parameters-tab');
+            const responseContent = document.getElementById('response-tab');
+
+            if (paramTab && responseTab && paramContent && responseContent) {
+                paramTab.classList.add('active');
+                responseTab.classList.remove('active');
+                paramContent.classList.add('active');
+                responseContent.classList.remove('active');
+            }
+
+            // Rebuild the form for the current endpoint
+            if (this._currentEndpoint) {
+                this._buildTestForm(this._currentEndpoint);
+                // Update URL display to reset path and remove query parameters
+                this._updateUrlDisplay(this._currentEndpoint, true);
             }
         },
 

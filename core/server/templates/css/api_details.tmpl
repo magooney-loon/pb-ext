@@ -480,6 +480,50 @@ max-height: 100vh;
     padding: 1px 6px;
 }
 
+/* Active filters display improvements */
+#active-filters {
+    background-color: var(--baseAlt1Color, #f7f7f7);
+    border-radius: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--baseAlt2Color, #e0e0e0);
+}
+
+#active-filters .flex {
+    align-items: center;
+    min-height: 24px;
+}
+
+#filter-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+#filter-tags .badge {
+    margin: 1px 2px;
+}
+
+/* Results summary styling */
+#results-summary {
+    display: flex;
+    align-items: center;
+}
+
+/* Clear filters button positioning */
+#clear-filters-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* Gap utility classes for better spacing */
+.gap-1 {
+    gap: 4px;
+}
+
+.gap-2 {
+    gap: 8px;
+}
+
 .badge-xs {
     font-size: 9px;
     padding: 1px 4px;

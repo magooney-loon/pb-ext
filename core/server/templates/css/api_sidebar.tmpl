@@ -207,6 +207,116 @@
     padding-bottom: 40px;
 }
 
+/* Query Parameters Section */
+.query-params-container {
+    margin-top: 12px;
+}
+
+.query-param-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+    align-items: center;
+}
+
+.query-param-name,
+.query-param-value {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 4px;
+    font-size: 13px;
+    background: var(--baseColor, #ffffff);
+    color: var(--txtPrimaryColor, #333);
+}
+
+.query-param-name:focus,
+.query-param-value:focus {
+    outline: none;
+    border-color: var(--primaryColor, #3b82f6);
+    box-shadow: 0 0 0 1px var(--primaryColor, #3b82f6);
+}
+
+.remove-param-btn {
+    padding: 6px;
+    min-width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--dangerColor, #ef4444);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.remove-param-btn:hover {
+    background: #dc2626;
+}
+
+.add-query-param-btn {
+    margin-top: 8px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px dashed var(--baseAlt2Color, #e5e5e5);
+    border-radius: 4px;
+    color: var(--txtHintColor, #666);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.add-query-param-btn:hover {
+    background: var(--baseAlt2Color, #e5e5e5);
+    border-style: solid;
+    color: var(--txtPrimaryColor, #333);
+}
+
+/* Request Body Textarea Styling */
+.code-input {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
+    font-size: 13px !important;
+    line-height: 1.4;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 6px;
+    padding: 12px;
+    resize: vertical;
+    min-height: 120px;
+}
+
+.code-input:focus {
+    outline: none;
+    border-color: var(--primaryColor, #3b82f6);
+    box-shadow: 0 0 0 1px var(--primaryColor, #3b82f6);
+    background: var(--baseColor, #ffffff);
+}
+
+.code-input::placeholder {
+    color: var(--txtHintColor, #666);
+    font-style: italic;
+}
+
+/* Empty State Styling */
+.json-null {
+    color: #6b7280;
+    font-style: italic;
+    font-size: 14px;
+    padding: 20px;
+    text-align: center;
+    display: block;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px dashed var(--baseAlt2Color, #e5e5e5);
+    border-radius: 4px;
+    margin: 8px 0;
+}
+
 /* =============================================================================
    RESPONSE SECTION
    ============================================================================= */
@@ -294,6 +404,23 @@
 #response-body.active,
 #response-headers.active {
     display: block !important;
+}
+
+/* Response content enhanced styling */
+#response-body .code-block code,
+#response-headers .code-block code {
+    min-height: 0;
+    display: block;
+    padding: 12px;
+}
+
+/* When response has no content, show proper empty state */
+#response-body .code-block code:empty::before,
+#response-headers .code-block code:empty::before {
+    content: "No data available";
+    color: var(--txtHintColor, #666);
+    font-style: italic;
+    opacity: 0.7;
 }
 
 /* When response tabs are shown, hide empty state */

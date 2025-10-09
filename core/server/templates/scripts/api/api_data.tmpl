@@ -17,7 +17,6 @@
             if (this._initialized) return;
 
             try {
-                console.log('📊 APIDataManager: Starting initialization...');
                 this._setupEventListeners();
                 this._initialized = true;
 
@@ -26,10 +25,8 @@
                     initialized: true
                 });
 
-                console.log('✅ APIDataManager: Initialization complete!');
-
             } catch (error) {
-                console.error('💥 APIDataManager: Initialization failed:', error);
+                console.error('APIDataManager: Initialization failed:', error);
                 ErrorManager.handleError(error, 'APIDataManager Initialization');
             }
         },
@@ -72,11 +69,9 @@
         // Load available API versions
         async loadVersions() {
             if (this._loading.versions) {
-                console.log('⏳ APIDataManager: Already loading versions, skipping...');
                 return;
             }
 
-            console.log('📡 APIDataManager: Starting to load versions...');
             this._loading.versions = true;
             StateManager.setState('api.loading.versions', true);
 
@@ -84,53 +79,40 @@
                 EventBus.emit(APIEvents.DATA.LOADING, { type: 'versions' });
                 ErrorManager.updateStatus('loading', 'Loading API versions...');
 
-                console.log('🔐 Creating authenticated request to /api/docs/versions');
+
                 const response = await fetch('/api/docs/versions', this.createAuthenticatedOptions());
 
-                console.log('📨 Version fetch response:', {
-                    status: response.status,
-                    ok: response.ok,
-                    statusText: response.statusText
-                });
+
 
                 if (!response.ok) {
                     if (response.status === 401) {
-                        console.error('❌ Authentication failed - SuperUser login required');
+                        console.error('Authentication failed - SuperUser login required');
                         throw new Error('SuperUser authentication required');
                     }
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    console.error('Failed to fetch versions:', response.status, response.statusText);
+                    throw new Error(`Failed to fetch versions: ${response.status} ${response.statusText}`);
                 }
 
                 const data = await response.json();
-                console.log('📊 Raw versions data:', data);
 
                 if (!data || !data.versions) {
-                    console.error('❌ Invalid response format:', data);
+                    console.error('Invalid response format:', data);
                     throw new Error('Invalid response format from versions endpoint');
                 }
 
-                console.log('✅ Parsed versions:', {
-                    count: data.versions.length,
-                    versions: data.versions.map(v => v.version),
-                    defaultVersion: data.default_version
-                });
+
 
                 // Update state
                 StateManager.setState('api.versions', data.versions);
                 const selectedVersion = data.default_version || data.versions[0]?.version || null;
                 StateManager.setState('api.currentVersion', selectedVersion);
 
-                console.log('💾 State updated with versions and current version:', selectedVersion);
-
                 // Update UI version selector
                 this._updateVersionSelector(data.versions, selectedVersion);
 
                 // Load endpoints for current version
                 if (selectedVersion) {
-                    console.log('🔄 Loading endpoints for version:', selectedVersion);
                     await this.loadEndpoints();
-                } else {
-                    console.warn('⚠️ No version selected - skipping endpoint loading');
                 }
 
                 EventBus.emit(APIEvents.DATA.VERSIONS_UPDATED, {
@@ -138,31 +120,28 @@
                     currentVersion: selectedVersion
                 });
 
-                console.log('✅ APIDataManager: Versions loaded successfully');
+
 
             } catch (error) {
-                console.error('💥 APIDataManager: Failed to load versions:', error);
+                console.error('Failed to load versions:', error);
                 ErrorManager.handleError(error, 'Loading API Versions');
                 EventBus.emit(APIEvents.DATA.ERROR, { type: 'versions', error });
             } finally {
                 this._loading.versions = false;
                 StateManager.setState('api.loading.versions', false);
-                console.log('🔄 APIDataManager: Version loading completed');
             }
         },
 
         // Load endpoints for current version
         async loadEndpoints() {
             if (this._loading.endpoints) {
-                console.log('⏳ APIDataManager: Already loading endpoints, skipping...');
                 return;
             }
 
             const version = StateManager.getState('api.currentVersion');
-            console.log('📡 APIDataManager: Loading endpoints for version:', version);
 
             if (!version) {
-                console.error('❌ No current version selected for endpoint loading');
+                console.error('No current version selected for endpoint loading');
                 throw new Error('No current version selected');
             }
 
@@ -173,53 +152,38 @@
                 EventBus.emit(APIEvents.DATA.LOADING, { type: 'endpoints', version });
                 ErrorManager.updateStatus('loading', `Loading endpoints for version ${version}...`);
 
-                console.log('🔐 Creating authenticated request to /api/docs/' + version);
+
                 const response = await fetch(`/api/docs/${version}`, this.createAuthenticatedOptions());
 
-                console.log('📨 Endpoints fetch response:', {
-                    status: response.status,
-                    ok: response.ok,
-                    statusText: response.statusText
-                });
+
 
                 if (!response.ok) {
                     if (response.status === 401) {
-                        console.error('❌ Authentication failed for endpoints');
+                        console.error('Authentication failed for endpoints');
                         throw new Error('SuperUser authentication required');
                     }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
                 const openApiSpec = await response.json();
-                console.log('📊 Raw OpenAPI spec:', {
-                    hasEndpoints: !!openApiSpec?.endpoints,
-                    endpointCount: openApiSpec?.endpoints?.length || 0,
-                    hasComponents: !!openApiSpec?.components,
-                    openApiVersion: openApiSpec?.openapi || openApiSpec?.swagger
-                });
+
 
                 if (!openApiSpec || !openApiSpec.endpoints) {
-                    console.error('❌ Invalid OpenAPI specification:', openApiSpec);
+                    console.error('Invalid OpenAPI specification:', openApiSpec);
                     throw new Error('Invalid OpenAPI specification received');
                 }
 
                 // Process and validate endpoints
-                console.log('⚙️ Processing', openApiSpec.endpoints.length, 'endpoints...');
                 const processedEndpoints = this._processEndpoints(openApiSpec.endpoints);
-                console.log('✅ Processed endpoints:', processedEndpoints.length);
-
-                console.log('📈 Calculating statistics...');
                 const stats = this._calculateStats(processedEndpoints, openApiSpec);
-                console.log('📊 Calculated stats:', stats);
 
                 // Update state
-                console.log('💾 Updating state with processed data...');
                 StateManager.setState('api.schema', openApiSpec);
                 StateManager.setState('api.endpoints', processedEndpoints);
                 StateManager.setState('api.filteredEndpoints', processedEndpoints);
                 StateManager.setState('api.stats', stats);
 
-                console.log('📡 Emitting data update events...');
+
                 EventBus.emit(APIEvents.DATA.SCHEMA_UPDATED, { schema: openApiSpec });
                 EventBus.emit(APIEvents.DATA.ENDPOINTS_UPDATED, {
                     endpoints: processedEndpoints,
@@ -227,16 +191,14 @@
                 });
 
                 ErrorManager.updateStatus('success', `Loaded ${processedEndpoints.length} endpoints`);
-                console.log('✅ APIDataManager: Endpoints loaded successfully');
 
             } catch (error) {
-                console.error('💥 APIDataManager: Failed to load endpoints:', error);
+                console.error('Failed to load endpoints:', error);
                 ErrorManager.handleError(error, 'Loading API Endpoints');
                 EventBus.emit(APIEvents.DATA.ERROR, { type: 'endpoints', error });
             } finally {
                 this._loading.endpoints = false;
                 StateManager.setState('api.loading.endpoints', false);
-                console.log('🔄 APIDataManager: Endpoint loading completed');
             }
         },
 
@@ -650,25 +612,24 @@
             return example;
         },
 
+        // Generate example data from schema (public method)
+        generateExampleFromSchema(schema) {
+            return this._generateExampleFromSchema(schema);
+        },
+
         // =============================================================================
         // PRIVATE HELPER METHODS
         // =============================================================================
 
         // Setup event listeners
         _setupEventListeners() {
-            console.log('🔧 APIDataManager: Setting up event listeners...');
-
             // Listen for version changes
             EventBus.on(APIEvents.UI.TAB_CHANGED, (data) => {
-                console.log('📡 APIDataManager: Received tab change event:', data);
                 if (data.version && data.version !== StateManager.getState('api.currentVersion')) {
-                    console.log('🔄 Version change detected, loading new endpoints...');
                     StateManager.setState('api.currentVersion', data.version);
                     this.loadEndpoints();
                 }
             });
-
-            console.log('✅ APIDataManager: Event listeners setup complete');
         },
 
         // Process raw endpoints data
@@ -682,7 +643,6 @@
 
         // Calculate statistics for endpoints
         _calculateStats(endpoints, schema) {
-            console.log('📈 Calculating statistics for', endpoints.length, 'endpoints');
 
             const methodCounts = {};
             const tagCounts = {};
@@ -716,20 +676,15 @@
                 schemaVersion: schema.openapi || schema.swagger || 'unknown'
             };
 
-            console.log('📊 Statistics calculated:', stats);
             return stats;
         },
 
         // Update version selector UI
         _updateVersionSelector(versions, currentVersion) {
-            console.log('🔄 Updating version selector UI:', {
-                versions: versions.length,
-                currentVersion: currentVersion
-            });
 
             const selector = document.getElementById('version-select');
             if (!selector) {
-                console.error('❌ Version selector element not found (looking for #version-select)');
+                console.error('Version selector element not found (looking for #version-select)');
                 return;
             }
 
@@ -749,17 +704,13 @@
 
             // Update version details display
             this.updateVersionDetails(versions, currentVersion);
-
-            console.log('✅ Version selector updated with', versions.length, 'options');
         },
 
         // Update version details display
         updateVersionDetails(versions, currentVersion) {
             const currentVersionData = versions.find(v => v.version === currentVersion);
-            console.log('🔍 DEBUG: Version data for', currentVersion, ':', currentVersionData);
 
             if (!currentVersionData) {
-                console.warn('⚠️ No version data found for:', currentVersion);
                 return;
             }
 
@@ -775,10 +726,8 @@
                 descriptionEl.textContent = description;
                 baseUrlEl.textContent = baseUrl;
                 detailsContainer.style.display = 'block';
-
-                console.log('✅ Version details updated:', { description, baseUrl });
             } else {
-                console.error('❌ Required DOM elements not found for version details');
+                console.error('Required DOM elements not found for version details');
             }
         },
 

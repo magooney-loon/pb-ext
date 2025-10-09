@@ -66,9 +66,12 @@
 
                         <!-- Active Filters Display -->
                         <div id="active-filters" class="mb-2" style="display: none;">
-                            <div class="flex align-center gap-2 flex-wrap">
-                                <span class="txt-sm txt-hint">Active filters:</span>
-                                <div id="filter-tags" class="flex gap-1 flex-wrap"></div>
+                            <div class="flex align-center gap-2" style="flex-wrap: nowrap;">
+                                <span class="txt-sm txt-hint" style="flex-shrink: 0;">Active filters:</span>
+                                <div id="filter-tags" class="flex gap-1" style="flex-wrap: wrap; flex-grow: 1;"></div>
+                                <button id="clear-filters-btn" class="btn btn-xs btn-secondary" title="Clear all filters" style="flex-shrink: 0;">
+                                    <i class="ri-close-line"></i> Clear
+                                </button>
                             </div>
                         </div>
 
@@ -76,9 +79,6 @@
                         <div id="results-summary" class="mb-2">
                             <div class="txt-sm txt-hint">
                                 Showing <span id="filtered-count">0</span> of <span id="total-count">0</span> endpoints
-                                <button id="clear-filters-btn" class="btn btn-xs btn-secondary ml-2" title="Clear all filters">
-                                    <i class="ri-close-line"></i> Clear
-                                </button>
                             </div>
                         </div>
                     </div>
