@@ -5,12 +5,39 @@
 
     const APIFormBuilder = {
 
+        // Initialize styles for better checkbox toggle appearance
+        initRadioButtonStyles() {
+            if (!document.getElementById('checkbox-toggle-styles')) {
+                const style = document.createElement('style');
+                style.id = 'checkbox-toggle-styles';
+                style.textContent = `
+                    /* Improve checkbox toggle styling */
+                    .form-field-toggle {
+                        margin-bottom: 0.5rem !important;
+                    }
+
+                    .form-field-toggle label {
+                        margin-bottom: 0 !important;
+                        font-weight: 500 !important;
+                    }
+
+                    .form-field-toggle input[type="checkbox"] {
+                        margin-right: 8px !important;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        },
+
         // Generate complete parameter form from endpoint schema
         generateParameterForm(container, endpoint) {
             if (!container || !endpoint) {
                 console.error('Invalid container or endpoint for form generation');
                 return;
             }
+
+            // Initialize styles
+            this.initRadioButtonStyles();
 
             container.innerHTML = '';
             const sections = [];
@@ -38,7 +65,10 @@
             });
 
             // Initialize URL updating functionality
-            setTimeout(() => this.initUrlUpdating(), 100);
+            setTimeout(() => {
+                this.initUrlUpdating();
+                this.updateUrlDisplay(); // Ensure URL is updated after form generation
+            }, 100);
 
             // Show helpful message if no parameters needed
             if (sections.length === 1) { // Only manual query section
@@ -137,6 +167,24 @@
             const fieldDiv = document.createElement('div');
             fieldDiv.className = 'form-field mb-3';
 
+            const input = this.createInputElement(fieldInfo, paramType);
+
+            // For checkbox toggles, don't create a separate label (they have their own)
+            if (fieldInfo.inputType === 'checkbox') {
+                fieldDiv.appendChild(input);
+
+                // Add description if available
+                if (fieldInfo.description) {
+                    const helpText = document.createElement('div');
+                    helpText.className = 'form-help txt-hint txt-sm mt-1';
+                    helpText.textContent = fieldInfo.description;
+                    fieldDiv.appendChild(helpText);
+                }
+
+                return fieldDiv;
+            }
+
+            // For other input types, create the normal label
             const label = document.createElement('label');
             label.className = 'form-label';
             label.textContent = fieldInfo.name;
@@ -145,8 +193,6 @@
                 label.innerHTML += ' <span class="txt-danger">*</span>';
                 fieldDiv.classList.add('required');
             }
-
-            const input = this.createInputElement(fieldInfo, paramType);
 
             // Add description if available
             if (fieldInfo.description) {
@@ -194,19 +240,36 @@
                 input.rows = 3;
 
             } else if (inputType === 'checkbox') {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'form-check';
-
+                // Create PocketBase-style checkbox toggle
                 input = document.createElement('input');
                 input.type = 'checkbox';
-                input.className = 'form-check-input';
+                input.name = fieldInfo.name;
+                input.id = fieldInfo.name;
 
-                const checkLabel = document.createElement('label');
-                checkLabel.className = 'form-check-label';
-                checkLabel.textContent = 'Yes';
+                // Set default value
+                if (fieldInfo.default !== undefined) {
+                    input.checked = Boolean(fieldInfo.default);
+                }
+
+                // Wrap in form-field-toggle for PocketBase styling
+                const wrapper = document.createElement('div');
+                wrapper.className = 'form-field form-field-toggle';
+                wrapper.dataset.fieldName = fieldInfo.name;
+                wrapper.dataset.paramType = paramType;
+
+                const label = document.createElement('label');
+                label.htmlFor = fieldInfo.name;
+                const labelText = document.createElement('span');
+                labelText.className = 'txt';
+                labelText.textContent = fieldInfo.name;
+                label.appendChild(labelText);
 
                 wrapper.appendChild(input);
-                wrapper.appendChild(checkLabel);
+                wrapper.appendChild(label);
+
+                // Store reference for data collection
+                wrapper._checkbox = input;
+
                 return wrapper;
 
             } else {
@@ -250,11 +313,7 @@
 
             // Set default value
             if (fieldInfo.default !== undefined) {
-                if (inputType === 'checkbox') {
-                    input.checked = Boolean(fieldInfo.default);
-                } else {
-                    input.value = String(fieldInfo.default);
-                }
+                input.value = String(fieldInfo.default);
             }
 
             return input;
@@ -270,18 +329,27 @@
             keyInput.className = 'form-control me-2';
             keyInput.placeholder = 'Parameter name';
             keyInput.style.flex = '1';
+            keyInput.dataset.paramType = 'query-key';
 
             const valueInput = document.createElement('input');
             valueInput.type = 'text';
             valueInput.className = 'form-control me-2';
             valueInput.placeholder = 'Parameter value';
             valueInput.style.flex = '1';
+            valueInput.dataset.paramType = 'query';
 
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
             removeBtn.className = 'btn btn-sm btn-outline-danger';
             removeBtn.innerHTML = '<i class="ri-close-line"></i>';
-            removeBtn.onclick = () => container.removeChild(paramDiv);
+            removeBtn.onclick = () => {
+                container.removeChild(paramDiv);
+                this.updateUrlDisplay(); // Update URL when parameter is removed
+            };
+
+            // Add event listeners to update URL when parameters change
+            keyInput.addEventListener('input', () => this.updateUrlDisplay());
+            valueInput.addEventListener('input', () => this.updateUrlDisplay());
 
             paramDiv.appendChild(keyInput);
             paramDiv.appendChild(valueInput);
@@ -289,34 +357,73 @@
 
             container.appendChild(paramDiv);
             keyInput.focus();
+
+            // Attach event listeners to the new query parameter inputs
+            this.attachQueryParameterListeners();
         },
 
         // Initialize URL updating functionality
         initUrlUpdating() {
             const pathParams = document.querySelectorAll('[data-param-type="path"]');
             pathParams.forEach(input => {
-                input.addEventListener('input', () => this.updateDisplayUrl());
+                input.addEventListener('input', () => this.updateUrlDisplay());
             });
 
-            this.updateDisplayUrl();
+            // Add listeners for existing query parameters
+            this.attachQueryParameterListeners();
+
+            this.updateUrlDisplay();
         },
 
-        // Update display URL with current path parameter values
-        updateDisplayUrl() {
-            const urlDisplay = document.getElementById('current-url');
+        // Attach event listeners to all query parameters (for dynamic updates)
+        attachQueryParameterListeners() {
+            const queryParams = document.querySelectorAll('[data-param-type="query"], [data-param-type="query-key"]');
+            queryParams.forEach(input => {
+                // Remove existing listener to avoid duplicates
+                input.removeEventListener('input', this.updateUrlDisplay);
+                // Add the listener
+                input.addEventListener('input', () => this.updateUrlDisplay());
+            });
+        },
+
+
+
+        // Update display URL with current path parameter values and query parameters
+        updateUrlDisplay() {
+            const urlDisplay = document.getElementById('tester-path');
             if (!urlDisplay) return;
 
             const endpoint = APITesterSidebar.currentEndpoint;
             if (!endpoint) return;
 
+            // Collect path parameters
             const pathParams = {};
             document.querySelectorAll('[data-param-type="path"]').forEach(input => {
-                if (input.value) {
+                if (input && input.value && input.name) {
                     pathParams[input.name] = input.value;
                 }
             });
 
-            const updatedUrl = APISchemaManager.buildUrl(endpoint, pathParams);
+            // Collect query parameters
+            const queryParams = {};
+            document.querySelectorAll('[data-param-type="query-key"]').forEach(keyInput => {
+                const paramDiv = keyInput.closest('.query-param-pair');
+                if (paramDiv) {
+                    const valueInput = paramDiv.querySelector('[data-param-type="query"]');
+                    if (keyInput.value && valueInput && valueInput.value) {
+                        queryParams[keyInput.value] = valueInput.value;
+                    }
+                }
+            });
+
+            let updatedUrl = APISchemaManager.buildUrl(endpoint, pathParams);
+
+            // Append query parameters if any
+            const queryString = new URLSearchParams(queryParams).toString();
+            if (queryString) {
+                updatedUrl += (updatedUrl.includes('?') ? '&' : '?') + queryString;
+            }
+
             urlDisplay.textContent = updatedUrl;
         },
 
@@ -333,39 +440,46 @@
             // Collect path parameters
             const pathParams = {};
             document.querySelectorAll('[data-param-type="path"]').forEach(input => {
-                if (input.value) {
+                if (input && input.value && input.name) {
                     pathParams[input.name] = input.value;
                 }
             });
 
             // Collect body parameters
             const bodyParams = {};
-            document.querySelectorAll('[data-param-type="body"]').forEach(input => {
-                if (input.type === 'checkbox') {
-                    if (input.checked) {
-                        bodyParams[input.name] = true;
+            document.querySelectorAll('[data-param-type="body"]').forEach(element => {
+                // Handle checkbox toggle fields for boolean values
+                if (element.classList.contains('form-field-toggle')) {
+                    const checkbox = element._checkbox;
+                    const fieldName = element.dataset.fieldName;
+
+                    if (checkbox && fieldName) {
+                        bodyParams[fieldName] = checkbox.checked;
                     }
-                } else if (input.value) {
-                    bodyParams[input.name] = input.value;
+                } else if (element.value && !element.classList.contains('form-field-toggle')) {
+                    bodyParams[element.name] = element.value;
                 }
             });
 
             // Collect manual query parameters
             const queryParams = {};
-            document.querySelectorAll('#manual-query-params .query-param-pair').forEach(pair => {
-                const keyInput = pair.querySelector('input:first-child');
-                const valueInput = pair.querySelector('input:last-child');
-                if (keyInput.value && valueInput.value) {
-                    queryParams[keyInput.value] = valueInput.value;
+            document.querySelectorAll('[data-param-type="query-key"]').forEach(keyInput => {
+                const paramDiv = keyInput.closest('.query-param-pair');
+                if (paramDiv) {
+                    const valueInput = paramDiv.querySelector('[data-param-type="query"]');
+                    if (keyInput.value && valueInput && valueInput.value) {
+                        queryParams[keyInput.value] = valueInput.value;
+                    }
                 }
             });
 
-            return {
+            const result = {
                 pathParams,
                 bodyParams,
                 queryParams,
                 ...bodyParams // For validation, include body params at root level
             };
+            return result;
         },
 
         // Clear all form fields
@@ -374,8 +488,18 @@
             inputs.forEach(input => {
                 if (input.type === 'checkbox') {
                     input.checked = false;
+                } else if (input.type === 'radio') {
+                    input.checked = false;
                 } else {
                     input.value = '';
+                }
+            });
+
+            // Clear checkbox toggle fields explicitly
+            const toggleFields = document.querySelectorAll('.form-field-toggle');
+            toggleFields.forEach(field => {
+                if (field._checkbox) {
+                    field._checkbox.checked = false;
                 }
             });
 
@@ -385,7 +509,7 @@
                 queryContainer.innerHTML = '';
             }
 
-            this.updateDisplayUrl();
+            this.updateUrlDisplay();
         },
 
         // Populate form with example data
@@ -398,19 +522,25 @@
 
             // Populate fields with example data
             Object.entries(example).forEach(([fieldName, value]) => {
-                const input = document.querySelector(`[name="${fieldName}"]`);
-                if (input) {
-                    if (input.type === 'checkbox') {
-                        input.checked = Boolean(value);
-                    } else if (input.tagName === 'TEXTAREA' && typeof value === 'object') {
-                        input.value = JSON.stringify(value, null, 2);
-                    } else {
-                        input.value = String(value);
+                // Handle checkbox toggle fields for boolean values
+                const toggleField = document.querySelector(`[data-field-name="${fieldName}"]`);
+                if (toggleField && toggleField.classList.contains('form-field-toggle')) {
+                    if (toggleField._checkbox) {
+                        toggleField._checkbox.checked = Boolean(value);
+                    }
+                } else {
+                    const input = document.querySelector(`[name="${fieldName}"]`);
+                    if (input) {
+                        if (input.tagName === 'TEXTAREA' && typeof value === 'object') {
+                            input.value = JSON.stringify(value, null, 2);
+                        } else {
+                            input.value = String(value);
+                        }
                     }
                 }
             });
 
-            this.updateDisplayUrl();
+            this.updateUrlDisplay();
         }
     };
 

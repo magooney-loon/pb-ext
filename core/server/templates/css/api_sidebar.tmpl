@@ -4,8 +4,10 @@
    API TESTER SIDEBAR STYLES
    ============================================================================= */
 
+
+
 /* =============================================================================
-   API TESTER SIDEBAR
+   API TESTER SIDEBAR LAYOUT
    ============================================================================= */
 
 /* Main Sidebar Container */
@@ -102,6 +104,10 @@
     border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
+/* =============================================================================
+   SIDEBAR TABS
+   ============================================================================= */
+
 /* Tab Navigation */
 .api-tester-tabs {
     display: flex;
@@ -161,8 +167,6 @@
     right: 0;
     bottom: 0;
     overflow-y: auto;
-    padding-bottom: 20px;
-    padding-top: 20px;
     scroll-behavior: smooth;
 }
 
@@ -194,303 +198,13 @@
 
 /* Parameters Tab */
 #parameters-tab {
-    padding-left: 6px;
-    padding-right: 6px;
+    padding-left: 9px;
+    padding-right: 9px;
 }
 
 /* Schema Form Container */
 #schema-form-container {
     padding-bottom: 40px;
-}
-
-/* =============================================================================
-   FORMS & INPUTS
-   ============================================================================= */
-
-/* Form Sections */
-.form-section {
-    margin-bottom: 24px;
-}
-
-.section-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--txtPrimaryColor, #333);
-    margin: 0 0 16px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.section-title i {
-    font-size: 16px;
-    color: var(--primaryColor, #3b82f6);
-}
-
-.form-section-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--txtPrimaryColor, #333);
-    margin: 0 0 8px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.form-section-title i {
-    color: var(--primaryColor, #3b82f6);
-    font-size: 16px;
-}
-
-/* Form Fields */
-.form-field {
-    margin-bottom: 16px;
-}
-
-.form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--txtPrimaryColor, #333);
-}
-
-.form-label .txt-danger {
-    color: #ef4444;
-    margin-left: 2px;
-}
-
-.form-control {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
-    border-radius: 6px;
-    font-size: 14px;
-    color: var(--txtPrimaryColor, #333);
-    background: var(--baseColor, #ffffff);
-    transition: all 0.2s ease;
-}
-
-.form-control:focus {
-    outline: none;
-    border-color: var(--primaryColor, #3b82f6);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-.form-control:disabled {
-    background: var(--baseAlt1Color, #f8f9fa);
-    color: var(--txtHintColor, #666);
-    cursor: not-allowed;
-}
-
-textarea.form-control {
-    resize: vertical;
-    min-height: 80px;
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-}
-
-.field-help {
-    margin-top: 4px;
-    font-size: 12px;
-    color: var(--txtHintColor, #666);
-    display: flex;
-    align-items: flex-start;
-    gap: 4px;
-}
-
-.field-help i {
-    font-size: 14px;
-    margin-top: 1px;
-}
-
-/* Toggle controls */
-.form-control-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 0;
-}
-
-.form-control-toggle input[type="checkbox"] {
-    margin: 0;
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    accent-color: var(--successColor, #22c55e);
-}
-
-.form-control-toggle label {
-    margin: 0;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--txtPrimaryColor, #333);
-    user-select: none;
-}
-
-.form-control-toggle:hover label {
-    color: var(--primaryColor, #3b82f6);
-}
-
-/* Send Request Buttons */
-.send-request-buttons {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 6px;
-    margin-bottom: 12px;
-}
-
-.send-request-buttons .btn {
-    flex: 1;
-    padding: 8px 12px;
-    font-size: 13px;
-    font-weight: 500;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    text-align: center;
-    min-height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-}
-
-.send-request-buttons .btn i {
-    font-size: 14px;
-}
-
-/* Different colors for each auth mode */
-#send-request-admin-btn {
-    background: var(--dangerColor, #ef4444);
-    border-color: var(--dangerColor, #ef4444);
-    color: white;
-}
-
-#send-request-admin-btn:hover {
-    background: #dc2626;
-    border-color: #dc2626;
-}
-
-#send-request-auth-btn {
-    background: var(--primaryColor, #3b82f6);
-    border-color: var(--primaryColor, #3b82f6);
-    color: white;
-}
-
-#send-request-auth-btn:hover {
-    background: #2563eb;
-    border-color: #2563eb;
-}
-
-#send-request-guest-btn {
-    background: #6b7280;
-    border-color: #6b7280;
-    color: white;
-}
-
-#send-request-guest-btn:hover {
-    background: #4b5563;
-    border-color: #4b5563;
-    color: white;
-}
-
-/* Card styles for form sections */
-.card {
-    background: var(--baseColor, #ffffff);
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-.card-body {
-    padding: 16px;
-}
-
-/* Query Parameters */
-.query-parameters {
-    position: relative;
-}
-
-.query-param-row {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    margin-bottom: 2px;
-}
-
-.query-param-name,
-.query-param-value {
-    flex: 1;
-    min-width: 0;
-}
-
-.query-param-name {
-    max-width: 140px;
-}
-
-.query-param-value {
-    max-width: 180px;
-}
-
-.add-query-param {
-    flex-shrink: 0;
-    padding: 6px 8px;
-    min-width: 32px;
-}
-
-.added-query-params {
-    margin-top: 8px;
-}
-
-.query-param-added {
-    display: inline-flex;
-    gap: 4px;
-    align-items: center;
-    padding: 4px 8px;
-    background: var(--baseAlt1Color, #f8f9fa);
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
-    border-radius: 16px;
-    margin-right: 6px;
-    font-size: 12px;
-}
-
-.query-param-added .param-display {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.query-param-added .param-name {
-    font-weight: 500;
-    color: var(--txtPrimaryColor, #333);
-}
-
-.query-param-added .param-value {
-    color: var(--txtHintColor, #666);
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.query-param-added input[name^="query-"] {
-    display: none;
-}
-
-.remove-query-param {
-    flex-shrink: 0;
-    padding: 4px;
-    border: none;
-    background: transparent;
-    color: var(--txtHintColor, #666);
-    cursor: pointer;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-}
-
-.remove-query-param:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
 }
 
 /* =============================================================================
@@ -595,13 +309,16 @@ textarea.form-control {
     border-radius: 6px;
     margin: 0;
     padding: 12px;
+    overflow-x: hidden;
     overflow-y: auto;
     font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
     font-size: 13px;
     line-height: 1.4;
     width: 100%;
     box-sizing: border-box;
-    max-height: 400px;
+    max-height: 69vh;
+    word-wrap: break-word;
+    white-space: pre-wrap;
 }
 
 .response-tab-content .code-block pre,
@@ -610,7 +327,11 @@ textarea.form-control {
     margin: 0;
     white-space: pre-wrap;
     word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
     color: var(--txtPrimaryColor, #333);
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .response-tab-content .code-block code,
@@ -621,6 +342,13 @@ textarea.form-control {
     padding: 0;
     font-size: inherit;
     color: inherit;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* Response Status */
@@ -706,7 +434,72 @@ textarea.form-control {
 }
 
 /* =============================================================================
-   BUTTONS
+   SEND REQUEST BUTTONS
+   ============================================================================= */
+
+.send-request-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.send-request-buttons .btn {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    text-align: center;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.send-request-buttons .btn i {
+    font-size: 14px;
+}
+
+/* Different colors for each auth mode */
+#send-request-admin-btn {
+    background: var(--dangerColor, #ef4444);
+    border-color: var(--dangerColor, #ef4444);
+    color: white;
+}
+
+#send-request-admin-btn:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+#send-request-auth-btn {
+    background: var(--primaryColor, #3b82f6);
+    border-color: var(--primaryColor, #3b82f6);
+    color: white;
+}
+
+#send-request-auth-btn:hover {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+
+#send-request-guest-btn {
+    background: #6b7280;
+    border-color: #6b7280;
+    color: white;
+}
+
+#send-request-guest-btn:hover {
+    background: #4b5563;
+    border-color: #4b5563;
+    color: white;
+}
+
+/* =============================================================================
+   SIDEBAR SPECIFIC BUTTONS
    ============================================================================= */
 
 .btn {
@@ -794,7 +587,10 @@ textarea.form-control {
     flex-shrink: 0;
 }
 
-/* HTTP Method badges */
+/* =============================================================================
+   HTTP METHOD BADGES
+   ============================================================================= */
+
 .http-method {
     padding: 4px 8px;
     border-radius: 4px;
@@ -839,7 +635,10 @@ textarea.form-control {
     background: #795548;
 }
 
-/* Empty states */
+/* =============================================================================
+   EMPTY STATES
+   ============================================================================= */
+
 .empty-fields-state {
     padding: 24px;
     background: var(--baseAlt1Color, #f8f9fa);
@@ -873,41 +672,7 @@ textarea.form-control {
     margin-bottom: 0;
 }
 
-/* =============================================================================
-   UTILITIES
-   ============================================================================= */
 
-/* Text utilities */
-.txt-mono {
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-}
-
-.txt-sm { font-size: 13px; }
-.txt-xs { font-size: 11px; }
-.txt-hint { color: var(--txtHintColor, #666); }
-.txt-danger { color: #ef4444; }
-.txt-success { color: #22c55e; }
-.txt-center { text-align: center; }
-.txt-bold { font-weight: 600; }
-
-/* Spacing utilities */
-.mb-2 { margin-bottom: 8px; }
-.mb-3 { margin-bottom: 12px; }
-.mt-2 { margin-top: 8px; }
-.mt-3 { margin-top: 12px; }
-.m-b-sm { margin-bottom: 12px; }
-.m-b-xs { margin-bottom: 8px; }
-.m-t-sm { margin-top: 12px; }
-.p-3 { padding: 12px; }
-.p-4 { padding: 16px; }
-
-/* Flex utilities */
-.flex { display: flex; }
-.flex-fill { flex: 1; }
-.align-center { align-items: center; }
-.justify-between { justify-content: space-between; }
-.gap-2 { gap: 8px; }
-.ml-auto { margin-left: auto; }
 
 /* =============================================================================
    ANIMATIONS & LOADING STATES
@@ -943,16 +708,6 @@ textarea.form-control {
     .api-tester-sidebar {
         width: 100%;
         right: -100%;
-    }
-
-    .query-param-row {
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .query-param-name,
-    .query-param-value {
-        width: 100%;
     }
 
     .send-request-buttons {

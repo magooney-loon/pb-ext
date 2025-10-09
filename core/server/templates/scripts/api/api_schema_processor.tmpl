@@ -52,7 +52,6 @@
                     return this.highlightJson(content);
                 }
             } catch (error) {
-                console.warn('Failed to process data for highlighting:', error);
                 return this.escapeHtml(String(data));
             }
         },
@@ -182,7 +181,6 @@
         // Calculate comprehensive endpoint statistics
         calculateStats(endpoints) {
             if (!Array.isArray(endpoints)) {
-                console.warn('calculateStats expects an array of endpoints');
                 return this.getEmptyStats();
             }
 
@@ -240,7 +238,7 @@
                     }
 
                 } catch (error) {
-                    console.warn('Error processing endpoint for stats:', error, endpoint);
+                    // Skip invalid endpoint
                 }
             });
 
@@ -295,7 +293,6 @@
         updateElement(elementId, data, format = 'json') {
             const element = document.getElementById(elementId);
             if (!element) {
-                console.warn(`Element with id '${elementId}' not found`);
                 return false;
             }
 
@@ -362,7 +359,6 @@
                 const sample = this._generateSampleValue(schema);
                 return JSON.stringify(sample, null, 2);
             } catch (error) {
-                console.warn('Failed to generate sample from schema:', error);
                 return 'Unable to generate sample';
             }
         },

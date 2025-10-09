@@ -22,8 +22,6 @@
 
                 // Always attach fresh listeners after re-rendering
                 this.attachEventListeners(container);
-
-                console.log(`Rendered ${APIState.filteredEndpoints.length} endpoints`);
             } catch (error) {
                 console.error('Failed to render endpoints:', error);
                 this.renderError(container, error);
@@ -179,7 +177,7 @@
                 try {
                     return SchemaProcessor.formatForDisplay(schema, 'json');
                 } catch (error) {
-                    console.warn('SchemaProcessor formatting failed, falling back to JSON.stringify:', error);
+                    // Silent fallback to JSON.stringify
                 }
             }
 
@@ -216,8 +214,6 @@
                         endpointData = endpointData.replace(/&apos;/g, "'").replace(/&quot;/g, '"');
                     }
 
-                    console.log(`Opening API tester for: ${method.toUpperCase()} ${path}`);
-
                     // Use simplified approach - direct call to APITesterSidebar
                     if (typeof APITesterSidebar !== 'undefined' && APITesterSidebar.openSidebar) {
                         try {
@@ -232,8 +228,6 @@
                                 description: 'Basic endpoint information'
                             });
                         }
-                    } else {
-                        console.error('APITesterSidebar not available');
                     }
                     return;
                 }
@@ -262,9 +256,6 @@
                     if (content) {
                         const wasActive = content.classList.contains('active');
                         content.classList.toggle('active');
-
-                        const endpointPath = header.querySelector('.txt-mono')?.textContent || 'unknown';
-                        console.log(`Endpoint ${endpointPath} ${wasActive ? 'collapsed' : 'expanded'}`);
                     }
                     return;
                 }
@@ -278,7 +269,6 @@
             const targetId = button.getAttribute('data-copy-target');
             const targetElement = document.getElementById(targetId);
             if (!targetElement) {
-                console.error('Copy target element not found:', targetId);
                 return;
             }
 
@@ -292,11 +282,8 @@
             }
 
             if (!content || content.trim() === '') {
-                console.warn('No content to copy for target:', targetId);
                 return;
             }
-
-            console.log(`Copying schema content (${content.length} characters)`);
 
             navigator.clipboard.writeText(content).then(() => {
                 const originalHtml = button.innerHTML;
@@ -309,8 +296,6 @@
                     button.classList.remove('btn-success');
                     button.classList.add('btn-secondary');
                 }, 2000);
-
-                console.log('Schema content copied to clipboard successfully');
             }).catch(err => {
                 console.error('Failed to copy schema:', err);
                 button.innerHTML = '<i class="ri-close-line"></i> Failed';

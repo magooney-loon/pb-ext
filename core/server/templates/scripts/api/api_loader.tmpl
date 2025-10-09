@@ -20,7 +20,7 @@
                 const parsed = JSON.parse(authData);
                 return parsed.token || null;
             } catch (error) {
-                console.error('❌ Failed to parse superuser auth token:', error);
+                console.error('Failed to parse auth token:', error);
                 return null;
             }
         },
@@ -45,7 +45,6 @@
         // Load available API versions
         async loadVersions() {
             if (this.loadingState.versions) {
-                console.log('Versions already loading, skipping duplicate request');
                 return;
             }
 
@@ -71,8 +70,6 @@
                 APIState.availableVersions = data.versions;
                 APIState.currentVersion = data.default_version || (data.versions.length > 0 ? data.versions[0].version : null);
 
-                console.log(`Loaded ${data.versions.length} API versions, default: ${APIState.currentVersion}`);
-
                 // Update UI
                 this.populateVersionSelector();
 
@@ -95,7 +92,6 @@
         // Load OpenAPI spec for current version
         async loadEndpoints() {
             if (this.loadingState.endpoints) {
-                console.log('Endpoints already loading, skipping duplicate request');
                 return;
             }
 
@@ -127,8 +123,6 @@
                 APIState.allEndpoints = openApiSpec.endpoints;
                 APIState.setEndpoints(openApiSpec.endpoints);
 
-                console.log(`Loaded ${openApiSpec.endpoints.length} endpoints for version ${version}`);
-
                 // Update UI
                 this.updateEndpointsList();
                 this.updateStatsDisplay();
@@ -153,11 +147,9 @@
         // Switch to different API version
         async switchVersion(newVersion) {
             if (newVersion === APIState.currentVersion) {
-                console.log(`Already on version ${newVersion}`);
                 return;
             }
 
-            console.log(`Switching from ${APIState.currentVersion} to ${newVersion}`);
             APIState.currentVersion = newVersion;
 
             // Clear current data
@@ -182,10 +174,11 @@
                 const option = document.createElement('option');
                 option.value = versionInfo.version;
 
-                // Simple display: just version name
-                const displayName = versionInfo.config?.title ?
-                    `${versionInfo.config.title} ${versionInfo.version}` :
-                    versionInfo.version;
+                // Enhanced display: show full title, version, and status
+                const title = versionInfo.config?.title || 'API';
+                const version = versionInfo.config?.version || versionInfo.version;
+                const status = versionInfo.status || 'Active';
+                const displayName = `${title} v${version} (${status})`;
 
                 option.textContent = displayName;
                 option.selected = versionInfo.version === APIState.currentVersion;
@@ -215,8 +208,6 @@
         updateEndpointsList() {
             if (typeof EndpointRenderer !== 'undefined' && EndpointRenderer.render) {
                 EndpointRenderer.render();
-            } else {
-                console.error('EndpointRenderer not available');
             }
         },
 
@@ -235,13 +226,72 @@
             const versionInfo = APIState.availableVersions.find(v => v.version === APIState.currentVersion);
             if (!versionInfo) return;
 
-            // Simple version display - just update the page title if available
+            // Enhanced version display - update page title and add compact info
             const title = versionInfo.config?.title || 'API Documentation';
             const version = versionInfo.config?.version || versionInfo.version;
+            const description = versionInfo.config?.description || '';
 
+            // Update page title
             if (document.title.includes('API')) {
-                document.title = `${title} ${version} - PocketBase`;
+                document.title = `${title} v${version} - PocketBase`;
             }
+
+            // Create/update compact API info display under version selector
+            this.updateCompactAPIInfo(title, version, description);
+        },
+
+        // Update compact API information display
+        updateCompactAPIInfo(title, version, description) {
+            const versionSelect = document.getElementById('version-select');
+            if (!versionSelect) return;
+
+            // Look for existing info or create new one
+            let infoDiv = document.getElementById('api-compact-info');
+
+            if (!infoDiv) {
+                infoDiv = document.createElement('div');
+                infoDiv.id = 'api-compact-info';
+                infoDiv.className = 'api-compact-info txt-sm txt-hint mt-2 mb-3';
+
+                // Insert after the entire version selector container (flex container)
+                const flexContainer = versionSelect.closest('.flex') || versionSelect.parentElement;
+                flexContainer.parentElement.insertBefore(infoDiv, flexContainer.nextSibling);
+
+                // Add minimal CSS
+                if (!document.getElementById('api-compact-styles')) {
+                    const style = document.createElement('style');
+                    style.id = 'api-compact-styles';
+                    style.textContent = `
+                        .api-compact-info {
+                            padding: 8px 12px !important;
+                            background: #f8f9fa !important;
+                            border-radius: 4px !important;
+                            border-left: 3px solid #007bff !important;
+                        }
+                        .api-compact-desc {
+                            color: #6c757d !important;
+                            font-style: italic !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+            }
+
+            // Update content - only show description
+            if (description) {
+                infoDiv.innerHTML = `<span class="api-compact-desc">${this._escapeHtml(description)}</span>`;
+                infoDiv.style.display = 'block';
+            } else {
+                infoDiv.style.display = 'none';
+            }
+        },
+
+        // Helper method to escape HTML
+        _escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         },
 
         // Initialize filter options
@@ -264,7 +314,6 @@
         updateRawSchema(format = 'json') {
             const rawContent = document.getElementById('raw-schema-content');
             if (!rawContent) {
-                console.warn('Raw schema content element not found');
                 return;
             }
 
@@ -274,22 +323,22 @@
             }
 
             try {
-                let content;
-                if (format === 'yaml' && typeof SchemaProcessor !== 'undefined') {
-                    content = SchemaProcessor.jsonToYaml(APIState.openApiSchema);
-                } else {
-                    content = JSON.stringify(APIState.openApiSchema, null, 2);
-                }
-
                 // Use SchemaProcessor for syntax highlighting if available
                 if (typeof SchemaProcessor !== 'undefined') {
-                    const highlighted = SchemaProcessor.syntaxHighlight(content, format);
+                    // Pass the original JSON data to syntaxHighlight, let it handle the conversion
+                    const highlighted = SchemaProcessor.syntaxHighlight(APIState.openApiSchema, format);
                     rawContent.innerHTML = highlighted;
                 } else {
+                    // Fallback for when SchemaProcessor is not available
+                    let content;
+                    if (format === 'yaml') {
+                        content = 'YAML format not available without SchemaProcessor';
+                    } else {
+                        content = JSON.stringify(APIState.openApiSchema, null, 2);
+                    }
                     rawContent.innerHTML = `<code>${this._escapeHtml(content)}</code>`;
                 }
 
-                console.log(`Raw schema updated in ${format} format`);
             } catch (error) {
                 console.error('Failed to update raw schema:', error);
                 rawContent.innerHTML = `<code class="txt-danger">Error formatting schema: ${error.message}</code>`;
@@ -300,7 +349,6 @@
         updateComponents(format = 'json') {
             const componentsContent = document.getElementById('components-content');
             if (!componentsContent) {
-                console.warn('Components content element not found');
                 return;
             }
 
@@ -310,22 +358,22 @@
             }
 
             try {
-                let content;
-                if (format === 'yaml' && typeof SchemaProcessor !== 'undefined') {
-                    content = SchemaProcessor.jsonToYaml(APIState.openApiSchema.components);
-                } else {
-                    content = JSON.stringify(APIState.openApiSchema.components, null, 2);
-                }
-
                 // Use SchemaProcessor for syntax highlighting if available
                 if (typeof SchemaProcessor !== 'undefined') {
-                    const highlighted = SchemaProcessor.syntaxHighlight(content, format);
+                    // Pass the original JSON data to syntaxHighlight, let it handle the conversion
+                    const highlighted = SchemaProcessor.syntaxHighlight(APIState.openApiSchema.components, format);
                     componentsContent.innerHTML = highlighted;
                 } else {
+                    // Fallback for when SchemaProcessor is not available
+                    let content;
+                    if (format === 'yaml') {
+                        content = 'YAML format not available without SchemaProcessor';
+                    } else {
+                        content = JSON.stringify(APIState.openApiSchema.components, null, 2);
+                    }
                     componentsContent.innerHTML = `<code>${this._escapeHtml(content)}</code>`;
                 }
 
-                console.log(`Components updated in ${format} format`);
             } catch (error) {
                 console.error('Failed to update components:', error);
                 componentsContent.innerHTML = `<code class="txt-danger">Error formatting components: ${error.message}</code>`;
@@ -376,8 +424,6 @@
                 ErrorStatusManager.updateStatus(type, message);
             } else if (typeof StatusManager !== 'undefined') {
                 StatusManager.updateStatus(type, message);
-            } else {
-                console.log(`[${type.toUpperCase()}] ${message}`);
             }
         },
 
@@ -430,21 +476,17 @@
         },
 
         async testConnection() {
-            console.log('🧪 Testing API connection...');
             try {
                 const response = await fetch('/api/docs/versions', this.getFetchOptions(false));
-                console.log('✅ Connection test successful:', response.status, response.statusText);
                 const data = await response.json();
-                console.log('📊 Response data:', data);
                 return { success: true, status: response.status, data };
             } catch (error) {
-                console.error('❌ Connection test failed:', error);
+                console.error('Connection test failed:', error);
                 return { success: false, error: error.message };
             }
         },
 
         async forceReload() {
-            console.log('🔄 Force reloading API data...');
             this.loadingState.versions = false;
             this.loadingState.endpoints = false;
             APIState.reset();
@@ -459,14 +501,12 @@
                 ErrorStatusManager: typeof ErrorStatusManager !== 'undefined'
             };
 
-            console.log('🔍 Dependency check:', deps);
             const missing = Object.entries(deps).filter(([name, available]) => !available);
 
             if (missing.length > 0) {
-                console.error('❌ Missing dependencies:', missing.map(([name]) => name));
+                console.error('Missing dependencies:', missing.map(([name]) => name));
                 return { success: false, missing: missing.map(([name]) => name) };
             } else {
-                console.log('✅ All dependencies available');
                 return { success: true };
             }
         }
@@ -508,9 +548,6 @@
                 filtered: APIState?.filteredEndpoints?.length || 0
             })
         };
-
-        console.log('🔧 Debug helper available: window.APIDebug.loader');
-        console.log('💡 Try: APIDebug.loader.status() or APIDebug.loader.test()');
     }
 
 {{end}}

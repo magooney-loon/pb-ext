@@ -282,7 +282,16 @@
                     // Convert value according to schema type
                     switch (fieldSchema.type) {
                         case 'boolean':
-                            body[fieldName] = value === 'true' || value === true || value === '1';
+                            // Handle actual boolean values from checkbox toggles
+                            if (typeof value === 'boolean') {
+                                body[fieldName] = value;
+                            } else if (typeof value === 'string') {
+                                // Handle string representations
+                                body[fieldName] = value.toLowerCase() === 'true' || value === '1';
+                            } else {
+                                // Fallback for other types
+                                body[fieldName] = Boolean(value);
+                            }
                             break;
                         case 'integer':
                             body[fieldName] = parseInt(value, 10);

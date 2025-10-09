@@ -5,15 +5,12 @@
 
     // Global initialization guard
     if (window.apiSystemInitialized) {
-        console.log('API system already initialized, skipping...');
         return;
     }
 
     // System initialization
     async function initializeApp() {
         try {
-            console.log('Initializing API Documentation System...');
-
             // Initialize error/status manager first
             if (typeof ErrorStatusManager !== 'undefined') {
                 ErrorStatusManager.init();
@@ -59,8 +56,6 @@
 
             // Mark as initialized
             window.apiSystemInitialized = true;
-
-            console.log('API Documentation System initialized successfully');
 
             // Final setup - ensure UI is properly updated
             if (typeof UIController !== 'undefined') {
@@ -167,10 +162,9 @@
 
         // Refresh data
         refreshData: () => {
-            if (typeof APILoader !== 'undefined') {
+            if (typeof APILoader !== 'undefined' && APILoader.refresh) {
                 return APILoader.refresh();
             }
-            console.error('APILoader not available');
             return Promise.reject(new Error('APILoader not available'));
         },
 
@@ -193,8 +187,6 @@
 
         // Reset system (for debugging)
         reset: () => {
-            console.warn('Resetting API system...');
-
             if (typeof APIState !== 'undefined') {
                 APIState.reset();
             }
@@ -204,8 +196,6 @@
             }
 
             window.apiSystemInitialized = false;
-
-            console.log('API system reset complete');
         },
 
         // Force reinitialization
@@ -217,10 +207,9 @@
 
     // Global refresh function (backward compatibility)
     window.refreshAPIData = () => {
-        if (typeof APILoader !== 'undefined') {
+        if (typeof APILoader !== 'undefined' && APILoader.refresh) {
             return APILoader.refresh();
         }
-        console.error('APILoader not available for refresh');
     };
 
     // Export initialization function for manual triggering

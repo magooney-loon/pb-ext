@@ -15,14 +15,10 @@
 
         // Initialize the UI controller
         init() {
-            console.log('Initializing UI Controller...');
-
             try {
                 this._initTabs();
                 this._initFilters();
                 this._setupStateObservers();
-
-                console.log('UI Controller initialized successfully');
             } catch (error) {
                 console.error('Failed to initialize UI Controller:', error);
                 this._showInitializationError(error);
@@ -80,7 +76,6 @@
 
         _handleTabClick(button) {
             if (this.isTabSwitching) {
-                console.log('Tab switching in progress, ignoring click');
                 return;
             }
 
@@ -102,12 +97,8 @@
 
                 if (button && content) {
                     this._tabCache.set(tabName, { button, content });
-                } else {
-                    console.warn(`Tab elements not found for: ${tabName}`);
                 }
             });
-
-            console.log(`Cached ${this._tabCache.size} tab elements`);
         },
 
         _initializeDefaultTab() {
@@ -116,11 +107,8 @@
 
             if (activeButton && activeContent) {
                 this.currentTab = activeButton.getAttribute('data-tab') || 'endpoints';
-                console.log(`Found active tab: ${this.currentTab}`);
                 return;
             }
-
-            console.log('No active tab found, activating default tab');
             this._activateDefaultTab();
         },
 
@@ -137,7 +125,6 @@
                 this._clearAllActiveStates();
                 this._activateTab(cached.button, cached.content);
                 this.currentTab = defaultTabName;
-                console.log(`Default tab '${defaultTabName}' activated`);
             } catch (error) {
                 console.error('Failed to activate default tab:', error);
             }
@@ -145,16 +132,12 @@
 
         async switchTab(tabName, button = null) {
             if (this.isTabSwitching) {
-                console.log(`Tab switching in progress, ignoring switch to ${tabName}`);
                 return false;
             }
 
             if (tabName === this.currentTab) {
-                console.log(`Tab '${tabName}' already active`);
                 return true;
             }
-
-            console.log(`Switching tab: ${this.currentTab} -> ${tabName}`);
             return await this._performTabSwitch(tabName, button);
         },
 
@@ -189,7 +172,6 @@
                     setTimeout(() => this._ensureSchemaContentLoaded(tabName), 100);
                 }
 
-                console.log(`Successfully switched to tab: ${tabName}`);
                 return true;
 
             } catch (error) {
@@ -225,7 +207,6 @@
 
         async _recoverFromTabSwitchError(fallbackTabName) {
             try {
-                console.log(`Attempting recovery to tab: ${fallbackTabName}`);
                 const fallbackCached = this._tabCache.get(fallbackTabName) || this._tabCache.get('endpoints');
 
                 if (!fallbackCached) {
@@ -237,8 +218,6 @@
                     () => this._clearAllActiveStates(),
                     () => this._activateTab(fallbackCached.button, fallbackCached.content)
                 ]);
-
-                console.log(`Recovery successful, restored tab: ${fallbackTabName}`);
             } catch (recoveryError) {
                 console.error('Tab recovery also failed:', recoveryError);
             }
@@ -246,8 +225,6 @@
 
         async _refreshTabContent(tabName) {
             try {
-                console.log(`Refreshing content for tab: ${tabName}`);
-
                 switch (tabName) {
                     case 'raw':
                         await this._refreshRawTab();
@@ -260,7 +237,7 @@
                         break;
                 }
             } catch (error) {
-                console.warn(`Failed to refresh tab content for '${tabName}':`, error.message);
+                // Silent fallback
             }
         },
 
@@ -457,7 +434,6 @@
 
         applyFilters() {
             if (!window.APIState) {
-                console.warn('APIState not available for filtering');
                 return;
             }
 
@@ -656,8 +632,6 @@
                 const codeElement = rawSchemaElement.querySelector('code') || rawSchemaElement.querySelector('pre') || rawSchemaElement;
                 content = codeElement.textContent || codeElement.innerText;
 
-                console.log('Raw schema copy - extracted content length:', content?.length || 0);
-
                 if (!content || content.trim() === '' || content.includes('Loading schema') || content.includes('No schema data')) {
                     // Fallback to raw schema data
                     if (window.APIState && APIState.openApiSchema) {
@@ -670,7 +644,6 @@
                             content = JSON.stringify(APIState.openApiSchema, null, 2);
                         }
                     } else {
-                        console.warn('No schema content available to copy');
                         return;
                     }
                 }
@@ -695,8 +668,6 @@
                 const codeElement = componentsElement.querySelector('code') || componentsElement.querySelector('pre') || componentsElement;
                 content = codeElement.textContent || codeElement.innerText;
 
-                console.log('Components copy - extracted content length:', content?.length || 0);
-
                 if (!content || content.trim() === '' || content.includes('Loading components') || content.includes('No components')) {
                     // Fallback to raw components data
                     if (window.APIState && APIState.openApiSchema?.components) {
@@ -709,7 +680,6 @@
                             content = JSON.stringify(APIState.openApiSchema.components, null, 2);
                         }
                     } else {
-                        console.warn('No components content available to copy');
                         return;
                     }
                 }
@@ -725,8 +695,6 @@
             const button = this._getElementById(buttonId);
             if (!button) return;
 
-            console.log(`Copying ${contentType} content (${content.length} characters)`);
-
             navigator.clipboard.writeText(content).then(() => {
                 const originalHtml = button.innerHTML;
                 button.innerHTML = '<i class="ri-check-line"></i> Copied!';
@@ -738,8 +706,6 @@
                     button.classList.remove('btn-success');
                     button.classList.add('btn-secondary');
                 }, 2000);
-
-                console.log(`${contentType} content copied to clipboard successfully`);
             }).catch(err => {
                 console.error(`Failed to copy ${contentType}:`, err);
 
@@ -778,18 +744,14 @@
 
         // Ensure schema content is loaded for Raw Schema and Components tabs
         _ensureSchemaContentLoaded(tabName) {
-            console.log(`Ensuring schema content is loaded for tab: ${tabName}`);
-
             if (tabName === 'raw') {
                 const rawContent = this._getElementById('raw-schema-content');
                 if (rawContent && (!rawContent.innerHTML || rawContent.innerHTML.includes('Loading schema'))) {
-                    console.log('Raw schema content missing, triggering reload...');
                     this._refreshRawTab();
                 }
             } else if (tabName === 'components') {
                 const componentsContent = this._getElementById('components-content');
                 if (componentsContent && (!componentsContent.innerHTML || componentsContent.innerHTML.includes('Loading components'))) {
-                    console.log('Components content missing, triggering reload...');
                     this._refreshComponentsTab();
                 }
             }
@@ -856,10 +818,8 @@
 
                 // Store stats for filter population
                 this._lastStats = stats;
-
-                console.log('Statistics updated:', stats);
             } catch (error) {
-                console.warn('Failed to update statistics:', error);
+                // Silent fallback
             }
         },
 
@@ -872,7 +832,6 @@
             // Use provided stats or last calculated stats
             const statsToUse = stats || this._lastStats;
             if (!statsToUse) {
-                console.warn('No statistics available for populating filter options');
                 return;
             }
 
@@ -882,8 +841,6 @@
 
             // Update statistics display
             this.updateStatistics();
-
-            console.log('Filter options populated with stats:', statsToUse);
         },
 
         _populateMethodOptions(methods) {
@@ -954,7 +911,6 @@
             try {
                 return context.querySelector(selector);
             } catch (error) {
-                console.warn('Invalid selector:', selector, error);
                 return null;
             }
         },
@@ -963,7 +919,6 @@
             try {
                 return Array.from(context.querySelectorAll(selector));
             } catch (error) {
-                console.warn('Invalid selector:', selector, error);
                 return [];
             }
         },
@@ -1044,21 +999,17 @@
         },
 
         destroy() {
-            console.log('Destroying UI Controller...');
-
             this._eventCleanup.forEach(cleanup => {
                 try {
                     cleanup();
                 } catch (error) {
-                    console.warn('Error during event cleanup:', error);
+                    // Silent cleanup error
                 }
             });
 
             this._tabCache.clear();
             this._debounceTimers.clear();
             this._eventCleanup = [];
-
-            console.log('UI Controller destroyed');
         }
     };
 

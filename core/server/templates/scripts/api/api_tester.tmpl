@@ -11,17 +11,13 @@
         // Initialize the API tester
         init() {
             if (this.initialized) {
-                console.log('APITester already initialized');
                 return;
             }
-
-            console.log('Initializing APITester...');
 
             try {
                 this._bindEvents();
                 this._setupStateObservers();
                 this.initialized = true;
-                console.log('APITester initialized successfully');
             } catch (error) {
                 console.error('Failed to initialize APITester:', error);
                 this._handleError(error, 'APITester initialization failed');
@@ -44,15 +40,6 @@
             if (resetBtn) {
                 const cleanup = this._addListener(resetBtn, 'click', () => {
                     this.resetForm();
-                });
-                this._eventCleanup.push(cleanup);
-            }
-
-            // Test with example button
-            const exampleBtn = document.getElementById('test-example-btn');
-            if (exampleBtn) {
-                const cleanup = this._addListener(exampleBtn, 'click', () => {
-                    this.testWithExample();
                 });
                 this._eventCleanup.push(cleanup);
             }
@@ -85,7 +72,6 @@
                 return;
             }
 
-            console.log('Processing endpoint:', endpoint.method, endpoint.path);
             this.currentEndpoint = endpoint;
 
             try {
@@ -163,7 +149,6 @@
         _generateParameterForm(endpoint) {
             const formContainer = document.getElementById('parameters-form');
             if (!formContainer) {
-                console.warn('Parameters form container not found');
                 return;
             }
 
@@ -188,7 +173,6 @@
             if (!authInfoEl) return;
 
             if (typeof APISchemaManager === 'undefined') {
-                console.warn('APISchemaManager not available for auth info');
                 return;
             }
 
@@ -227,10 +211,16 @@
             }
 
             try {
-                console.log('Sending test request for:', this.currentEndpoint.method, this.currentEndpoint.path);
+                // Get admin token for regular tester (defaults to superuser auth)
+                let authToken = null;
+                const adminAuth = localStorage.getItem('__pb_superuser_auth__');
+                if (adminAuth) {
+                    const parsed = JSON.parse(adminAuth);
+                    authToken = parsed.token;
+                }
 
-                // Use simplified request handler
-                await APIRequestHandler.sendRequest(this.currentEndpoint);
+                // Use simplified request handler with admin token
+                await APIRequestHandler.sendRequest(this.currentEndpoint, authToken);
 
             } catch (error) {
                 console.error('Request failed:', error);
@@ -238,39 +228,13 @@
             }
         },
 
-        // Test endpoint with example data
-        async testWithExample() {
-            if (!this.currentEndpoint) {
-                this._showError('No endpoint selected for testing');
-                return;
-            }
-
-            if (typeof APIRequestHandler === 'undefined') {
-                this._showError('Request handler not available');
-                return;
-            }
-
-            try {
-                console.log('Testing with example data for:', this.currentEndpoint.method, this.currentEndpoint.path);
-
-                // Use request handler's example testing method
-                await APIRequestHandler.testWithExample(this.currentEndpoint);
-
-            } catch (error) {
-                console.error('Example test failed:', error);
-                this._handleError(error, 'Example test failed');
-            }
-        },
-
         // Reset form to initial state
         resetForm() {
             if (typeof APIFormBuilder === 'undefined') {
-                console.warn('APIFormBuilder not available for form reset');
                 return;
             }
 
             try {
-                console.log('Resetting form...');
                 APIFormBuilder.clearForm();
                 this._clearResponse();
                 this._updateStatus('info', 'Form reset');
@@ -369,7 +333,6 @@
         _updateTesterUI() {
             const sendBtn = document.getElementById('send-request-btn');
             const resetBtn = document.getElementById('reset-form-btn');
-            const exampleBtn = document.getElementById('test-example-btn');
 
             const hasEndpoint = !!this.currentEndpoint;
 
@@ -401,8 +364,6 @@
         _updateStatus(type, message) {
             if (typeof ErrorStatusManager !== 'undefined') {
                 ErrorStatusManager.updateStatus(type, message);
-            } else {
-                console.log(`[${type.toUpperCase()}] ${message}`);
             }
         },
 
@@ -449,14 +410,12 @@
 
         // Cleanup resources
         cleanup() {
-            console.log('Cleaning up APITester...');
-
             // Remove event listeners
             this._eventCleanup.forEach(cleanup => {
                 try {
                     cleanup();
                 } catch (e) {
-                    console.warn('Error during cleanup:', e);
+                    // Silent cleanup error
                 }
             });
             this._eventCleanup = [];

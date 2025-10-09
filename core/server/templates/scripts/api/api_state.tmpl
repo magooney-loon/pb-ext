@@ -17,7 +17,6 @@
 
         // Initialize state management
         init() {
-            console.log('Initializing API State...');
             this.reset();
         },
 
@@ -48,7 +47,6 @@
 
         // Reset all state data
         reset() {
-            console.log('Resetting API state...');
 
             const prevState = {
                 schema: this.openApiSchema,
@@ -72,7 +70,6 @@
                 this.openApiSchema = validatedSchema;
                 this._notify('schema:updated', { schema: validatedSchema });
 
-                console.log('API schema updated successfully');
                 return validatedSchema;
             } catch (error) {
                 console.error('Invalid API schema:', error);
@@ -98,7 +95,6 @@
                     previousCount
                 });
 
-                console.log(`Updated endpoints: ${validatedEndpoints.length} total (was ${previousCount})`);
                 return validatedEndpoints;
             } catch (error) {
                 console.error('Failed to set endpoints:', error);
@@ -126,7 +122,6 @@
                     count: validatedVersions.length
                 });
 
-                console.log(`Updated versions: ${validatedVersions.length} available, current: ${this.currentVersion}`);
                 return validatedVersions;
             } catch (error) {
                 console.error('Failed to set versions:', error);
@@ -151,7 +146,6 @@
                 versionData
             });
 
-            console.log(`Current version changed: ${previousVersion} -> ${version}`);
             return versionData;
         },
 
@@ -165,7 +159,6 @@
                 try {
                     return this._validateEndpoint(endpoint, index);
                 } catch (error) {
-                    console.warn(`Endpoint validation warning at index ${index}:`, error.message);
                     // Return a minimal valid endpoint rather than failing completely
                     return this._createFallbackEndpoint(endpoint, index, error);
                 }

@@ -13,26 +13,23 @@
                 return;
             }
 
-            const sendBtn = document.getElementById('send-request-btn');
-            const originalBtnContent = sendBtn?.innerHTML || 'Send Request';
-
             try {
-                // Update button state
-                this.updateSendButton(sendBtn, true);
+                // Clear previous response first
+                this.clearResponse();
+
+                // Show loading state
+                this.updateStatus('loading', 'Sending request...');
 
                 // Collect and validate form data
                 const formData = APIFormBuilder.collectFormData();
                 const validation = APISchemaManager.validateRequestData(endpoint, formData);
 
                 if (!validation.valid) {
-                    throw new Error(`Validation failed:\n${validation.errors.join('\n')}`);
+                    throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
                 }
 
                 // Build request configuration
                 const requestConfig = this.buildRequestConfig(endpoint, formData, authToken);
-
-                // Log request details
-                console.log('Sending request:', requestConfig.method, requestConfig.url);
 
                 // Execute request
                 const response = await this.executeRequest(requestConfig);
@@ -75,19 +72,9 @@
                 'Accept': 'application/json'
             };
 
-            // Add authentication if required and available
-            if (APISchemaManager.requiresAuth(endpoint)) {
-                if (authToken) {
-                    headers['Authorization'] = `Bearer ${authToken}`;
-                } else {
-                    // Try to get auth token from APILoader
-                    const token = window.APILoader?.getSuperuserAuthToken();
-                    if (token) {
-                        headers['Authorization'] = `Bearer ${token}`;
-                    } else {
-                        console.warn('Authentication required but no token available');
-                    }
-                }
+            // Add authentication only if token is provided
+            if (authToken && APISchemaManager.requiresAuth(endpoint)) {
+                headers['Authorization'] = `Bearer ${authToken}`;
             }
 
             // Add query parameters to URL
@@ -159,8 +146,8 @@
 
         // Display successful response
         displayResponse(response, endpoint) {
-            console.log('Displaying response:', response.status, response.statusText);
             this.updateStatus('success', `${response.status} ${response.statusText} (${response.duration}ms)`);
+            this.updateResponseStatus(response.status, response.statusText, response.duration);
 
             // Hide empty state and show response content
             const emptyState = document.getElementById('response-empty-state');
@@ -168,18 +155,8 @@
             const responseHeaders = document.getElementById('response-headers');
             const copyBtn = document.getElementById('copy-response-btn');
 
-            console.log('Found elements:', {
-                emptyState: !!emptyState,
-                responseBody: !!responseBody,
-                responseHeaders: !!responseHeaders,
-                copyBtn: !!copyBtn
-            });
-
             if (emptyState) emptyState.style.display = 'none';
             if (copyBtn) copyBtn.style.display = 'inline-block';
-
-            // Update response status
-            this.updateResponseStatus(response);
 
             // Display response body and headers content
             this.displayResponseBody(response);
@@ -188,7 +165,6 @@
             // Show the appropriate tab based on current selection, default to body
             const activeResponseTab = document.querySelector('.response-tab.active');
             const currentTab = activeResponseTab ? activeResponseTab.dataset.tab : 'body';
-            console.log('Current response tab:', currentTab);
 
             if (currentTab === 'body') {
                 if (responseBody) {
@@ -241,39 +217,64 @@
 
             this.displayResponse(errorResponse, endpoint);
         },
+        // Update response status display in UI
+        updateResponseStatus(status, statusText, time) {
+            const statusEl = document.querySelector('#response-status-info .status-badge');
+            const timeEl = document.querySelector('#response-status-info .response-time');
 
-        // Update response status display
-        updateResponseStatus(response) {
-            const statusEl = document.getElementById('response-status-info');
             if (statusEl) {
-                const statusClass = response.ok ? 'success' : 'error';
-                statusEl.className = `response-status ${statusClass}`;
-                statusEl.innerHTML = `
-                    <span class="status-code">${response.status}</span>
-                    <span class="status-text">${response.statusText}</span>
-                    <span class="duration">${response.duration}ms</span>
-                `;
+                if (typeof status === 'number' && status > 0) {
+                    statusEl.textContent = `${status} ${statusText}`;
+
+                    // Apply semantic colors based on HTTP status codes
+                    let statusClass = 'status-badge';
+                    if (status >= 200 && status < 300) {
+                        statusClass += ' txt-success'; // Green for success (2xx)
+                    } else if (status >= 300 && status < 400) {
+                        statusClass += ' txt-warning'; // Yellow for redirects (3xx)
+                    } else if (status >= 400 && status < 500) {
+                        statusClass += ' txt-danger'; // Red for client errors (4xx)
+                    } else if (status >= 500) {
+                        statusClass += ' txt-danger'; // Red for server errors (5xx)
+                    } else {
+                        statusClass += ' txt-hint'; // Gray for other statuses
+                    }
+
+                    statusEl.className = statusClass;
+                } else {
+                    statusEl.textContent = typeof status === 'string' ? status : 'Ready';
+                    statusEl.className = 'status-badge txt-hint';
+                }
             }
+
+            if (timeEl) {
+                if (typeof time === 'number' && time > 0) {
+                    timeEl.textContent = `${time}ms`;
+                } else {
+                    timeEl.textContent = typeof statusText === 'string' ? statusText : 'Send a request';
+                }
+            }
+        },
+
+        // Clear response status display
+        clearResponseStatus() {
+            this.updateResponseStatus('Ready', 'Send a request', 0);
         },
 
         // Display response body with syntax highlighting
         displayResponseBody(response) {
-            console.log('Displaying response body...', !!response.data);
             const bodyEl = document.getElementById('response-body');
             if (!bodyEl) {
-                console.warn('Response body element not found');
                 return;
             }
 
             // Find the existing code element in the sidebar structure
             const codeEl = bodyEl.querySelector('code');
             if (!codeEl) {
-                console.warn('Code element not found in response-body, creating one...');
                 // Create the structure if it doesn't exist
                 bodyEl.innerHTML = '<pre class="code-block"><code></code></pre>';
                 const newCodeEl = bodyEl.querySelector('code');
                 if (!newCodeEl) {
-                    console.error('Failed to create code element');
                     return;
                 }
             }
@@ -281,7 +282,6 @@
             const finalCodeEl = bodyEl.querySelector('code');
             if (!response.data) {
                 finalCodeEl.textContent = 'No response body';
-                console.log('No response data to display');
                 return;
             }
 
@@ -290,43 +290,34 @@
                 try {
                     const formatted = SchemaProcessor.syntaxHighlight(response.data, 'json');
                     finalCodeEl.innerHTML = formatted;
-                    console.log('Applied syntax highlighting to response body');
                 } catch (e) {
-                    console.warn('Syntax highlighting failed, using plain text:', e);
                     // Fallback to plain text with escaping
                     const content = typeof response.data === 'string' ?
-                        response.data :
-                        JSON.stringify(response.data, null, 2);
+                        response.data : JSON.stringify(response.data, null, 2);
                     finalCodeEl.textContent = content;
                 }
             } else {
-                console.log('SchemaProcessor not available, using plain text');
                 // Simple fallback
                 const content = typeof response.data === 'string' ?
-                    response.data :
-                    JSON.stringify(response.data, null, 2);
+                    response.data : JSON.stringify(response.data, null, 2);
                 finalCodeEl.textContent = content;
             }
         },
 
         // Display response headers
         displayResponseHeaders(response) {
-            console.log('Displaying response headers...', Object.keys(response.headers || {}).length);
             const headersEl = document.getElementById('response-headers');
             if (!headersEl) {
-                console.warn('Response headers element not found');
                 return;
             }
 
             // Find the existing code element in the sidebar structure
             const codeEl = headersEl.querySelector('code');
             if (!codeEl) {
-                console.warn('Code element not found in response-headers, creating one...');
                 // Create the structure if it doesn't exist
                 headersEl.innerHTML = '<pre class="code-block"><code></code></pre>';
                 const newCodeEl = headersEl.querySelector('code');
                 if (!newCodeEl) {
-                    console.error('Failed to create headers code element');
                     return;
                 }
             }
@@ -334,7 +325,6 @@
             const finalCodeEl = headersEl.querySelector('code');
             if (!response.headers || Object.keys(response.headers).length === 0) {
                 finalCodeEl.textContent = 'No response headers';
-                console.log('No response headers to display');
                 return;
             }
 
@@ -343,14 +333,11 @@
                 try {
                     const formatted = SchemaProcessor.syntaxHighlight(response.headers, 'json');
                     finalCodeEl.innerHTML = formatted;
-                    console.log('Applied syntax highlighting to response headers');
                 } catch (e) {
-                    console.warn('Headers syntax highlighting failed:', e);
                     const content = JSON.stringify(response.headers, null, 2);
                     finalCodeEl.textContent = content;
                 }
             } else {
-                console.log('SchemaProcessor not available for headers, using plain text');
                 const content = JSON.stringify(response.headers, null, 2);
                 finalCodeEl.textContent = content;
             }
@@ -390,8 +377,6 @@
                 ErrorStatusManager.updateStatus(type, message);
             } else if (typeof StatusManager !== 'undefined') {
                 StatusManager.updateStatus(type, message);
-            } else {
-                console.log(`[${type.toUpperCase()}] ${message}`);
             }
         },
 
@@ -409,22 +394,11 @@
 
         // Clear response display
         clearResponse() {
-            console.log('Clearing response display...');
             const responseBody = document.getElementById('response-body');
             const responseHeaders = document.getElementById('response-headers');
-            const responseStatus = document.getElementById('response-status-info');
             const requestInfo = document.getElementById('request-info');
             const emptyState = document.getElementById('response-empty-state');
             const copyBtn = document.getElementById('copy-response-btn');
-
-            console.log('Clearing elements:', {
-                responseBody: !!responseBody,
-                responseHeaders: !!responseHeaders,
-                responseStatus: !!responseStatus,
-                requestInfo: !!requestInfo,
-                emptyState: !!emptyState,
-                copyBtn: !!copyBtn
-            });
 
             // Show empty state and hide response content
             if (emptyState) emptyState.style.display = 'block';
@@ -438,47 +412,34 @@
             }
             if (copyBtn) copyBtn.style.display = 'none';
 
+            // Clear content
             if (responseBody) {
                 const bodyCodeEl = responseBody.querySelector('code');
                 if (bodyCodeEl) {
                     bodyCodeEl.textContent = '';
-                    console.log('Cleared response body content');
                 }
             }
             if (responseHeaders) {
                 const headersCodeEl = responseHeaders.querySelector('code');
                 if (headersCodeEl) {
                     headersCodeEl.textContent = '';
-                    console.log('Cleared response headers content');
                 }
             }
-            if (responseStatus) {
-                responseStatus.className = 'response-status';
-                responseStatus.innerHTML = '<span class="status-badge status-ready">Ready</span><span class="response-time">Send a request</span>';
-            }
+
             if (requestInfo) requestInfo.innerHTML = '';
+
+            // Reset both system status and response status display
+            this.updateStatus('info', 'Ready');
+            this.clearResponseStatus();
 
             // Reset response tabs to default (body)
             const responseTabs = document.querySelectorAll('.response-tab');
             responseTabs.forEach(tab => {
                 tab.classList.toggle('active', tab.dataset.tab === 'body');
             });
-
-            console.log('Response display cleared successfully');
         },
 
-        // Test endpoint with example data
-        async testWithExample(endpoint) {
-            if (!endpoint) return;
 
-            // Populate form with example data
-            if (APIFormBuilder.populateExampleData) {
-                APIFormBuilder.populateExampleData(endpoint);
-            }
-
-            // Send request
-            await this.sendRequest(endpoint);
-        },
 
         // Get authentication token helper
         getAuthToken() {
@@ -494,7 +455,7 @@
                     return parsed.token;
                 }
             } catch (e) {
-                console.warn('Could not retrieve auth token:', e);
+                // Silent fallback
             }
 
             return null;
