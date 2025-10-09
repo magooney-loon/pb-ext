@@ -1,0 +1,137 @@
+{{define "cron_api_js"}}
+<script>
+/**
+ * CronAPI Service Class
+ * Handles all API interactions for cron job management
+ */
+class CronAPI {
+    constructor() {
+        this.baseUrl = '/api/cron';
+        this.endpoints = {
+            jobs: '/jobs',
+            status: '/status'
+        };
+    }
+
+    /**
+     * Get authentication token from localStorage
+     * @returns {string|null} Auth token
+     */
+    getAuthToken() {
+        const possibleTokenKeys = [
+            '__pb_superuser_auth__'
+        ];
+
+        for (const key of possibleTokenKeys) {
+            const stored = localStorage.getItem(key);
+            if (stored) {
+                try {
+                    const parsed = JSON.parse(stored);
+                    if (parsed && parsed.token) {
+                        return parsed.token;
+                    }
+                } catch (e) {
+                    // If it's not JSON, try as plain string
+                    if (stored.length > 10) {
+                        return stored;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Make authenticated API request
+     * @param {string} endpoint - API endpoint
+     * @param {Object} options - Request options
+     * @returns {Promise<Object>} API response
+     */
+    async makeRequest(endpoint, options = {}) {
+        const token = this.getAuthToken();
+        if (!token) {
+            throw new Error('Authentication required');
+        }
+
+        const url = `${this.baseUrl}${endpoint}`;
+        const config = {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+                ...options.headers
+            },
+            ...options
+        };
+
+        try {
+            const response = await fetch(url, config);
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            return data;
+        } catch (error) {
+            console.error(`API request failed [${options.method || 'GET'} ${url}]:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get all cron jobs
+     * @returns {Promise<Array>} List of cron jobs
+     */
+    async getJobs() {
+        return await this.makeRequest(this.endpoints.jobs);
+    }
+
+    /**
+     * Delete a cron job
+     * @param {string} jobId - Job ID
+     * @returns {Promise<Object>} Deletion response
+     */
+    async deleteJob(jobId) {
+        return await this.makeRequest(`${this.endpoints.jobs}/${jobId}`, {
+            method: 'DELETE'
+        });
+    }
+
+    /**
+     * Run a cron job immediately
+     * @param {string} jobId - Job ID
+     * @returns {Promise<Object>} Execution response
+     */
+    async runJob(jobId) {
+        return await this.makeRequest(`${this.endpoints.jobs}/${jobId}/run`, {
+            method: 'POST'
+        });
+    }
+
+    /**
+     * Get cron system status
+     * @returns {Promise<Object>} System status
+     */
+    async getStatus() {
+        return await this.makeRequest(this.endpoints.status);
+    }
+
+    /**
+     * Update cron system timezone
+     * @param {string} timezone - New timezone
+     * @returns {Promise<Object>} Update response
+     */
+    async updateTimezone(timezone) {
+        return await this.makeRequest('/config/timezone', {
+            method: 'POST',
+            body: JSON.stringify({ timezone })
+        });
+    }
+
+
+}
+
+// Export the API instance
+window.CronAPI = new CronAPI();
+</script>
+{{end}}

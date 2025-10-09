@@ -170,6 +170,10 @@ func (s *Server) Start() error {
 		// s.RegisterAPIDocsRoutes(e)
 		app.Logger().Info("📚 AST API system initialized")
 
+		// Initialize cron jobs API
+		s.RegisterCronRoutes(e)
+		app.Logger().Info("⏰ Cron jobs API initialized")
+
 		// Serve static files from pb_public with improved path resolution
 		publicDirPath := "./pb_public"
 

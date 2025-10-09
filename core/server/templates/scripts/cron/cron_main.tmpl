@@ -1,0 +1,708 @@
+{{define "cron_main_js"}}
+<script>
+/* =============================================================================
+   CRON JOBS MANAGEMENT - MODULAR SYSTEM
+   ============================================================================= */
+
+// Global initialization guard
+if (!window.cronSystemInitialized) {
+    console.log('🔧 Initializing modular cron system...');
+
+    /**
+     * CronAPI Service Class
+     * Handles all API interactions for cron job management
+     */
+    class CronAPI {
+        constructor() {
+            this.baseUrl = '/api/cron';
+            this.endpoints = {
+                jobs: '/jobs',
+                status: '/status'
+            };
+        }
+
+        /**
+         * Get authentication token from localStorage
+         * @returns {string|null} Auth token
+         */
+        getAuthToken() {
+            const possibleTokenKeys = [
+                '__pb_superuser_auth__',
+                'pb_superuser_token',
+                'pocketbase_superuser_auth',
+                'pb_superuser_auth',
+                '__pb_auth__'
+            ];
+
+            for (const key of possibleTokenKeys) {
+                const stored = localStorage.getItem(key);
+                if (stored) {
+                    try {
+                        const parsed = JSON.parse(stored);
+                        if (parsed && parsed.token) {
+                            return parsed.token;
+                        }
+                    } catch (e) {
+                        if (stored.length > 10) {
+                            return stored;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Make authenticated API request
+         * @param {string} endpoint - API endpoint
+         * @param {Object} options - Request options
+         * @returns {Promise<Object>} API response
+         */
+        async makeRequest(endpoint, options = {}) {
+            const token = this.getAuthToken();
+            if (!token) {
+                throw new Error('Authentication required');
+            }
+
+            const url = `${this.baseUrl}${endpoint}`;
+            const config = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    ...options.headers
+                },
+                ...options
+            };
+
+            try {
+                const response = await fetch(url, config);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                return data;
+            } catch (error) {
+                console.error(`API request failed [${options.method || 'GET'} ${url}]:`, error);
+                throw error;
+            }
+        }
+
+        async getJobs() {
+            return await this.makeRequest(this.endpoints.jobs);
+        }
+
+        async createJob(jobData) {
+            return await this.makeRequest(this.endpoints.jobs, {
+                method: 'POST',
+                body: JSON.stringify(jobData)
+            });
+        }
+
+        async updateJob(jobId, jobData) {
+            return await this.makeRequest(`${this.endpoints.jobs}/${jobId}`, {
+                method: 'PUT',
+                body: JSON.stringify(jobData)
+            });
+        }
+
+        async deleteJob(jobId) {
+            return await this.makeRequest(`${this.endpoints.jobs}/${jobId}`, {
+                method: 'DELETE'
+            });
+        }
+
+        async runJob(jobId) {
+            return await this.makeRequest(`${this.endpoints.jobs}/${jobId}/run`, {
+                method: 'POST'
+            });
+        }
+
+        async getStatus() {
+            return await this.makeRequest(this.endpoints.status);
+        }
+
+        /**
+         * Update cron system timezone
+         * @param {string} timezone - New timezone
+         * @returns {Promise<Object>} Update response
+         */
+        async updateTimezone(timezone) {
+            return await this.makeRequest('/config/timezone', {
+                method: 'POST',
+                body: JSON.stringify({ timezone })
+            });
+        }
+
+
+    }
+
+    /**
+     * CronUI Manager Class
+     * Handles all user interface interactions for cron job management
+     */
+    class CronUI {
+        constructor() {
+            this.elements = {
+                // Main containers
+                loading: document.getElementById('cron-loading'),
+                empty: document.getElementById('cron-empty'),
+                tableWrapper: document.getElementById('cron-table-wrapper'),
+                tbody: document.getElementById('cron-jobs-tbody'),
+
+                // Stats elements
+                totalJobs: document.getElementById('total-jobs'),
+                activeJobs: document.getElementById('active-jobs'),
+
+
+
+                // Modals
+                modal: document.getElementById('cron-modal-overlay'),
+                modalTitle: document.getElementById('cron-modal-title'),
+                detailsModal: document.getElementById('cron-details-overlay')
+            };
+
+
+            this.setupEventListeners();
+        }
+
+        setupEventListeners() {
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    this.hideJobInfo();
+                    this.hideDetailsModal();
+                }
+            });
+
+            if (this.elements.modal) {
+                this.elements.modal.addEventListener('click', (e) => {
+                    if (e.target === this.elements.modal) {
+                        this.hideJobModal();
+                    }
+                });
+            }
+
+            if (this.elements.detailsModal) {
+                this.elements.detailsModal.addEventListener('click', (e) => {
+                    if (e.target === this.elements.detailsModal) {
+                        this.hideDetailsModal();
+                    }
+                });
+            }
+
+            // Info modal event listener
+            const infoModal = document.getElementById('cron-info-overlay');
+            if (infoModal) {
+                infoModal.addEventListener('click', (e) => {
+                    if (e.target === infoModal) {
+                        this.hideJobInfo();
+                    }
+                });
+            }
+        }
+
+        showLoading() {
+            if (this.elements.loading) this.elements.loading.style.display = 'flex';
+            if (this.elements.empty) this.elements.empty.style.display = 'none';
+            if (this.elements.tableWrapper) this.elements.tableWrapper.style.display = 'none';
+        }
+
+        showEmpty() {
+            if (this.elements.loading) this.elements.loading.style.display = 'none';
+            if (this.elements.empty) this.elements.empty.style.display = 'block';
+            if (this.elements.tableWrapper) this.elements.tableWrapper.style.display = 'none';
+        }
+
+        showTable() {
+            if (this.elements.loading) this.elements.loading.style.display = 'none';
+            if (this.elements.empty) this.elements.empty.style.display = 'none';
+            if (this.elements.tableWrapper) this.elements.tableWrapper.style.display = 'block';
+        }
+
+        renderJobs(jobs) {
+            if (!jobs || jobs.length === 0) {
+                this.showEmpty();
+                return;
+            }
+
+            this.showTable();
+
+            if (this.elements.tbody) {
+                this.elements.tbody.innerHTML = jobs.map(job => this.createJobRow(job)).join('');
+            }
+        }
+
+        createJobRow(job) {
+            return `
+                <tr class="cron-jobs-table__row">
+                    <td class="cron-jobs-table__cell">
+                        <div class="flex align-center">
+                            <div class="flex flex-column">
+                                <div class="txt-bold">${this.escapeHtml(job.name || job.id)}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="cron-jobs-table__cell">
+                        <div class="flex flex-column">
+                            <code class="txt-sm">${this.escapeHtml(job.expression)}</code>
+                            <small class="txt-hint">${this.getCronDescription(job.expression)}</small>
+                        </div>
+                    </td>
+                    <td class="cron-jobs-table__cell">
+                        <div class="flex gap-5">
+                            <button class="btn btn-xs btn-outline"
+                                    onclick="cronManager.showJobDetails('${job.id}')"
+                                    title="View Details">
+                                <i class="ri-eye-line"></i>
+                            </button>
+                            <button class="btn btn-xs btn-success"
+                                    onclick="cronManager.runJob('${job.id}')"
+                                    title="Run Now">
+                                <i class="ri-play-line"></i>
+                            </button>
+                            <button class="btn btn-xs btn-danger"
+                                    onclick="cronManager.deleteJob('${job.id}')"
+                                    title="Delete">
+                                <i class="ri-delete-bin-line"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+
+        updateStats(stats) {
+            if (this.elements.totalJobs) {
+                this.elements.totalJobs.textContent = stats.total_jobs || 0;
+            }
+            if (this.elements.activeJobs) {
+                this.elements.activeJobs.textContent = stats.active_jobs || 0;
+            }
+        }
+
+        showJobInfo() {
+            const infoModal = document.getElementById('cron-info-overlay');
+            if (infoModal) {
+                infoModal.style.display = 'flex';
+            }
+        }
+
+        hideJobInfo() {
+            const infoModal = document.getElementById('cron-info-overlay');
+            if (infoModal) {
+                infoModal.style.display = 'none';
+            }
+        }
+
+
+
+        showJobDetails(job) {
+            if (!this.elements.detailsModal) return;
+
+            const detailsContainer = document.getElementById('cron-job-details');
+            if (detailsContainer) {
+                detailsContainer.innerHTML = this.createJobDetailsHTML(job);
+            }
+
+            this.elements.detailsModal.style.display = 'flex';
+            window.currentJobDetails = job;
+        }
+
+        hideDetailsModal() {
+            if (this.elements.detailsModal) {
+                this.elements.detailsModal.style.display = 'none';
+            }
+            window.currentJobDetails = null;
+        }
+
+        createJobDetailsHTML(job) {
+            return `
+                <div class="cron-job-details">
+                    <div class="cron-job-details__section">
+                        <h6>Basic Information</h6>
+                        <div class="cron-job-details__grid">
+                            <div class="cron-job-details__field">
+                                <label>Name:</label>
+                                <span>${this.escapeHtml(job.name || job.id)}</span>
+                            </div>
+                            <div class="cron-job-details__field">
+                                <label>Expression:</label>
+                                <code>${this.escapeHtml(job.expression)}</code>
+                            </div>
+                            <div class="cron-job-details__field">
+                                <label>Description:</label>
+                                <span>${this.getCronDescription(job.expression)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cron-job-details__section">
+                        <h6>Implementation</h6>
+                        <div class="cron-job-details__info">
+                            <p class="txt-hint">PocketBase cron jobs are implemented as compiled Go functions and registered at runtime. The source code is not accessible through the API.</p>
+                            <div style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 12px; margin-top: 12px;">
+                                <div style="font-size: 12px; color: var(--txtHintColor); margin-bottom: 6px;">Typical registration:</div>
+                                <code style="font-size: 11px;">app.Cron().MustAdd("${this.escapeHtml(job.id)}", "${this.escapeHtml(job.expression)}", func() { /* Go implementation */ })</code>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cron-job-details__section">
+                        <h6>Execution Information</h6>
+                        <div class="cron-job-details__info">
+                            <p class="txt-hint">Note: PocketBase cron jobs don't provide detailed execution history. Check server logs for execution details.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        getCronDescription(expression) {
+            // Basic cron description generator
+            const parts = expression.trim().split(/\s+/);
+            if (parts.length !== 5) return expression;
+
+            try {
+                const [min, hour, day, month, dow] = parts;
+                let desc = 'Runs ';
+
+                if (min === '*' && hour === '*' && day === '*' && month === '*' && dow === '*') {
+                    return 'Every minute';
+                }
+
+                if (min !== '*' && hour !== '*') {
+                    desc += `at ${hour.padStart(2, '0')}:${min.padStart(2, '0')} `;
+                } else if (min !== '*') {
+                    desc += `at minute ${min} `;
+                } else if (hour !== '*') {
+                    desc += `every minute of hour ${hour} `;
+                }
+
+                if (dow !== '*') {
+                    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    if (dow.includes(',')) {
+                        const dayList = dow.split(',').map(d => days[parseInt(d)]).join(', ');
+                        desc += `on ${dayList} `;
+                    } else if (dow.includes('/')) {
+                        desc += `every ${dow.split('/')[1]} days `;
+                    } else {
+                        desc += `on ${days[parseInt(dow)]} `;
+                    }
+                } else if (day !== '*') {
+                    desc += `on day ${day} `;
+                }
+
+                if (month !== '*') {
+                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    desc += `in ${months[parseInt(month) - 1]} `;
+                }
+
+                return desc.trim();
+            } catch (e) {
+                return expression;
+            }
+        }
+
+
+
+
+
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+
+
+        showSuccess(message) {
+            console.log('Success:', message);
+            // TODO: Implement proper toast notifications
+        }
+
+        showError(message) {
+            console.error('Error:', message);
+            // TODO: Implement proper toast notifications
+            alert('Error: ' + message); // Temporary fallback
+        }
+    }
+
+    /**
+     * CronManager - Main coordinator class for cron job management
+     */
+    class CronManager {
+        constructor() {
+            this.api = window.CronAPI;
+            this.ui = window.CronUI;
+            this.state = {
+                jobs: [],
+                status: 'unknown',
+                config: {},
+                isInitialized: false,
+                pollingInterval: null
+            };
+
+            this.config = {
+                pollInterval: 5000,
+                retryAttempts: 3,
+                retryDelay: 1000
+            };
+        }
+
+        async initialize() {
+            if (this.state.isInitialized) {
+                console.log('CronManager already initialized');
+                return;
+            }
+
+            console.log('Initializing CronManager...');
+
+            try {
+                await this.loadJobs();
+                this.startPolling();
+                this.state.isInitialized = true;
+                console.log('✅ CronManager initialized successfully');
+            } catch (error) {
+                console.error('Failed to initialize CronManager:', error);
+                this.ui.showError('Failed to initialize cron system: ' + error.message);
+                this.state.status = 'running';
+                this.startPolling();
+            }
+        }
+
+
+
+        async loadJobs() {
+            this.ui.showLoading();
+
+            try {
+                const jobs = await this.api.getJobs();
+                this.state.jobs = Array.isArray(jobs) ? jobs : [];
+
+                this.ui.renderJobs(this.state.jobs);
+                this.ui.updateStats({
+                    total_jobs: this.state.jobs.length,
+                    active_jobs: this.state.jobs.length
+                });
+
+                console.log(`Loaded ${this.state.jobs.length} cron jobs`);
+            } catch (error) {
+                console.error('Failed to load jobs:', error);
+                this.ui.showError('Failed to load cron jobs: ' + error.message);
+                this.ui.showEmpty();
+            }
+        }
+
+
+
+        startPolling() {
+            if (this.state.pollingInterval) {
+                clearInterval(this.state.pollingInterval);
+            }
+
+            this.state.pollingInterval = setInterval(async () => {
+                try {
+                    // Could add job status polling here if needed
+                } catch (error) {
+                    console.error('Polling failed:', error);
+                }
+            }, this.config.pollInterval);
+
+            console.log('Started status polling');
+        }
+
+        stopPolling() {
+            if (this.state.pollingInterval) {
+                clearInterval(this.state.pollingInterval);
+                this.state.pollingInterval = null;
+                console.log('Stopped status polling');
+            }
+        }
+
+        async refresh() {
+            try {
+                await this.loadJobs();
+                this.ui.showSuccess('Data refreshed successfully');
+            } catch (error) {
+                this.ui.showError('Failed to refresh data: ' + error.message);
+            }
+        }
+
+        showJobInfo() {
+            this.ui.showJobInfo();
+        }
+
+        async deleteJob(jobId) {
+            const job = this.state.jobs.find(j => j.id === jobId);
+            if (!job) {
+                this.ui.showError('Job not found');
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete the job "${job.name || job.id}"?`)) {
+                return;
+            }
+
+            try {
+                await this.api.deleteJob(jobId);
+                this.ui.showSuccess('Job deleted successfully');
+                await this.loadJobs();
+            } catch (error) {
+                this.ui.showError('Failed to delete job: ' + error.message);
+            }
+        }
+
+        async runJob(jobId) {
+            const job = this.state.jobs.find(j => j.id === jobId);
+            if (!job) {
+                this.ui.showError('Job not found');
+                return;
+            }
+
+            try {
+                await this.api.runJob(jobId);
+                this.ui.showSuccess(`Job "${job.name || job.id}" executed successfully`);
+            } catch (error) {
+                this.ui.showError('Failed to run job: ' + error.message);
+            }
+        }
+
+        async showJobDetails(jobId) {
+            const job = this.state.jobs.find(j => j.id === jobId);
+            if (!job) {
+                this.ui.showError('Job not found');
+                return;
+            }
+
+            try {
+                this.ui.showJobDetails(job);
+            } catch (error) {
+                console.error('Failed to load job details:', error);
+                this.ui.showJobDetails(job);
+            }
+        }
+
+
+
+        /**
+         * Update system timezone
+         * @param {string} timezone - New timezone
+         */
+        async updateTimezone(timezone) {
+            try {
+                await this.api.updateTimezone(timezone);
+                this.ui.showSuccess('Timezone updated successfully');
+            } catch (error) {
+                this.ui.showError('Failed to update timezone: ' + error.message);
+            }
+        }
+
+        destroy() {
+            this.stopPolling();
+            this.state.isInitialized = false;
+            console.log('CronManager destroyed');
+        }
+    }
+
+    // Initialize the system
+    window.CronAPI = new CronAPI();
+    window.CronUI = new CronUI();
+    window.cronManager = new CronManager();
+
+    // Mark as initialized to prevent double initialization
+    window.cronSystemInitialized = true;
+
+    // Verify all required components are loaded
+    const requiredComponents = ['CronAPI', 'CronUI', 'cronManager'];
+    const missingComponents = requiredComponents.filter(comp => !window[comp]);
+
+    if (missingComponents.length === 0) {
+        console.log('✅ All cron components loaded successfully');
+        console.log('📊 Available components:', {
+            API: typeof window.CronAPI,
+            UI: typeof window.CronUI,
+            Manager: typeof window.cronManager
+        });
+
+        // The cronManager will auto-initialize when DOM is ready
+        // Additional setup can be done here if needed
+    } else {
+        console.error('❌ Missing required cron components:', missingComponents);
+    }
+
+} else {
+    console.log('⚠️ Cron system already initialized, skipping...');
+}
+
+/* =============================================================================
+   LEGACY COMPATIBILITY FUNCTIONS
+   ============================================================================= */
+
+// These functions ensure backward compatibility with existing template calls
+// They delegate to the new modular system
+
+if (typeof window.initializeCronJobs === 'undefined') {
+    window.initializeCronJobs = function() {
+        return window.cronManager?.initialize();
+    };
+}
+
+if (typeof window.loadCronJobs === 'undefined') {
+    window.loadCronJobs = function() {
+        return window.cronManager?.loadJobs();
+    };
+}
+
+if (typeof window.refreshCronJobs === 'undefined') {
+    window.refreshCronJobs = function() {
+        return window.cronManager?.refresh();
+    };
+}
+
+// Global functions for backward compatibility with existing templates
+window.showCronJobInfo = () => window.cronManager.showJobInfo();
+window.hideCronJobInfo = () => window.cronManager.hideJobInfo();
+window.hideCronDetailsModal = () => window.cronManager.ui.hideDetailsModal();
+
+
+window.updateCronTimezone = () => {
+    const select = document.getElementById('cron-timezone');
+    if (select) {
+        window.cronManager.updateTimezone(select.value);
+    }
+};
+
+
+
+window.runJobFromDetails = () => {
+    if (window.currentJobDetails) {
+        window.cronManager.runJob(window.currentJobDetails.id);
+    }
+};
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        window.cronManager.initialize();
+    });
+} else {
+    setTimeout(() => window.cronManager.initialize(), 100);
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    window.cronManager.destroy();
+});
+
+// Export for debugging and advanced usage
+window.CronSystem = {
+    api: window.CronAPI,
+    ui: window.CronUI,
+    manager: window.cronManager,
+    initialized: window.cronSystemInitialized
+};
+
+console.log('🎉 Modular cron system ready');
+</script>
+{{end}}

@@ -1,0 +1,25 @@
+{{define "cron_details_js"}}
+{{/* Include the main modular cron system */}}
+{{template "cron_main_js" .}}
+
+<script>
+/* =============================================================================
+   CRON DETAILS - ADDITIONAL FUNCTIONALITY
+   ============================================================================= */
+
+// Extend the global cron manager with additional details functionality
+if (window.cronManager) {
+
+
+
+
+
+    console.log('✅ Cron details functionality enhanced');
+}
+
+// Simplified job details functionality - logs not available in PocketBase
+console.log('📊 Cron details functionality loaded (simplified)');
+
+
+</script>
+{{end}}
