@@ -1,0 +1,1159 @@
+{{define "api_ui_js"}}
+    // =============================================================================
+    // API UI MANAGEMENT - CONSOLIDATED TAB, FILTER & RENDERING SYSTEM
+    // =============================================================================
+
+    const APIUIManager = {
+        // UI state
+        _currentTab: 'endpoints',
+        _isTabSwitching: false,
+        _debounceTimers: new Map(),
+        _eventCleanup: [],
+        _initialized: false,
+
+        // Initialize UI manager
+        init() {
+            if (this._initialized) return;
+
+            try {
+                this._setupTabs();
+                this._setupFilters();
+                this._setupEventListeners();
+                this._initializeFilterUI();
+
+                EventBus.emit(APIEvents.UI.TAB_CHANGED, {
+                    component: 'APIUIManager',
+                    initialized: true,
+                    event: 'ui:tab-changed',
+                    timestamp: new Date().toISOString()
+                });
+
+
+
+            } catch (error) {
+                console.error('APIUIManager: Initialization failed:', error);
+                ErrorManager.handleError(error, 'APIUIManager Initialization');
+            }
+        },
+
+        // =============================================================================
+        // TAB MANAGEMENT
+        // =============================================================================
+
+        // Setup tab functionality
+        _setupTabs() {
+            const tabButtons = document.querySelectorAll('#api-tabs .tab-item');
+
+            tabButtons.forEach((button, index) => {
+                const tabName = button.dataset.tab;
+
+                const cleanup = this._addClickListener(button, (e) => {
+                    e.preventDefault();
+                    this._handleTabClick(e.target);
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            });
+
+            // Initialize default tab
+            this._switchTab(this._currentTab);
+        },
+
+        // Handle tab click
+        _handleTabClick(button) {
+            if (this._isTabSwitching) return;
+
+            const tabName = button.dataset.tab;
+            if (tabName && tabName !== this._currentTab) {
+                this._switchTab(tabName);
+            }
+        },
+
+        // Switch to specific tab
+        _switchTab(tabName) {
+            if (this._isTabSwitching) return;
+
+            this._isTabSwitching = true;
+
+            try {
+                // Update tab buttons
+                document.querySelectorAll('#api-tabs .tab-item').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === tabName);
+                });
+
+                // Update tab content
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.style.display = content.id === `${tabName}-tab` ? 'block' : 'none';
+                });
+
+                // Render content for the selected tab
+                this._renderTabContent(tabName);
+
+                // Update state and emit event
+                this._currentTab = tabName;
+                StateManager.setState('ui.currentTab', tabName);
+
+                EventBus.emit(APIEvents.UI.TAB_CHANGED, {
+                    tab: tabName,
+                    timestamp: new Date().toISOString()
+                });
+
+            } catch (error) {
+                ErrorManager.handleError(error, `Tab Switch to ${tabName}`);
+            } finally {
+                this._isTabSwitching = false;
+            }
+        },
+
+        // Render content for active tab
+        _renderTabContent(tabName) {
+            switch (tabName) {
+                case 'endpoints':
+                    this._renderEndpoints();
+                    break;
+                case 'raw':
+                    this._renderRawSchema();
+                    break;
+                case 'components':
+                    this._renderComponents();
+                    break;
+            }
+        },
+
+        // =============================================================================
+        // ENDPOINT RENDERING
+        // =============================================================================
+
+        // Render endpoints list
+        _renderEndpoints() {
+            const container = document.getElementById('endpoints-list');
+            if (!container) {
+                console.error('endpoints-list container not found');
+                return;
+            }
+
+            this._cleanupEndpointListeners();
+            this._endpointSchemas = new Map(); // Clear stored schemas
+
+            const endpoints = StateManager.getState('api.filteredEndpoints') || [];
+            const allEndpoints = StateManager.getState('api.endpoints') || [];
+
+            if (endpoints.length === 0) {
+                this._renderEmptyEndpoints(container, allEndpoints.length > 0);
+                return;
+            }
+
+            try {
+                const html = endpoints.map(endpoint => this._renderEndpoint(endpoint)).join('');
+                container.innerHTML = html;
+                this._populateEndpointSchemas();
+                this._attachEndpointListeners(container);
+
+            } catch (error) {
+                console.error('Failed to render endpoints:', error);
+                ErrorManager.handleError(error, 'Rendering Endpoints');
+                this._renderErrorState(container, error);
+            }
+        },
+
+        // Render individual endpoint
+        _renderEndpoint(endpoint) {
+            const method = endpoint.method.toLowerCase();
+            const authRequired = endpoint.auth?.required;
+
+            return `
+                <div class="api-endpoint" data-endpoint-id="${endpoint.id}">
+                    <div class="api-endpoint-header" data-toggle="endpoint">
+                        <span class="http-method ${method}">${method.toUpperCase()}</span>
+                        <span class="flex-fill txt-mono">${endpoint.path}</span>
+                        <span class="txt-sm txt-hint">${endpoint.description || ''}</span>
+                        ${authRequired ? `<span class="auth-icon" title="${endpoint.auth.description}">${endpoint.auth.icon}</span>` : ''}
+                        <button class="test-endpoint-btn" title="Test endpoint"
+                                data-method="${method}"
+                                data-path="${endpoint.path}"
+                                data-endpoint-id="${endpoint.id}">
+                            <i class="ri-flask-line"></i> Test
+                        </button>
+                        <i class="ri-arrow-down-s-line"></i>
+                    </div>
+                    <div class="api-endpoint-content">
+                        ${this._renderEndpointDetails(endpoint)}
+                    </div>
+                </div>
+            `;
+        },
+
+        // Render endpoint details
+        _renderEndpointDetails(endpoint) {
+            const details = [];
+
+            // Description
+            if (endpoint.description) {
+                details.push(`
+                    <div class="mb-2">
+                        <strong>Description:</strong>
+                        <p class="txt-sm txt-hint mt-1">${endpoint.description}</p>
+                    </div>
+                `);
+            }
+
+            // Tags
+            if (endpoint.tags?.length) {
+                details.push(`
+                    <div class="mb-2">
+                        <strong>Tags:</strong>
+                        <div class="flex gap-1 mt-1">
+                            ${endpoint.tags.map(tag => `<span class="badge badge-sm">${tag}</span>`).join('')}
+                        </div>
+                    </div>
+                `);
+            }
+
+            // Authentication
+            details.push(this._renderAuthInfo(endpoint.auth));
+
+            // Parameters
+            if (endpoint.parameters?.length) {
+                details.push(this._renderParameters(endpoint.parameters));
+            }
+
+            // Request body
+            if (endpoint.request) {
+                details.push(this._renderRequestBody(endpoint.request, endpoint.id));
+            }
+
+            // Responses
+            if (endpoint.response) {
+                details.push(this._renderResponses(endpoint.response, endpoint.id));
+            }
+
+            return details.join('');
+        },
+
+        // Render authentication info
+        _renderAuthInfo(auth) {
+            if (!auth?.required) {
+                return `
+                    <div class="mb-2">
+                        <strong>Authentication:</strong>
+                        <div class="auth-details auth-none mt-1">
+                            <span class="txt-success">No authentication required</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="mb-2">
+                    <strong>Authentication:</strong>
+                    <div class="auth-details mt-1">
+                        <div class="flex align-center gap-2">
+                            <span class="auth-icon-large">${auth.icon}</span>
+                            <div>
+                                <div class="txt-sm txt-bold">${auth.description}</div>
+                                <div class="auth-type">${auth.type}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Render parameters
+        _renderParameters(parameters) {
+            return `
+                <div class="mb-2">
+                    <strong>Parameters:</strong>
+                    <div class="parameters-list mt-1">
+                        ${parameters.map(param => `
+                            <div class="parameter-item">
+                                <code>${param.name}</code>
+                                <span class="badge badge-xs">${param.in}</span>
+                                ${param.required ? '<span class="txt-danger">*</span>' : ''}
+                                <span class="txt-hint">${param.description || ''}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        },
+
+        // Render request body
+        _renderRequestBody(requestSchema, endpointId) {
+            const uniqueId = `request-${endpointId}`;
+
+            // Store schema data for later population
+            this._endpointSchemas = this._endpointSchemas || new Map();
+            this._endpointSchemas.set(uniqueId, { schema: requestSchema, format: 'json' });
+
+            return `
+                <div style="padding-top:4.5px;padding-bottom:4.5px">
+                    <div class="flex justify-between align-center">
+                        <strong>Request:</strong>
+                        <div class="flex gap-2 align-center">
+                            <span class="txt-sm txt-hint">Format:</span>
+                            <div class="inline-flex">
+                                <button class="btn btn-xs btn-secondary active endpoint-json-btn" data-target="${uniqueId}" data-format="json">JSON</button>
+                                <button class="btn btn-xs btn-secondary endpoint-yaml-btn" data-target="${uniqueId}" data-format="yaml">YAML</button>
+                            </div>
+                            <button class="btn btn-xs btn-secondary endpoint-copy-btn" data-target="${uniqueId}" title="Copy">
+                                <i class="ri-file-copy-line"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="request-body mt-1">
+                        <div class="code-block">
+                            <pre id="${uniqueId}" class="code"><code>Loading request schema...</code></pre>
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Render responses
+        _renderResponses(responseSchema, endpointId) {
+            const uniqueId = `response-${endpointId}`;
+
+            // Store schema data for later population
+            this._endpointSchemas = this._endpointSchemas || new Map();
+            this._endpointSchemas.set(uniqueId, { schema: responseSchema, format: 'json' });
+
+            return `
+                <div style="padding-top:4.5px;padding-bottom:4.5px">
+                    <div class="flex justify-between align-center">
+                        <strong>Response:</strong>
+                        <div class="flex gap-2 align-center">
+                            <span class="txt-sm txt-hint">Format:</span>
+                            <div class="inline-flex">
+                                <button class="btn btn-xs btn-secondary active endpoint-json-btn" data-target="${uniqueId}" data-format="json">JSON</button>
+                                <button class="btn btn-xs btn-secondary endpoint-yaml-btn" data-target="${uniqueId}" data-format="yaml">YAML</button>
+                            </div>
+                            <button class="btn btn-xs btn-secondary endpoint-copy-btn" data-target="${uniqueId}" title="Copy">
+                                <i class="ri-file-copy-line"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="responses-list mt-1">
+                        <div class="response-item">
+                            <div class="response-status">
+                                <span class="http-status status-200">200</span>
+                                <span class="txt-hint">Successful response</span>
+                            </div>
+                            <div class="response-schema">
+                                <div class="code-block">
+                                    <pre id="${uniqueId}" class="code"><code>Loading response schema...</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Populate endpoint schemas after DOM insertion (matches components/raw schema approach)
+        _populateEndpointSchemas() {
+            if (!this._endpointSchemas) return;
+
+            this._endpointSchemas.forEach((data, elementId) => {
+                const container = document.getElementById(elementId);
+                if (!container) {
+                    return;
+                }
+
+                try {
+                    if (!data.schema) {
+                        container.innerHTML = '<span class="json-null">No schema available</span>';
+                        return;
+                    }
+
+                    const formattedSchema = APIDataManager.formatSchemaForDisplay(data.schema, data.format);
+                    if (formattedSchema) {
+                        container.innerHTML = formattedSchema;
+                    } else {
+                        container.innerHTML = '<span class="json-null">Schema formatting failed</span>';
+                    }
+                } catch (error) {
+                    console.error('Failed to populate schema for:', elementId, error);
+                    container.innerHTML = '<span class="json-null">Error loading schema</span>';
+                }
+            });
+        },
+
+        // Render empty state
+        _renderEmptyEndpoints(container, hasEndpoints) {
+            const message = hasEndpoints
+                ? 'No endpoints match your current filters'
+                : 'No API endpoints available';
+
+            container.innerHTML = `
+                <div class="txt-center txt-hint p-4">
+                    <i class="ri-route-line ri-2x mb-2"></i>
+                    <h4>${message}</h4>
+                    ${hasEndpoints ? `
+                        <button onclick="APIUIManager.clearFilters()" class="btn btn-sm btn-outline"">
+                            <i class="ri-close-line"></i> Clear Filters
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        },
+
+        // Render error state
+        _renderErrorState(container, error) {
+            container.innerHTML = `
+                <div class="txt-center txt-danger p-4">
+                    <i class="ri-error-warning-line ri-2x mb-2"></i>
+                    <h4>Failed to render endpoints</h4>
+                    <p class="txt-sm">${error.message}</p>
+                </div>
+            `;
+        },
+
+        // =============================================================================
+        // FILTER MANAGEMENT
+        // =============================================================================
+
+        // Setup filter functionality
+        _setupFilters() {
+            const filterInputs = document.querySelectorAll('#api-filters input, #api-filters select');
+
+            filterInputs.forEach((input, index) => {
+
+                // Map input IDs to filter names
+                const filterNameMap = {
+                    'search-input': 'search',
+                    'method-filter': 'method',
+                    'auth-filter': 'auth',
+                    'tag-filter': 'tag'
+                };
+
+                const filterName = filterNameMap[input.id] || input.id;
+
+                const cleanup = this._addInputListener(input, () => {
+                    this._debounceFilter(filterName, input.value);
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            });
+        },
+
+        // Debounced filter application
+        _debounceFilter(filterName, value) {
+            // Clear existing timer
+            if (this._debounceTimers.has(filterName)) {
+                clearTimeout(this._debounceTimers.get(filterName));
+            }
+
+            // Set new timer
+            const timer = setTimeout(() => {
+                this._applyFilter(filterName, value);
+                this._debounceTimers.delete(filterName);
+            }, 300);
+
+            this._debounceTimers.set(filterName, timer);
+        },
+
+        // Apply filter
+        _applyFilter(filterName, value) {
+            // Update state
+            StateManager.setState(`ui.filters.${filterName}`, value);
+
+            // Apply filters to endpoints
+            const allEndpoints = StateManager.getState('api.endpoints') || [];
+            const filters = StateManager.getState('ui.filters');
+            const filteredEndpoints = this._filterEndpoints(allEndpoints, filters);
+
+            // Update state with filtered results
+            StateManager.setState('api.filteredEndpoints', filteredEndpoints);
+
+            // Emit filter event
+            EventBus.emit(APIEvents.UI.FILTER_APPLIED, {
+                filterName,
+                value,
+                totalEndpoints: allEndpoints.length,
+                filteredEndpoints: filteredEndpoints.length
+            });
+
+            // Re-render if on endpoints tab
+            if (this._currentTab === 'endpoints') {
+                this._renderEndpoints();
+            }
+
+            this._updateStatistics();
+            this._updateFilterUI();
+        },
+
+        // Filter endpoints based on criteria
+        _filterEndpoints(endpoints, filters) {
+            return endpoints.filter(endpoint => {
+                // Search filter
+                if (filters.search) {
+                    const searchLower = filters.search.toLowerCase();
+                    const matchesSearch =
+                        endpoint.path.toLowerCase().includes(searchLower) ||
+                        endpoint.description?.toLowerCase().includes(searchLower) ||
+                        endpoint.method.toLowerCase().includes(searchLower);
+
+                    if (!matchesSearch) return false;
+                }
+
+                // Method filter
+                if (filters.method && filters.method !== endpoint.method.toLowerCase()) {
+                    return false;
+                }
+
+                // Tag filter
+                if (filters.tag && (!endpoint.tags || !endpoint.tags.includes(filters.tag))) {
+                    return false;
+                }
+
+                // Auth filter
+                if (filters.auth) {
+                    if (filters.auth === 'required' && !endpoint.auth?.required) return false;
+                    if (filters.auth === 'none' && endpoint.auth?.required) return false;
+                }
+
+                return true;
+            });
+        },
+
+        // Clear all filters
+        clearFilters() {
+            const filterInputs = document.querySelectorAll('#api-filters input, #api-filters select');
+
+            filterInputs.forEach(input => {
+                input.value = '';
+            });
+
+            // Reset filter state
+            StateManager.setState('ui.filters', {
+                search: '',
+                method: '',
+                tag: '',
+                auth: ''
+            });
+
+            // Reset filtered endpoints to show all
+            const allEndpoints = StateManager.getState('api.endpoints') || [];
+            StateManager.setState('api.filteredEndpoints', allEndpoints);
+
+            // Re-render
+            this._renderEndpoints();
+            this._updateStatistics();
+
+            EventBus.emit(APIEvents.UI.FILTER_APPLIED, {
+                action: 'cleared',
+                totalEndpoints: allEndpoints.length,
+                filteredEndpoints: allEndpoints.length
+            });
+        },
+
+        // =============================================================================
+        // RAW SCHEMA & COMPONENTS RENDERING
+        // =============================================================================
+
+        // Render raw schema tab
+        _renderRawSchema(format = 'json') {
+            const container = document.getElementById('raw-schema-content');
+            if (!container) {
+                console.error('raw-schema-content container not found');
+                return;
+            }
+
+            const schema = StateManager.getState('api.schema');
+
+            if (!schema) {
+                container.innerHTML = '<code>No schema available</code>';
+                return;
+            }
+
+            const formattedSchema = APIDataManager.formatSchemaForDisplay(schema, format);
+            container.innerHTML = formattedSchema;
+        },
+
+        // Render components tab
+        _renderComponents(format = 'json') {
+            const container = document.getElementById('components-content');
+            if (!container) {
+                console.error('components-content container not found');
+                return;
+            }
+
+            const schema = StateManager.getState('api.schema');
+            const components = schema?.components;
+
+            if (!components) {
+                container.innerHTML = '<code>No components available</code>';
+                return;
+            }
+
+            const formattedComponents = APIDataManager.formatSchemaForDisplay(components, format);
+            container.innerHTML = formattedComponents;
+        },
+
+        // =============================================================================
+        // STATISTICS & UI UPDATES
+        // =============================================================================
+
+        // Populate filter dropdown options based on endpoint data
+        _populateFilterOptions(endpoints) {
+            if (!endpoints || endpoints.length === 0) return;
+
+            // Extract unique methods
+            const methods = [...new Set(endpoints.map(ep => ep.method.toLowerCase()))].sort();
+            const methodSelect = document.getElementById('method-filter');
+            if (methodSelect) {
+                // Keep the "All Methods" option and add others
+                methodSelect.innerHTML = '<option value="">All Methods</option>';
+                methods.forEach(method => {
+                    const option = document.createElement('option');
+                    option.value = method;
+                    option.textContent = method.toUpperCase();
+                    methodSelect.appendChild(option);
+                });
+            }
+
+            // Extract unique auth types
+            const authTypes = [...new Set(endpoints.map(ep => {
+                if (!ep.auth?.required) return 'none';
+                return ep.auth.type || 'auth';
+            }))].sort();
+
+            const authSelect = document.getElementById('auth-filter');
+            if (authSelect) {
+                authSelect.innerHTML = '<option value="">All Auth Types</option>';
+                authTypes.forEach(authType => {
+                    const option = document.createElement('option');
+                    option.value = authType === 'none' ? 'none' : 'required';
+                    option.textContent = authType === 'none' ? 'No Auth Required' : 'Auth Required';
+                    authSelect.appendChild(option);
+                });
+            }
+
+            // Extract unique tags
+            const tags = [...new Set(endpoints.flatMap(ep => ep.tags || []))].sort();
+            const tagSelect = document.getElementById('tag-filter');
+            if (tagSelect) {
+                tagSelect.innerHTML = '<option value="">All Tags</option>';
+                tags.forEach(tag => {
+                    const option = document.createElement('option');
+                    option.value = tag;
+                    option.textContent = tag;
+                    tagSelect.appendChild(option);
+                });
+            }
+        },
+
+        // Update filter UI state and clear button visibility
+        _updateFilterUI() {
+            const filters = StateManager.getState('ui.filters') || {};
+            const hasActiveFilters = Object.values(filters).some(value => value && value.toString().trim() !== '');
+
+            // Update active filters display
+            const activeFiltersDiv = document.getElementById('active-filters');
+            const filterTagsDiv = document.getElementById('filter-tags');
+            if (activeFiltersDiv && filterTagsDiv) {
+                if (hasActiveFilters) {
+                    activeFiltersDiv.style.display = 'block';
+
+                    // Build filter tags
+                    const filterTags = [];
+                    Object.entries(filters).forEach(([key, value]) => {
+                        if (value && value.toString().trim() !== '') {
+                            const displayName = key.charAt(0).toUpperCase() + key.slice(1);
+                            filterTags.push(`<span class="badge badge-primary">${displayName}: ${value}</span>`);
+                        }
+                    });
+
+                    filterTagsDiv.innerHTML = filterTags.join('');
+                } else {
+                    activeFiltersDiv.style.display = 'none';
+                    filterTagsDiv.innerHTML = '';
+                }
+            }
+        },
+
+        // Handle endpoint schema format toggle
+        _handleEndpointFormatToggle(button) {
+            const targetId = button.dataset.target;
+            const format = button.dataset.format;
+            const targetElement = document.getElementById(targetId);
+
+            if (!targetElement) return;
+
+            // Update button states
+            const container = button.closest('.flex');
+            if (container) {
+                container.querySelectorAll('.endpoint-json-btn, .endpoint-yaml-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                button.classList.add('active');
+            }
+
+            // Get the original data from state and re-render
+            const endpoints = StateManager.getState('api.endpoints') || [];
+            const endpointId = targetId.replace('request-', '').replace('response-', '');
+            const endpoint = endpoints.find(ep => ep.id === endpointId);
+
+            if (endpoint) {
+                const isRequest = targetId.includes('request-');
+                const schema = isRequest ? endpoint.request : endpoint.response;
+                const formattedContent = APIDataManager.formatSchemaForDisplay(schema, format);
+                targetElement.innerHTML = formattedContent;
+
+                // Update stored format for this schema
+                if (this._endpointSchemas && this._endpointSchemas.has(targetId)) {
+                    this._endpointSchemas.set(targetId, { schema: schema, format: format });
+                }
+            }
+        },
+
+        // Handle endpoint schema copy
+        _handleEndpointCopy(button) {
+            const targetId = button.dataset.target;
+            const targetElement = document.getElementById(targetId);
+
+            if (!targetElement) return;
+
+            try {
+                // Get text content from the target element
+                const textContent = targetElement.textContent || targetElement.innerText;
+
+                // Copy to clipboard
+                navigator.clipboard.writeText(textContent).then(() => {
+                    // Visual feedback with dark checkmark
+                    const originalText = button.innerHTML;
+                    button.innerHTML = '<i class="ri-check-line" style="color: #374151;"></i>';
+                    button.style.backgroundColor = '#f3f4f6';
+                    button.style.borderColor = '#d1d5db';
+
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                        button.style.backgroundColor = '';
+                        button.style.borderColor = '';
+                    }, 1500);
+                }).catch(err => {
+                    console.error('Failed to copy to clipboard:', err);
+                    ErrorManager.handleError(err, 'Copy to Clipboard');
+                });
+            } catch (error) {
+                console.error('Copy operation failed:', error);
+                ErrorManager.handleError(error, 'Copy Operation');
+            }
+        },
+
+        // Handle Raw Schema and Components copy
+        _handleSchemaCopy(targetId, button) {
+            const targetElement = document.getElementById(targetId);
+
+            if (!targetElement) return;
+
+            try {
+                // Get text content from the target element
+                const textContent = targetElement.textContent || targetElement.innerText;
+
+                // Copy to clipboard
+                navigator.clipboard.writeText(textContent).then(() => {
+                    // Visual feedback with dark checkmark
+                    const originalText = button.innerHTML;
+                    button.innerHTML = '<i class="ri-check-line" style="color: #374151;"></i>';
+                    button.style.backgroundColor = '#f3f4f6';
+                    button.style.borderColor = '#d1d5db';
+
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                        button.style.backgroundColor = '';
+                        button.style.borderColor = '';
+                    }, 1500);
+                }).catch(err => {
+                    console.error('Copy failed:', err);
+                    // Fallback for older browsers
+                    this._fallbackCopy(textContent, button);
+                });
+            } catch (error) {
+                console.error('Copy operation failed:', error);
+            }
+        },
+
+        // Fallback copy method
+        _fallbackCopy(text, button) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+
+            try {
+                document.execCommand('copy');
+                // Visual feedback
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i class="ri-check-line" style="color: #374151;"></i>';
+                button.style.backgroundColor = '#f3f4f6';
+                button.style.borderColor = '#d1d5db';
+
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.style.backgroundColor = '';
+                    button.style.borderColor = '';
+                }, 1500);
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
+            }
+
+            document.body.removeChild(textArea);
+        },
+
+        // Clear all filters
+        clearFilters() {
+
+            // Reset filter inputs
+            const filterInputs = document.querySelectorAll('#api-filters input, #api-filters select');
+            filterInputs.forEach(input => {
+                if (input.type === 'text') {
+                    input.value = '';
+                } else if (input.tagName === 'SELECT') {
+                    input.selectedIndex = 0;
+                }
+            });
+
+            // Reset state
+            StateManager.setState('ui.filters', {
+                search: '',
+                method: '',
+                auth: '',
+                tag: ''
+            });
+
+            // Reapply filters (which will show all endpoints)
+            this._applyCurrentFilters();
+            this._renderEndpoints();
+            this._updateFilterUI();
+            this._updateStatistics();
+        },
+
+        // Initialize filter UI on startup
+        _initializeFilterUI() {
+            // Ensure filters are properly initialized
+            const currentFilters = StateManager.getState('ui.filters') || {};
+            const defaultFilters = {
+                search: '',
+                method: '',
+                auth: '',
+                tag: ''
+            };
+
+            // Set default filters if not already set
+            StateManager.setState('ui.filters', { ...defaultFilters, ...currentFilters });
+
+            // Update UI to reflect initial state
+            this._updateFilterUI();
+        },
+
+        // Toggle format display (JSON/YAML)
+        _toggleFormat(tabType, format, activeButton, inactiveButton) {
+
+            // Update button states
+            activeButton.classList.add('active');
+            inactiveButton.classList.remove('active');
+
+            // Re-render the content with new format
+            if (tabType === 'raw') {
+                this._renderRawSchema(format);
+            } else if (tabType === 'components') {
+                this._renderComponents(format);
+            }
+        },
+
+        // Update statistics display
+        _updateStatistics() {
+            const stats = StateManager.getState('api.stats');
+            const allEndpoints = StateManager.getState('api.endpoints') || [];
+            const filteredEndpoints = StateManager.getState('api.filteredEndpoints') || [];
+            const totalCount = allEndpoints.length;
+            const filteredCount = filteredEndpoints.length;
+
+            // Update main counts
+            const updates = [
+                { id: 'api-endpoints-count', value: totalCount },
+                { id: 'filtered-count', value: filteredCount },
+                { id: 'total-count', value: totalCount }
+            ];
+
+            updates.forEach(({ id, value }) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value;
+                }
+            });
+
+            // Update detailed stats from actual data if available
+            if (stats) {
+                const statUpdates = [
+                    { id: 'stats-unique-paths', value: stats.uniquePaths || 0 },
+                    { id: 'stats-auth-required', value: stats.authRequiredCount || 0 },
+                    { id: 'stats-total-tags', value: Object.keys(stats.tagCounts || {}).length }
+                ];
+
+                statUpdates.forEach(({ id, value }) => {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.textContent = value;
+                    }
+                });
+
+                // Update method breakdown
+                if (stats.methodCounts) {
+                    Object.entries(stats.methodCounts).forEach(([method, count]) => {
+                        const element = document.getElementById(`${method}-count`);
+                        if (element) {
+                            element.textContent = count;
+                        }
+                    });
+                }
+            }
+        },
+
+        // =============================================================================
+        // EVENT HANDLING & CLEANUP
+        // =============================================================================
+
+        // Setup main event listeners
+        _setupEventListeners() {
+            // Listen for data updates
+            EventBus.on(APIEvents.DATA.ENDPOINTS_UPDATED, (data) => {
+                this._populateFilterOptions(data.endpoints);
+                this._applyCurrentFilters();
+                this._renderTabContent(this._currentTab);
+                this._updateStatistics();
+            });
+
+            EventBus.on(APIEvents.DATA.SCHEMA_UPDATED, (data) => {
+                if (this._currentTab === 'raw' || this._currentTab === 'components') {
+                    this._renderTabContent(this._currentTab);
+                }
+            });
+
+            // Setup clear filters button
+            const clearFiltersBtn = document.getElementById('clear-filters-btn');
+            if (clearFiltersBtn) {
+                const cleanup = this._addClickListener(clearFiltersBtn, () => {
+                    this.clearFilters();
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            }
+
+            // Setup format toggle buttons for Raw Schema tab
+            const jsonFormatBtn = document.getElementById('json-format-btn');
+            const yamlFormatBtn = document.getElementById('yaml-format-btn');
+            if (jsonFormatBtn && yamlFormatBtn) {
+                const jsonCleanup = this._addClickListener(jsonFormatBtn, () => {
+                    this._toggleFormat('raw', 'json', jsonFormatBtn, yamlFormatBtn);
+                });
+                const yamlCleanup = this._addClickListener(yamlFormatBtn, () => {
+                    this._toggleFormat('raw', 'yaml', yamlFormatBtn, jsonFormatBtn);
+                });
+                if (jsonCleanup) this._eventCleanup.push(jsonCleanup);
+                if (yamlCleanup) this._eventCleanup.push(yamlCleanup);
+            }
+
+            // Setup format toggle buttons for Components tab
+            const componentsJsonBtn = document.getElementById('components-json-format-btn');
+            const componentsYamlBtn = document.getElementById('components-yaml-format-btn');
+            if (componentsJsonBtn && componentsYamlBtn) {
+                const jsonCleanup = this._addClickListener(componentsJsonBtn, () => {
+                    this._toggleFormat('components', 'json', componentsJsonBtn, componentsYamlBtn);
+                });
+                const yamlCleanup = this._addClickListener(componentsYamlBtn, () => {
+                    this._toggleFormat('components', 'yaml', componentsYamlBtn, componentsJsonBtn);
+                });
+                if (jsonCleanup) this._eventCleanup.push(jsonCleanup);
+                if (yamlCleanup) this._eventCleanup.push(yamlCleanup);
+            }
+
+            // Setup endpoint schema format and copy buttons (delegated event handling)
+            const endpointsContainer = document.getElementById('endpoints-list');
+            if (endpointsContainer) {
+                const formatCleanup = this._addClickListener(endpointsContainer, (e) => {
+                    if (e.target.classList.contains('endpoint-json-btn') || e.target.classList.contains('endpoint-yaml-btn')) {
+                        this._handleEndpointFormatToggle(e.target);
+                    } else if (e.target.classList.contains('endpoint-copy-btn') || e.target.closest('.endpoint-copy-btn')) {
+                        const btn = e.target.classList.contains('endpoint-copy-btn') ? e.target : e.target.closest('.endpoint-copy-btn');
+                        this._handleEndpointCopy(btn);
+                    }
+                });
+                if (formatCleanup) this._eventCleanup.push(formatCleanup);
+            }
+
+            // Setup Raw Schema copy button
+            const rawSchemaCopyBtn = document.getElementById('copy-schema-btn');
+            if (rawSchemaCopyBtn) {
+                const copyCleanup = this._addClickListener(rawSchemaCopyBtn, () => {
+                    this._handleSchemaCopy('raw-schema-content', rawSchemaCopyBtn);
+                });
+                if (copyCleanup) this._eventCleanup.push(copyCleanup);
+            }
+
+            // Setup Components copy button
+            const componentsCopyBtn = document.getElementById('copy-components-btn');
+            if (componentsCopyBtn) {
+                const copyCleanup = this._addClickListener(componentsCopyBtn, () => {
+                    this._handleSchemaCopy('components-content', componentsCopyBtn);
+                });
+                if (copyCleanup) this._eventCleanup.push(copyCleanup);
+            }
+
+            // Setup version selector change listener
+            const versionSelect = document.getElementById('version-select');
+            if (versionSelect) {
+                const versionCleanup = this._addChangeListener(versionSelect, (e) => {
+                    const selectedVersion = e.target.value;
+                    if (selectedVersion) {
+                        this._handleVersionChange(selectedVersion);
+                    }
+                });
+                if (versionCleanup) this._eventCleanup.push(versionCleanup);
+            }
+        },
+
+        // Attach endpoint-specific event listeners
+        _attachEndpointListeners(container) {
+            // Endpoint toggle listeners
+            const headers = container.querySelectorAll('.api-endpoint-header[data-toggle="endpoint"]');
+            headers.forEach(header => {
+                const cleanup = this._addClickListener(header, (e) => {
+                    if (e.target.closest('.test-endpoint-btn')) return; // Don't toggle if clicking test button
+
+                    const content = header.parentElement.querySelector('.api-endpoint-content');
+                    if (content) {
+                        content.classList.toggle('active');
+                    }
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            });
+
+            // Test button listeners
+            const testButtons = container.querySelectorAll('.test-endpoint-btn');
+            testButtons.forEach(button => {
+                const cleanup = this._addClickListener(button, (e) => {
+                    e.stopPropagation();
+                    this._handleTestButtonClick(button);
+                });
+                if (cleanup) this._eventCleanup.push(cleanup);
+            });
+        },
+
+        // Handle test button click
+        _handleTestButtonClick(button) {
+            const endpointId = button.dataset.endpointId;
+            const method = button.dataset.method;
+            const path = button.dataset.path;
+
+            // Find full endpoint data
+            const endpoints = StateManager.getState('api.endpoints') || [];
+            const endpoint = endpoints.find(ep => ep.id === endpointId);
+
+            if (!endpoint) {
+                ErrorManager.handleError(new Error('Endpoint not found'), 'Test Button Click');
+                return;
+            }
+
+            // Open testing sidebar
+            EventBus.emit(APIEvents.UI.SIDEBAR_OPENED, {
+                type: 'testing',
+                endpoint: endpoint,
+                method: method,
+                path: path
+            });
+
+            StateManager.setState('ui.sidebar', {
+                open: true,
+                type: 'testing',
+                data: endpoint
+            });
+        },
+
+        // Handle version change
+        _handleVersionChange(selectedVersion) {
+            try {
+                const currentVersion = StateManager.getState('api.currentVersion');
+
+                // Only proceed if version actually changed
+                if (currentVersion === selectedVersion) {
+                    return;
+                }
+
+                // Update version details first
+                const versions = StateManager.getState('api.versions') || [];
+
+                if (APIDataManager && typeof APIDataManager.updateVersionDetails === 'function') {
+                    APIDataManager.updateVersionDetails(versions, selectedVersion);
+                }
+
+                // Update state
+                StateManager.setState('api.currentVersion', selectedVersion);
+
+                // Reload endpoints
+                if (APIDataManager && typeof APIDataManager.loadEndpoints === 'function') {
+                    APIDataManager.loadEndpoints();
+                } else {
+                    console.error('APIDataManager.loadEndpoints not available');
+                }
+            } catch (error) {
+                console.error('Failed to handle version change:', error);
+                ErrorManager.handleError(error, 'Version Change');
+            }
+        },
+
+        // Apply current filters to endpoints
+        _applyCurrentFilters() {
+            const allEndpoints = StateManager.getState('api.endpoints') || [];
+            const filters = StateManager.getState('ui.filters');
+            const filteredEndpoints = this._filterEndpoints(allEndpoints, filters);
+            StateManager.setState('api.filteredEndpoints', filteredEndpoints);
+        },
+
+        // Cleanup endpoint listeners
+        _cleanupEndpointListeners() {
+            // Event cleanup is handled by the _eventCleanup array
+        },
+
+        // Helper: Add click listener with cleanup
+        _addClickListener(element, handler) {
+            if (!element) return null;
+
+            element.addEventListener('click', handler);
+            return () => element.removeEventListener('click', handler);
+        },
+
+        // Helper: Add change listener with cleanup
+        _addChangeListener(element, handler) {
+            if (!element) return null;
+
+            element.addEventListener('change', handler);
+            return () => element.removeEventListener('change', handler);
+        },
+
+        // Helper: Add input listener with cleanup
+        _addInputListener(element, handler) {
+            if (!element) return null;
+
+            const listener = (e) => handler(e.target.value, e);
+            element.addEventListener('input', listener);
+            return () => element.removeEventListener('input', listener);
+        },
+
+        // Cleanup all event listeners
+        cleanup() {
+            this._eventCleanup.forEach(cleanup => cleanup());
+            this._eventCleanup = [];
+
+            // Clear debounce timers
+            this._debounceTimers.forEach(timer => clearTimeout(timer));
+            this._debounceTimers.clear();
+        }
+    };
+
+    // =============================================================================
+    // GLOBAL EXPORTS
+    // =============================================================================
+
+    window.APIUIManager = APIUIManager;
+
+{{end}}
