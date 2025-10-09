@@ -69,14 +69,19 @@ func (r *APIRegistry) RegisterEndpoint(endpoint APIEndpoint) {
 	r.rebuildEndpointsList()
 }
 
-// AutoRegisterRoute automatically registers a route during runtime discovery
-func (r *APIRegistry) AutoRegisterRoute(method, path string, handler func(*core.RequestEvent) error) {
-	if !r.config.Enabled || !r.config.AutoDiscovery.Enabled {
+// RegisterRoute explicitly registers a route with optional middleware
+func (r *APIRegistry) RegisterRoute(method, path string, handler func(*core.RequestEvent) error, middlewares ...interface{}) {
+	if !r.config.Enabled {
 		return
 	}
 
-	endpoint := r.createEndpointFromRoute(method, path, handler)
-	r.enhanceEndpointWithAnalysis(&endpoint)
+	// Create registry helper for analysis
+	helper := NewRegistryHelper()
+	analysis := helper.AnalyzeRoute(method, path, handler, middlewares)
+
+	// Create endpoint from analysis
+	endpoint := r.createEndpointFromAnalysis(analysis)
+	r.enhanceEndpointWithAST(&endpoint)
 	r.RegisterEndpoint(endpoint)
 }
 
@@ -176,35 +181,82 @@ func (r *APIRegistry) ClearEndpoints() {
 // Private Helper Methods
 // =============================================================================
 
-// createEndpointFromRoute creates an APIEndpoint from route information
-func (r *APIRegistry) createEndpointFromRoute(method, path string, handler func(*core.RequestEvent) error) APIEndpoint {
+// createEndpointFromAnalysis creates an APIEndpoint from route analysis
+func (r *APIRegistry) createEndpointFromAnalysis(analysis *RouteAnalysis) APIEndpoint {
 	endpoint := APIEndpoint{
-		Method:      method,
-		Path:        path,
-		Description: r.generateDescription(method, path, handler),
-		Tags:        r.generateTags(method, path, handler),
-		Handler:     r.getHandlerName(handler),
+		Method:      analysis.Method,
+		Path:        analysis.Path,
+		Description: analysis.Description,
+		Tags:        analysis.Tags,
+		Handler:     analysis.Handler.FullName,
+		Auth:        analysis.Auth,
 	}
 
 	return endpoint
 }
 
-// enhanceEndpointWithAnalysis enhances an endpoint with AST and schema analysis
-func (r *APIRegistry) enhanceEndpointWithAnalysis(endpoint *APIEndpoint) {
-	// Enhance with AST analysis if available
+// enhanceEndpointWithAST enhances an endpoint with AST-extracted schema information
+func (r *APIRegistry) enhanceEndpointWithAST(endpoint *APIEndpoint) {
+	// Enhance with AST analysis first - this includes API_DESC and API_TAGS from comments
 	if r.astParser != nil {
-		if err := r.astParser.EnhanceEndpoint(endpoint); err != nil {
-			// Log error but don't fail - fallback to basic info
+		// Try multiple handler name variations for better matching
+		handlerNames := []string{
+			endpoint.Handler, // Full name
+			ExtractHandlerBaseName(endpoint.Handler, false), // Without package, keep suffixes
+			ExtractHandlerBaseName(endpoint.Handler, true),  // Without package and suffixes
+		}
+
+		enhanced := false
+		for _, handlerName := range handlerNames {
+			if handlerInfo, exists := r.astParser.GetHandlerByName(handlerName); exists {
+				// AST data takes priority - override generated descriptions/tags
+				if handlerInfo.APIDescription != "" {
+					endpoint.Description = handlerInfo.APIDescription
+				}
+				if len(handlerInfo.APITags) > 0 {
+					endpoint.Tags = handlerInfo.APITags
+				}
+
+				// Set authentication info from AST
+				if handlerInfo.RequiresAuth {
+					endpoint.Auth = &AuthInfo{
+						Required:    true,
+						Type:        handlerInfo.AuthType,
+						Description: r.getASTAuthDescription(handlerInfo.AuthType),
+					}
+				}
+
+				// Set schemas from AST
+				if handlerInfo.RequestSchema != nil {
+					endpoint.Request = handlerInfo.RequestSchema
+				}
+				if handlerInfo.ResponseSchema != nil {
+					endpoint.Response = handlerInfo.ResponseSchema
+				}
+
+				enhanced = true
+				break
+			}
+		}
+
+		// Fallback to generic AST enhancement if specific handler not found
+		if !enhanced {
+			if err := r.astParser.EnhanceEndpoint(endpoint); err != nil {
+				// Log error but don't fail - AST enhancement is optional
+			}
 		}
 	}
 
-	// Generate schemas if schema generator is available
+	// Generate additional schemas if schema generator is available and AST didn't provide them
 	if r.schemaGenerator != nil {
-		if requestSchema, err := r.schemaGenerator.AnalyzeRequestSchema(endpoint); err == nil {
-			endpoint.Request = requestSchema
+		// Only generate request schema if AST didn't provide one
+		if endpoint.Request == nil {
+			if requestSchema, err := r.schemaGenerator.AnalyzeRequestSchema(endpoint); err == nil {
+				endpoint.Request = requestSchema
+			}
 		}
 
-		// Only set response schema if AST didn't already provide one
+		// Only generate response schema if AST didn't provide one
 		if endpoint.Response == nil {
 			if responseSchema, err := r.schemaGenerator.AnalyzeResponseSchema(endpoint); err == nil {
 				endpoint.Response = responseSchema
@@ -213,90 +265,53 @@ func (r *APIRegistry) enhanceEndpointWithAnalysis(endpoint *APIEndpoint) {
 	}
 }
 
-// generateDescription generates a description for an endpoint
-func (r *APIRegistry) generateDescription(method, path string, handler func(*core.RequestEvent) error) string {
-	if r.astParser != nil {
-		handlerName := r.getHandlerName(handler)
-		if desc := r.astParser.GetHandlerDescription(handlerName); desc != "" {
-			return desc
-		}
+// RegisterExplicitRoute registers a route with explicit information (no inference)
+func (r *APIRegistry) RegisterExplicitRoute(endpoint APIEndpoint) {
+	if !r.config.Enabled {
+		return
 	}
 
-	// Fallback to path-based description
-	return r.descriptionFromPath(method, path)
+	// Only enhance with AST for schema extraction
+	r.enhanceEndpointWithAST(&endpoint)
+	r.RegisterEndpoint(endpoint)
 }
 
-// generateTags generates tags for an endpoint
-func (r *APIRegistry) generateTags(method, path string, handler func(*core.RequestEvent) error) []string {
-	if !r.config.AutoDiscovery.GenerateTags {
-		return []string{}
+// BatchRegisterRoutes registers multiple routes at once
+func (r *APIRegistry) BatchRegisterRoutes(routes []RouteDefinition) {
+	if !r.config.Enabled {
+		return
 	}
 
-	var tags []string
-
-	// Get tags from AST analysis
-	if r.astParser != nil {
-		handlerName := r.getHandlerName(handler)
-		if astTags := r.astParser.GetHandlerTags(handlerName); len(astTags) > 0 {
-			tags = append(tags, astTags...)
-		}
+	for _, route := range routes {
+		r.RegisterRoute(route.Method, route.Path, route.Handler, route.Middlewares...)
 	}
-
-	// Add path-based tags if no AST tags found
-	if len(tags) == 0 {
-		tags = r.generateTagsFromPath(path)
-	}
-
-	return tags
 }
 
-// generateTagsFromPath generates tags based on the URL path
-func (r *APIRegistry) generateTagsFromPath(path string) []string {
-	var tags []string
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-
-	for _, part := range parts {
-		if part != "" && !strings.HasPrefix(part, ":") && !strings.HasPrefix(part, "{") {
-			// Clean up the part and add as tag
-			tag := strings.ToLower(part)
-			tag = strings.ReplaceAll(tag, "_", "-")
-			tags = append(tags, tag)
-		}
-	}
-
-	if len(tags) == 0 {
-		tags = append(tags, "general")
-	}
-
-	return tags
+// RouteDefinition represents an explicit route definition
+type RouteDefinition struct {
+	Method      string
+	Path        string
+	Handler     func(*core.RequestEvent) error
+	Middlewares []interface{}
 }
 
-// getHandlerName extracts the name of a handler function
-func (r *APIRegistry) getHandlerName(handler func(*core.RequestEvent) error) string {
-	return ExtractHandlerNameFromPath(GetHandlerName(handler))
+// GetRegisteredEndpoints returns all currently registered endpoints
+func (r *APIRegistry) GetRegisteredEndpoints() []APIEndpoint {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	endpoints := make([]APIEndpoint, 0, len(r.endpoints))
+	for _, endpoint := range r.endpoints {
+		endpoints = append(endpoints, endpoint)
+	}
+	return endpoints
 }
 
-// descriptionFromPath generates a description from the HTTP method and path
-func (r *APIRegistry) descriptionFromPath(method, path string) string {
-	// Clean up the path for description
-	cleanPath := strings.ReplaceAll(path, "/", " ")
-	cleanPath = strings.ReplaceAll(cleanPath, "_", " ")
-	cleanPath = strings.Title(strings.TrimSpace(cleanPath))
-
-	switch strings.ToUpper(method) {
-	case "GET":
-		return fmt.Sprintf("Get %s", cleanPath)
-	case "POST":
-		return fmt.Sprintf("Create %s", cleanPath)
-	case "PUT":
-		return fmt.Sprintf("Update %s", cleanPath)
-	case "PATCH":
-		return fmt.Sprintf("Modify %s", cleanPath)
-	case "DELETE":
-		return fmt.Sprintf("Delete %s", cleanPath)
-	default:
-		return fmt.Sprintf("%s %s", method, cleanPath)
-	}
+// GetEndpointCount returns the number of registered endpoints
+func (r *APIRegistry) GetEndpointCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.endpoints)
 }
 
 // endpointKey generates a unique key for an endpoint
@@ -321,4 +336,19 @@ func (r *APIRegistry) rebuildEndpointsList() {
 
 	r.docs.Endpoints = endpoints
 	r.docs.Generated = time.Now().Format(time.RFC3339)
+}
+
+// getASTAuthDescription returns user-friendly auth description for AST-detected auth
+func (r *APIRegistry) getASTAuthDescription(authType string) string {
+	descriptions := map[string]string{
+		"guest_only":         "Requires no authentication (guest access only)",
+		"auth":               "Requires user authentication",
+		"superuser":          "Requires superuser privileges",
+		"superuser_or_owner": "Requires superuser privileges or resource ownership",
+	}
+
+	if desc, exists := descriptions[authType]; exists {
+		return desc
+	}
+	return "Authentication required"
 }

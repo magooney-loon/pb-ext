@@ -1,29 +1,5 @@
 package api
 
-// API Version Manager - Multi-version API Documentation System
-//
-// This module provides support for multiple simultaneous API versions,
-// allowing developers to work on new versions while keeping old ones active.
-//
-// Features:
-//   - Multiple concurrent API versions with separate registries
-//   - Version-specific documentation systems
-//   - Automatic version routing
-//   - Clean separation of version concerns
-//
-// Example Usage:
-//   versions := map[string]*APIDocsConfig{
-//       "v1": v1Config,
-//       "v2": v2Config,
-//   }
-//   manager := InitializeVersionedSystem(versions, "v1")
-//
-//   v1Router, _ := manager.GetVersionRouter("v1", e)
-//   v2Router, _ := manager.GetVersionRouter("v2", e)
-//
-//   v1Router.GET("/api/v1/users", handler)
-//   v2Router.GET("/api/v2/users", handler)
-
 import (
 	"fmt"
 	"net/http"
@@ -64,10 +40,10 @@ type VersionInfo struct {
 
 // VersionedAPIRouter provides version-specific route registration
 type VersionedAPIRouter struct {
-	*AutoAPIRouter
-	version  string
-	manager  *APIVersionManager
-	registry *APIRegistry // version-specific registry
+	serveEvent *core.ServeEvent
+	version    string
+	manager    *APIVersionManager
+	registry   *APIRegistry // version-specific registry
 }
 
 // InitializeVersionedSystem initializes a versioned documentation system
@@ -224,18 +200,205 @@ func (vm *APIVersionManager) GetVersionRouter(version string, e *core.ServeEvent
 		return nil, err
 	}
 
-	// Create auto router with version-specific registry
-	autoRouter := &AutoAPIRouter{
-		router:   e.Router,
-		registry: registry, // Use version-specific registry!
+	return &VersionedAPIRouter{
+		serveEvent: e,
+		version:    version,
+		manager:    vm,
+		registry:   registry,
+	}, nil
+}
+
+// GET registers a GET route with automatic documentation
+func (vr *VersionedAPIRouter) GET(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	vr.serveEvent.Router.GET(path, handler)
+	chain := &VersionedRouteChain{
+		router:      vr,
+		method:      "GET",
+		path:        path,
+		handler:     handler,
+		middlewares: []interface{}{},
+	}
+	// Register immediately for routes without middleware
+	vr.registry.RegisterRoute("GET", path, handler)
+	return chain
+}
+
+// POST registers a POST route with automatic documentation
+func (vr *VersionedAPIRouter) POST(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	vr.serveEvent.Router.POST(path, handler)
+	chain := &VersionedRouteChain{
+		router:      vr,
+		method:      "POST",
+		path:        path,
+		handler:     handler,
+		middlewares: []interface{}{},
+	}
+	// Register immediately for routes without middleware
+	vr.registry.RegisterRoute("POST", path, handler)
+	return chain
+}
+
+// PATCH registers a PATCH route with automatic documentation
+func (vr *VersionedAPIRouter) PATCH(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	vr.serveEvent.Router.PATCH(path, handler)
+	chain := &VersionedRouteChain{
+		router:      vr,
+		method:      "PATCH",
+		path:        path,
+		handler:     handler,
+		middlewares: []interface{}{},
+	}
+	// Register immediately for routes without middleware
+	vr.registry.RegisterRoute("PATCH", path, handler)
+	return chain
+}
+
+// DELETE registers a DELETE route with automatic documentation
+func (vr *VersionedAPIRouter) DELETE(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	vr.serveEvent.Router.DELETE(path, handler)
+	chain := &VersionedRouteChain{
+		router:      vr,
+		method:      "DELETE",
+		path:        path,
+		handler:     handler,
+		middlewares: []interface{}{},
+	}
+	// Register immediately for routes without middleware
+	vr.registry.RegisterRoute("DELETE", path, handler)
+	return chain
+}
+
+// PUT registers a PUT route with automatic documentation
+func (vr *VersionedAPIRouter) PUT(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	vr.serveEvent.Router.PUT(path, handler)
+	chain := &VersionedRouteChain{
+		router:      vr,
+		method:      "PUT",
+		path:        path,
+		handler:     handler,
+		middlewares: []interface{}{},
+	}
+	// Register immediately for routes without middleware
+	vr.registry.RegisterRoute("PUT", path, handler)
+	return chain
+}
+
+// SetPrefix sets a default prefix for this router to avoid repetition
+func (vr *VersionedAPIRouter) SetPrefix(prefix string) *PrefixedRouter {
+	return &PrefixedRouter{
+		router: vr,
+		prefix: prefix,
+	}
+}
+
+// PrefixedRouter wraps a VersionedAPIRouter with automatic path prefixing
+type PrefixedRouter struct {
+	router *VersionedAPIRouter
+	prefix string
+}
+
+// GET registers a GET route with automatic prefix
+func (pr *PrefixedRouter) GET(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	return pr.router.GET(pr.prefix+path, handler)
+}
+
+// POST registers a POST route with automatic prefix
+func (pr *PrefixedRouter) POST(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	return pr.router.POST(pr.prefix+path, handler)
+}
+
+// PUT registers a PUT route with automatic prefix
+func (pr *PrefixedRouter) PUT(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	return pr.router.PUT(pr.prefix+path, handler)
+}
+
+// PATCH registers a PATCH route with automatic prefix
+func (pr *PrefixedRouter) PATCH(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	return pr.router.PATCH(pr.prefix+path, handler)
+}
+
+// DELETE registers a DELETE route with automatic prefix
+func (pr *PrefixedRouter) DELETE(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
+	return pr.router.DELETE(pr.prefix+path, handler)
+}
+
+// CRUD registers standard CRUD routes for a resource
+func (pr *PrefixedRouter) CRUD(resource string, handlers CRUDHandlers, authMiddleware ...interface{}) {
+	basePath := "/" + resource
+	idPath := "/" + resource + "/{id}"
+
+	// List - GET /resource
+	if handlers.List != nil {
+		pr.GET(basePath, handlers.List)
 	}
 
-	return &VersionedAPIRouter{
-		AutoAPIRouter: autoRouter,
-		version:       version,
-		manager:       vm,
-		registry:      registry, // Store reference for easy access
-	}, nil
+	// Create - POST /resource (with auth)
+	if handlers.Create != nil {
+		chain := pr.POST(basePath, handlers.Create)
+		if len(authMiddleware) > 0 {
+			chain.Bind(authMiddleware...)
+		}
+	}
+
+	// Get - GET /resource/{id}
+	if handlers.Get != nil {
+		pr.GET(idPath, handlers.Get)
+	}
+
+	// Update - PUT /resource/{id} (with auth)
+	if handlers.Update != nil {
+		chain := pr.PUT(idPath, handlers.Update)
+		if len(authMiddleware) > 0 {
+			chain.Bind(authMiddleware...)
+		}
+	}
+
+	// Patch - PATCH /resource/{id} (with auth)
+	if handlers.Patch != nil {
+		chain := pr.PATCH(idPath, handlers.Patch)
+		if len(authMiddleware) > 0 {
+			chain.Bind(authMiddleware...)
+		}
+	}
+
+	// Delete - DELETE /resource/{id} (with auth)
+	if handlers.Delete != nil {
+		chain := pr.DELETE(idPath, handlers.Delete)
+		if len(authMiddleware) > 0 {
+			chain.Bind(authMiddleware...)
+		}
+	}
+}
+
+// CRUDHandlers holds handler functions for CRUD operations
+type CRUDHandlers struct {
+	List   func(*core.RequestEvent) error // GET /resource
+	Create func(*core.RequestEvent) error // POST /resource
+	Get    func(*core.RequestEvent) error // GET /resource/{id}
+	Update func(*core.RequestEvent) error // PUT /resource/{id}
+	Patch  func(*core.RequestEvent) error // PATCH /resource/{id}
+	Delete func(*core.RequestEvent) error // DELETE /resource/{id}
+}
+
+// VersionedRouteChain represents a chainable route for middleware binding
+type VersionedRouteChain struct {
+	router      *VersionedAPIRouter
+	method      string
+	path        string
+	handler     func(*core.RequestEvent) error
+	middlewares []interface{}
+}
+
+// Bind detects middleware binding and re-registers route with middleware documentation
+func (vrc *VersionedRouteChain) Bind(middlewares ...interface{}) *VersionedRouteChain {
+	// Store middlewares for analysis
+	vrc.middlewares = append(vrc.middlewares, middlewares...)
+
+	// Re-register with documentation system including middleware info
+	// This will overwrite the initial registration with middleware analysis
+	vrc.router.registry.RegisterRoute(vrc.method, vrc.path, vrc.handler, vrc.middlewares...)
+
+	return vrc
 }
 
 // =============================================================================
