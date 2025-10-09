@@ -308,9 +308,9 @@
             this._endpointSchemas.set(uniqueId, { schema: requestSchema, format: 'json' });
 
             return `
-                <div class="mb-2">
-                    <div class="flex justify-between align-center mb-2">
-                        <strong>Request Body:</strong>
+                <div style="padding-top:4.5px;padding-bottom:4.5px">
+                    <div class="flex justify-between align-center">
+                        <strong>Request:</strong>
                         <div class="flex gap-2 align-center">
                             <span class="txt-sm txt-hint">Format:</span>
                             <div class="inline-flex">
@@ -340,8 +340,8 @@
             this._endpointSchemas.set(uniqueId, { schema: responseSchema, format: 'json' });
 
             return `
-                <div class="mb-2">
-                    <div class="flex justify-between align-center mb-2">
+                <div style="padding-top:4.5px;padding-bottom:4.5px">
+                    <div class="flex justify-between align-center">
                         <strong>Response:</strong>
                         <div class="flex gap-2 align-center">
                             <span class="txt-sm txt-hint">Format:</span>
@@ -778,14 +778,16 @@
 
                 // Copy to clipboard
                 navigator.clipboard.writeText(textContent).then(() => {
-                    // Visual feedback
+                    // Visual feedback with dark checkmark
                     const originalText = button.innerHTML;
-                    button.innerHTML = '<i class="ri-check-line"></i>';
-                    button.classList.add('btn-success');
+                    button.innerHTML = '<i class="ri-check-line" style="color: #374151;"></i>';
+                    button.style.backgroundColor = '#f3f4f6';
+                    button.style.borderColor = '#d1d5db';
 
                     setTimeout(() => {
                         button.innerHTML = originalText;
-                        button.classList.remove('btn-success');
+                        button.style.backgroundColor = '';
+                        button.style.borderColor = '';
                     }, 1500);
                 }).catch(err => {
                     console.error('Failed to copy to clipboard:', err);
@@ -795,6 +797,66 @@
                 console.error('Copy operation failed:', error);
                 ErrorManager.handleError(error, 'Copy Operation');
             }
+        },
+
+        // Handle Raw Schema and Components copy
+        _handleSchemaCopy(targetId, button) {
+            const targetElement = document.getElementById(targetId);
+
+            if (!targetElement) return;
+
+            try {
+                // Get text content from the target element
+                const textContent = targetElement.textContent || targetElement.innerText;
+
+                // Copy to clipboard
+                navigator.clipboard.writeText(textContent).then(() => {
+                    // Visual feedback with dark checkmark
+                    const originalText = button.innerHTML;
+                    button.innerHTML = '<i class="ri-check-line" style="color: #374151;"></i>';
+                    button.style.backgroundColor = '#f3f4f6';
+                    button.style.borderColor = '#d1d5db';
+
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                        button.style.backgroundColor = '';
+                        button.style.borderColor = '';
+                    }, 1500);
+                }).catch(err => {
+                    console.error('Copy failed:', err);
+                    // Fallback for older browsers
+                    this._fallbackCopy(textContent, button);
+                });
+            } catch (error) {
+                console.error('Copy operation failed:', error);
+            }
+        },
+
+        // Fallback copy method
+        _fallbackCopy(text, button) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+
+            try {
+                document.execCommand('copy');
+                // Visual feedback
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i class="ri-check-line" style="color: #374151;"></i>';
+                button.style.backgroundColor = '#f3f4f6';
+                button.style.borderColor = '#d1d5db';
+
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.style.backgroundColor = '';
+                    button.style.borderColor = '';
+                }, 1500);
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
+            }
+
+            document.body.removeChild(textArea);
         },
 
         // Clear all filters
@@ -997,6 +1059,24 @@
                     }
                 });
                 if (formatCleanup) this._eventCleanup.push(formatCleanup);
+            }
+
+            // Setup Raw Schema copy button
+            const rawSchemaCopyBtn = document.getElementById('copy-schema-btn');
+            if (rawSchemaCopyBtn) {
+                const copyCleanup = this._addClickListener(rawSchemaCopyBtn, () => {
+                    this._handleSchemaCopy('raw-schema-content', rawSchemaCopyBtn);
+                });
+                if (copyCleanup) this._eventCleanup.push(copyCleanup);
+            }
+
+            // Setup Components copy button
+            const componentsCopyBtn = document.getElementById('copy-components-btn');
+            if (componentsCopyBtn) {
+                const copyCleanup = this._addClickListener(componentsCopyBtn, () => {
+                    this._handleSchemaCopy('components-content', componentsCopyBtn);
+                });
+                if (copyCleanup) this._eventCleanup.push(copyCleanup);
             }
 
             // Setup version selector change listener

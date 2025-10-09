@@ -350,18 +350,65 @@
             // Split into lines and process each line individually
             const lines = yamlStr.split('\n');
             const highlightedLines = lines.map(line => {
+                // Handle empty lines
+                if (!line.trim()) {
+                    return line;
+                }
+
+                // Match YAML array items with dash
+                const arrayMatch = line.match(/^(\s*)(-\s+)(.*)$/);
+                if (arrayMatch) {
+                    const [, indent, dash, value] = arrayMatch;
+                    let highlightedValue = value;
+
+                    // Check if the value after dash is a key-value pair
+                    const kvMatch = value.match(/^([\w-]+)(\s*:\s*)(.*)$/);
+                    if (kvMatch) {
+                        const [, key, colon, val] = kvMatch;
+                        let highlightedVal = val;
+
+                        if (/^".*"$/.test(val) || /^'.*'$/.test(val)) {
+                            highlightedVal = '<span class="json-string">' + this._escapeHtml(val) + '</span>';
+                        } else if (/^(true|false|null)$/.test(val.trim())) {
+                            highlightedVal = '<span class="json-boolean">' + this._escapeHtml(val) + '</span>';
+                        } else if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(val.trim())) {
+                            highlightedVal = '<span class="json-number">' + this._escapeHtml(val) + '</span>';
+                        } else if (val.trim()) {
+                            highlightedVal = '<span class="json-string">' + this._escapeHtml(val) + '</span>';
+                        }
+
+                        highlightedValue = '<span class="json-key">' + this._escapeHtml(key) + '</span>' +
+                                         '<span class="json-punctuation">' + this._escapeHtml(colon) + '</span>' + highlightedVal;
+                    } else {
+                        // Simple array value
+                        if (/^".*"$/.test(value) || /^'.*'$/.test(value)) {
+                            highlightedValue = '<span class="json-string">' + this._escapeHtml(value) + '</span>';
+                        } else if (/^(true|false|null)$/.test(value.trim())) {
+                            highlightedValue = '<span class="json-boolean">' + this._escapeHtml(value) + '</span>';
+                        } else if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(value.trim())) {
+                            highlightedValue = '<span class="json-number">' + this._escapeHtml(value) + '</span>';
+                        } else if (value.trim()) {
+                            highlightedValue = '<span class="json-string">' + this._escapeHtml(value) + '</span>';
+                        }
+                    }
+
+                    return this._escapeHtml(indent) +
+                           '<span class="json-punctuation">' + this._escapeHtml(dash) + '</span>' +
+                           highlightedValue;
+                }
+
                 // Match YAML key-value pairs
-                const match = line.match(/^(\s*)([\w-]+)(\s*:\s*)(.*)$/);
-                if (match) {
-                    const [, indent, key, colon, value] = match;
+                const kvMatch = line.match(/^(\s*)([\w-]+)(\s*:\s*)(.*)$/);
+                if (kvMatch) {
+                    const [, indent, key, colon, value] = kvMatch;
                     let highlightedValue = value;
 
                     // Highlight different value types
                     if (/^".*"$/.test(value) || /^'.*'$/.test(value)) {
                         highlightedValue = '<span class="json-string">' + this._escapeHtml(value) + '</span>';
-                    } else if (/^(true|false|null)$/.test(value)) {
+                    } else if (/^(true|false|null)$/.test(value.trim())) {
                         highlightedValue = '<span class="json-boolean">' + this._escapeHtml(value) + '</span>';
-                    } else if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(value)) {
+                    } else if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(value.trim())) {
                         highlightedValue = '<span class="json-number">' + this._escapeHtml(value) + '</span>';
                     } else if (value.trim()) {
                         highlightedValue = '<span class="json-string">' + this._escapeHtml(value) + '</span>';
@@ -369,12 +416,12 @@
 
                     return this._escapeHtml(indent) +
                            '<span class="json-key">' + this._escapeHtml(key) + '</span>' +
-                           this._escapeHtml(colon) +
+                           '<span class="json-punctuation">' + this._escapeHtml(colon) + '</span>' +
                            highlightedValue;
-                } else {
-                    // For lines that don't match key-value pattern, just escape HTML
-                    return this._escapeHtml(line);
                 }
+
+                // For lines that don't match any pattern, just escape HTML
+                return this._escapeHtml(line);
             });
 
             return highlightedLines.join('\n');
@@ -407,12 +454,19 @@
                         if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
                             const yamlItem = this._convertToYaml(item, indent + 1);
                             const itemLines = yamlItem.split('\n');
-                            const indentedLines = itemLines.map((line, i) =>
-                                i === 0 ? line : `${spaces}  ${line}`
-                            );
+                            // Properly indent all lines, first line gets dash, others get spaces
+                            const indentedLines = itemLines.map((line, i) => {
+                                if (i === 0) {
+                                    return line;
+                                } else {
+                                    return `${spaces}  ${line}`;
+                                }
+                            });
                             return `${spaces}- ${indentedLines.join('\n')}`;
                         } else {
-                            return `${spaces}- ${this._convertToYaml(item, indent)}`;
+                            // For simple array values, don't pass indent to avoid double indentation
+                            const simpleValue = this._convertToYaml(item, 0);
+                            return `${spaces}- ${simpleValue}`;
                         }
                     }).join('\n');
                 }
@@ -421,9 +475,16 @@
                     if (Object.keys(obj).length === 0) return '{}';
                     return Object.entries(obj)
                         .map(([key, value]) => {
-                            if (typeof value === 'object' && value !== null) {
+                            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
                                 const yamlValue = this._convertToYaml(value, indent + 1);
                                 return `${spaces}${key}:\n${yamlValue}`;
+                            } else if (Array.isArray(value)) {
+                                if (value.length === 0) {
+                                    return `${spaces}${key}: []`;
+                                } else {
+                                    const yamlValue = this._convertToYaml(value, indent + 1);
+                                    return `${spaces}${key}:\n${yamlValue}`;
+                                }
                             } else {
                                 const simpleValue = this._convertToYaml(value, 0);
                                 return `${spaces}${key}: ${simpleValue}`;
@@ -779,22 +840,7 @@
             }
         },
 
-        // Convert object to basic YAML format
-        _convertToYaml(obj, indent = 0) {
-            const spaces = '  '.repeat(indent);
 
-            if (Array.isArray(obj)) {
-                return obj.map(item => `${spaces}- ${this._convertToYaml(item, indent + 1)}`).join('\n');
-            }
-
-            if (typeof obj === 'object' && obj !== null) {
-                return Object.entries(obj)
-                    .map(([key, value]) => `${spaces}${key}: ${this._convertToYaml(value, indent + 1)}`)
-                    .join('\n');
-            }
-
-            return obj;
-        },
 
         // Escape HTML characters
         _escapeHtml(text) {
