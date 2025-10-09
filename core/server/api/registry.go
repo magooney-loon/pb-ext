@@ -103,8 +103,6 @@ func (r *APIRegistry) GetDocs() *APIDocs {
 
 // GetDocsWithComponents returns documentation with generated component schemas
 func (r *APIRegistry) GetDocsWithComponents() *APIDocs {
-	// Ensure endpoints from AST are included
-	r.syncEndpointsFromAST()
 
 	docs := r.GetDocs()
 
@@ -323,62 +321,4 @@ func (r *APIRegistry) rebuildEndpointsList() {
 
 	r.docs.Endpoints = endpoints
 	r.docs.Generated = time.Now().Format(time.RFC3339)
-}
-
-// syncEndpointsFromAST ensures all AST handlers are represented as endpoints
-func (r *APIRegistry) syncEndpointsFromAST() {
-	if r.astParser == nil {
-		return
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Get all handlers from AST
-	allHandlers := r.astParser.GetAllHandlers()
-
-	for handlerName, handlerInfo := range allHandlers {
-		// Create endpoint from AST handler info
-		endpoint := APIEndpoint{
-			Method:      "POST", // Default method, could be enhanced
-			Path:        fmt.Sprintf("/%s", strings.ToLower(handlerName)),
-			Description: handlerInfo.APIDescription,
-			Tags:        handlerInfo.APITags,
-			Handler:     handlerName,
-			Request:     handlerInfo.RequestSchema,  // Direct mapping
-			Response:    handlerInfo.ResponseSchema, // Direct mapping
-		}
-
-		// Set authentication info
-		if handlerInfo.RequiresAuth {
-			endpoint.Auth = &AuthInfo{
-				Required:    true,
-				Type:        handlerInfo.AuthType,
-				Description: r.getAuthDescription(handlerInfo.AuthType),
-			}
-		}
-
-		// Only add if not already present (avoid overriding route-discovered endpoints)
-		key := r.endpointKey(endpoint.Method, endpoint.Path)
-		if _, exists := r.endpoints[key]; !exists {
-			r.endpoints[key] = endpoint
-		}
-	}
-
-	// Rebuild the endpoints list
-	r.rebuildEndpointsList()
-}
-
-// getAuthDescription returns user-friendly auth description
-func (r *APIRegistry) getAuthDescription(authType string) string {
-	switch authType {
-	case "user_auth":
-		return "User authentication required"
-	case "admin_auth":
-		return "Admin authentication required"
-	case "record_auth":
-		return "Record-level authentication required"
-	default:
-		return "Authentication required"
-	}
 }
