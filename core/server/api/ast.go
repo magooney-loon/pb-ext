@@ -503,7 +503,7 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	handlerName := ExtractHandlerNameFromPath(endpoint.Handler)
+	handlerName := ExtractHandlerBaseName(endpoint.Handler, true)
 	if handlerInfo, exists := p.handlers[handlerName]; exists {
 		// Set authentication info
 		if handlerInfo.RequiresAuth {

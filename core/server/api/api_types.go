@@ -1,9 +1,5 @@
 package api
 
-import (
-	"github.com/pocketbase/pocketbase/core"
-)
-
 // =============================================================================
 // API Documentation Core Types
 // =============================================================================
@@ -45,39 +41,17 @@ type APIDocs struct {
 // Registry and Management Types
 // =============================================================================
 
-// AutoDiscoveryConfig controls how routes are automatically discovered
-type AutoDiscoveryConfig struct {
-	Enabled         bool `json:"enabled"`
-	AnalyzeHandlers bool `json:"analyze_handlers"`
-	GenerateTags    bool `json:"generate_tags"`
-	DetectAuth      bool `json:"detect_auth"`
-	IncludeInternal bool `json:"include_internal"`
-}
-
 // =============================================================================
 // Router and Route Types
 // =============================================================================
 
 // AutoAPIRouter wraps PocketBase router for automatic API documentation
-type AutoAPIRouter struct {
-	router   interface{}
-	registry *APIRegistry
-}
-
-// RouteChain represents a chainable route for middleware binding
-type RouteChain struct {
-	route      interface{}
-	method     string
-	path       string
-	handler    func(*core.RequestEvent) error
-	registry   *APIRegistry
-	middleware []string
-}
 
 // HandlerInfo contains extracted handler information
 type HandlerInfo struct {
 	Name        string `json:"name"`
 	Package     string `json:"package"`
+	FullName    string `json:"full_name"`
 	Description string `json:"description"`
 }
 
@@ -87,13 +61,12 @@ type HandlerInfo struct {
 
 // APIDocsConfig holds configuration for the API documentation system
 type APIDocsConfig struct {
-	Title         string               `json:"title"`
-	Version       string               `json:"version"`
-	Description   string               `json:"description"`
-	Status        string               `json:"status,omitempty"` // "stable", "development", "deprecated", "beta", etc.
-	BaseURL       string               `json:"base_url"`
-	Enabled       bool                 `json:"enabled"`
-	AutoDiscovery *AutoDiscoveryConfig `json:"auto_discovery,omitempty"`
+	Title       string `json:"title"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Status      string `json:"status,omitempty"` // "stable", "development", "deprecated", "beta", etc.
+	BaseURL     string `json:"base_url"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // DefaultAPIDocsConfig returns a default configuration
@@ -105,12 +78,5 @@ func DefaultAPIDocsConfig() *APIDocsConfig {
 		Status:      "stable",
 		BaseURL:     "/api",
 		Enabled:     true,
-		AutoDiscovery: &AutoDiscoveryConfig{
-			Enabled:         true,
-			AnalyzeHandlers: true,
-			GenerateTags:    true,
-			DetectAuth:      true,
-			IncludeInternal: false,
-		},
 	}
 }

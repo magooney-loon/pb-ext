@@ -212,7 +212,7 @@ func (sg *SchemaGenerator) generateRequestSchemaFromAST(endpoint *APIEndpoint) *
 		return nil
 	}
 
-	handlerName := ExtractHandlerNameFromPath(endpoint.Handler)
+	handlerName := ExtractHandlerBaseName(endpoint.Handler, false)
 	if handlerInfo, exists := sg.astParser.GetHandlerByName(handlerName); exists {
 		// Return pre-generated request schema from AST analysis
 		return handlerInfo.RequestSchema
@@ -227,7 +227,7 @@ func (sg *SchemaGenerator) generateResponseSchemaFromAST(endpoint *APIEndpoint) 
 		return nil
 	}
 
-	handlerName := ExtractHandlerNameFromPath(endpoint.Handler)
+	handlerName := ExtractHandlerBaseName(endpoint.Handler, false)
 	if handlerInfo, exists := sg.astParser.GetHandlerByName(handlerName); exists {
 		// Return pre-generated response schema from AST analysis
 		return handlerInfo.ResponseSchema

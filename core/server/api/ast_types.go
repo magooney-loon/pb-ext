@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"go/ast"
 	"go/token"
 	"sync"
 	"time"
@@ -24,22 +23,12 @@ type ASTParser struct {
 
 // FileParseResult stores parsing results with metadata
 type FileParseResult struct {
-	ModTime            time.Time
-	Structs            map[string]*StructInfo
-	Handlers           map[string]*ASTHandlerInfo
-	Imports            map[string]string
-	RouteRegistrations []*RouteRegistration
-	Errors             []ParseError
-	ParsedAt           time.Time
-}
-
-// RouteRegistration represents a discovered route registration in the code
-type RouteRegistration struct {
-	Method     string          `json:"method"`
-	Path       string          `json:"path"`
-	HandlerRef string          `json:"handler_ref"`
-	CallExpr   *ast.CallExpr   `json:"-"`
-	Location   *SourceLocation `json:"location,omitempty"`
+	ModTime  time.Time
+	Structs  map[string]*StructInfo
+	Handlers map[string]*ASTHandlerInfo
+	Imports  map[string]string
+	Errors   []ParseError
+	ParsedAt time.Time
 }
 
 // ParseError represents a parsing error with context

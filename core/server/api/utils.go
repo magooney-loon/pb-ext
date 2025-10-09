@@ -13,7 +13,7 @@ import (
 )
 
 // =============================================================================
-// String Manipulation Utilities
+// Core String Manipulation Utilities
 // =============================================================================
 
 // CleanTypeName cleans and normalizes type names for consistent usage
@@ -42,45 +42,6 @@ func CleanTypeName(typeName string) string {
 	}
 
 	return typeName
-}
-
-// ExtractBaseNameFromHandler extracts a base name from a handler function name
-func ExtractBaseNameFromHandler(handlerName string) string {
-	if handlerName == "" {
-		return ""
-	}
-
-	// Remove package path
-	parts := strings.Split(handlerName, ".")
-	if len(parts) > 0 {
-		handlerName = parts[len(parts)-1]
-	}
-
-	// Remove common suffixes
-	suffixes := []string{"Handler", "Func", "API", "Endpoint"}
-	for _, suffix := range suffixes {
-		if strings.HasSuffix(handlerName, suffix) {
-			handlerName = strings.TrimSuffix(handlerName, suffix)
-			break
-		}
-	}
-
-	return handlerName
-}
-
-// ExtractHandlerNameFromPath extracts handler name from a full path, keeping suffixes like "Handler"
-func ExtractHandlerNameFromPath(handlerPath string) string {
-	if handlerPath == "" {
-		return ""
-	}
-
-	// Remove package path but keep full handler name (don't strip suffixes)
-	parts := strings.Split(handlerPath, ".")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-
-	return handlerPath
 }
 
 // CamelCaseToSnakeCase converts camelCase to snake_case
@@ -125,62 +86,7 @@ func NormalizePathSegment(segment string) string {
 }
 
 // =============================================================================
-// Pattern Matching Utilities
-// =============================================================================
-
-// IsPatternValidForMethod checks if a pattern is valid for a specific HTTP method
-func IsPatternValidForMethod(pattern, method string) bool {
-	method = strings.ToUpper(method)
-	pattern = strings.ToLower(pattern)
-
-	// Define method-specific patterns
-	methodPatterns := map[string][]string{
-		"GET": {
-			"get", "list", "fetch", "retrieve", "find", "search", "show", "view",
-			"read", "query", "select", "load", "export", "download",
-		},
-		"POST": {
-			"post", "create", "add", "insert", "new", "register", "submit",
-			"upload", "import", "generate", "send", "process",
-		},
-		"PUT": {
-			"put", "update", "replace", "modify", "edit", "change", "save",
-			"set", "overwrite", "upsert",
-		},
-		"PATCH": {
-			"patch", "update", "modify", "edit", "change", "adjust", "partial",
-			"merge", "amend",
-		},
-		"DELETE": {
-			"delete", "remove", "destroy", "clear", "purge", "drop",
-			"unregister", "deactivate", "archive",
-		},
-	}
-
-	if patterns, exists := methodPatterns[method]; exists {
-		for _, p := range patterns {
-			if strings.Contains(pattern, p) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// MatchesPattern checks if a string matches any of the provided patterns
-func MatchesPattern(str string, patterns []string) bool {
-	str = strings.ToLower(str)
-	for _, pattern := range patterns {
-		if matched, _ := regexp.MatchString(strings.ToLower(pattern), str); matched {
-			return true
-		}
-	}
-	return false
-}
-
-// =============================================================================
-// Handler Analysis Utilities
+// Consolidated Handler Analysis
 // =============================================================================
 
 // GetHandlerName extracts the name of a handler function using reflection
@@ -204,77 +110,109 @@ func GetHandlerName(handler interface{}) string {
 	return reflect.TypeOf(handler).String()
 }
 
-// AnalyzeHandlerParameters extracts parameter information from handler function signature
-func AnalyzeHandlerParameters(handler interface{}) []*ParamInfo {
-	var params []*ParamInfo
+// ExtractHandlerBaseName extracts a clean base name from handler function
+// Consolidates ExtractBaseNameFromHandler and ExtractHandlerNameFromPath
+func ExtractHandlerBaseName(handlerName string, stripSuffixes bool) string {
+	if handlerName == "" {
+		return ""
+	}
 
+	// Remove package path
+	parts := strings.Split(handlerName, ".")
+	if len(parts) > 0 {
+		handlerName = parts[len(parts)-1]
+	}
+
+	// Optionally remove common suffixes
+	if stripSuffixes {
+		suffixes := []string{"Handler", "Func", "API", "Endpoint"}
+		for _, suffix := range suffixes {
+			if strings.HasSuffix(handlerName, suffix) {
+				handlerName = strings.TrimSuffix(handlerName, suffix)
+				break
+			}
+		}
+	}
+
+	return handlerName
+}
+
+// AnalyzeHandler provides comprehensive handler analysis
+func AnalyzeHandler(handler interface{}) *HandlerInfo {
 	if handler == nil {
-		return params
-	}
-
-	v := reflect.ValueOf(handler)
-	if v.Kind() != reflect.Func {
-		return params
-	}
-
-	t := v.Type()
-	for i := 0; i < t.NumIn(); i++ {
-		param := t.In(i)
-		paramInfo := &ParamInfo{
-			Name: fmt.Sprintf("param%d", i+1),
-			Type: param.String(),
+		return &HandlerInfo{
+			Name:        "unknown",
+			Package:     "",
+			Description: "Unknown handler",
 		}
-
-		// Detect common parameter types
-		switch param.String() {
-		case "*core.RequestEvent":
-			paramInfo.Name = "request"
-			paramInfo.Description = "HTTP request event"
-		case "context.Context":
-			paramInfo.Name = "ctx"
-			paramInfo.Description = "Request context"
-		}
-
-		params = append(params, paramInfo)
 	}
 
-	return params
+	fullName := GetHandlerName(handler)
+	baseName := ExtractHandlerBaseName(fullName, true)
+	packageName := extractPackageName(fullName)
+
+	return &HandlerInfo{
+		Name:        baseName,
+		Package:     packageName,
+		FullName:    fullName,
+		Description: GenerateDescription("", "", baseName),
+	}
 }
 
 // =============================================================================
-// Description Generation Utilities
+// Consolidated Description Generation
 // =============================================================================
 
-// DescriptionFromHandlerName generates a human-readable description from handler name
-func DescriptionFromHandlerName(handlerName string) string {
+// GenerateDescription generates descriptions from various sources
+// Consolidates DescriptionFromHandlerName, DescriptionFromPath, GenerateAPIDescription
+func GenerateDescription(method, path, handlerName string) string {
+	// Priority order: handler name -> path -> fallback
+
+	// Try handler-based description first
+	if handlerName != "" {
+		if desc := descriptionFromHandler(handlerName); desc != "" {
+			return desc
+		}
+	}
+
+	// Try path-based description
+	if method != "" && path != "" {
+		return descriptionFromPath(method, path)
+	}
+
+	// Fallback
+	if handlerName != "" {
+		return strings.Title(strings.ToLower(handlerName))
+	}
+
+	return "API Endpoint"
+}
+
+// descriptionFromHandler generates a description from handler name
+func descriptionFromHandler(handlerName string) string {
 	if handlerName == "" {
 		return ""
 	}
 
 	// Clean the handler name
-	cleanName := ExtractBaseNameFromHandler(handlerName)
+	cleanName := ExtractHandlerBaseName(handlerName, true)
 	if cleanName == "" {
 		return ""
 	}
 
 	// Convert camelCase to space-separated words
 	words := camelCaseToWords(cleanName)
-
 	if len(words) == 0 {
 		return cleanName
 	}
 
 	// Capitalize first word and join
 	words[0] = strings.Title(words[0])
-	description := strings.Join(words, " ")
-
-	// Return description without hardcoded action pattern assumptions
-
-	return description
+	return strings.Join(words, " ")
 }
 
-// DescriptionFromPath generates a description from HTTP method and path
-func DescriptionFromPath(method, path string) string {
+// descriptionFromPath generates a description from HTTP method and path
+func descriptionFromPath(method, path string) string {
 	if path == "" {
 		return ""
 	}
@@ -318,42 +256,32 @@ func DescriptionFromPath(method, path string) string {
 	}
 }
 
-// GenerateAPIDescription generates a comprehensive API description
-func GenerateAPIDescription(method, path, handlerName string) string {
-	// Try handler-based description first
-	if handlerName != "" {
-		if desc := DescriptionFromHandlerName(handlerName); desc != "" {
-			return desc
-		}
-	}
-
-	// Fallback to path-based description
-	return DescriptionFromPath(method, path)
-}
-
 // =============================================================================
-// Tag Generation Utilities
+// Consolidated Tag Generation
 // =============================================================================
 
-// GenerateTags generates tags for an API endpoint based on path and handler
+// GenerateTags generates tags from multiple sources
+// Consolidates GenerateTags, generateTagsFromPath, generateTagsFromHandler
 func GenerateTags(method, path, handlerName string) []string {
 	var tags []string
 	tagSet := make(map[string]bool) // To avoid duplicates
 
 	// Extract tags from path
-	pathTags := generateTagsFromPath(path)
-	for _, tag := range pathTags {
-		if !tagSet[tag] {
-			tags = append(tags, tag)
-			tagSet[tag] = true
+	if path != "" {
+		pathTags := extractTagsFromPath(path)
+		for _, tag := range pathTags {
+			if !tagSet[tag] && tag != "" {
+				tags = append(tags, tag)
+				tagSet[tag] = true
+			}
 		}
 	}
 
 	// Extract tags from handler name
 	if handlerName != "" {
-		handlerTags := generateTagsFromHandler(handlerName)
+		handlerTags := extractTagsFromHandler(handlerName)
 		for _, tag := range handlerTags {
-			if !tagSet[tag] {
+			if !tagSet[tag] && tag != "" {
 				tags = append(tags, tag)
 				tagSet[tag] = true
 			}
@@ -361,10 +289,12 @@ func GenerateTags(method, path, handlerName string) []string {
 	}
 
 	// Add method-based tag
-	methodTag := strings.ToLower(method)
-	if !tagSet[methodTag] {
-		tags = append(tags, methodTag)
-		tagSet[methodTag] = true
+	if method != "" {
+		methodTag := strings.ToLower(method)
+		if !tagSet[methodTag] {
+			tags = append(tags, methodTag)
+			tagSet[methodTag] = true
+		}
 	}
 
 	// Ensure we have at least one tag
@@ -375,15 +305,15 @@ func GenerateTags(method, path, handlerName string) []string {
 	return tags
 }
 
-// generateTagsFromPath extracts tags from URL path
-func generateTagsFromPath(path string) []string {
+// extractTagsFromPath extracts tags from URL path
+func extractTagsFromPath(path string) []string {
 	var tags []string
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 
 	for _, part := range parts {
 		if part != "" && !isPathParameter(part) {
 			tag := NormalizePathSegment(part)
-			if tag != "" {
+			if tag != "" && len(tag) > 1 { // Skip single characters
 				tags = append(tags, tag)
 			}
 		}
@@ -392,11 +322,11 @@ func generateTagsFromPath(path string) []string {
 	return tags
 }
 
-// generateTagsFromHandler extracts tags from handler name
-func generateTagsFromHandler(handlerName string) []string {
+// extractTagsFromHandler extracts tags from handler name
+func extractTagsFromHandler(handlerName string) []string {
 	var tags []string
 
-	baseName := ExtractBaseNameFromHandler(handlerName)
+	baseName := ExtractHandlerBaseName(handlerName, true)
 	if baseName == "" {
 		return tags
 	}
@@ -415,9 +345,41 @@ func generateTagsFromHandler(handlerName string) []string {
 	return tags
 }
 
-// GenerateTagsForHandler generates specific tags for a handler function
-func GenerateTagsForHandler(handlerName string) []string {
-	return generateTagsFromHandler(handlerName)
+// =============================================================================
+// Format Conversion Utilities
+// =============================================================================
+
+// ConvertToOpenAPIMethod converts HTTP method to OpenAPI format
+func ConvertToOpenAPIMethod(method string) string {
+	return strings.ToLower(method)
+}
+
+// ConvertToOpenAPIPath converts path to OpenAPI format
+func ConvertToOpenAPIPath(path string) string {
+	// Convert PocketBase style parameters (:param) to OpenAPI style ({param})
+	re := regexp.MustCompile(`:([a-zA-Z_][a-zA-Z0-9_]*)`)
+	return re.ReplaceAllString(path, "{$1}")
+}
+
+// FormatStatusCode formats an HTTP status code with description
+func FormatStatusCode(code int) string {
+	descriptions := map[int]string{
+		200: "OK",
+		201: "Created",
+		204: "No Content",
+		400: "Bad Request",
+		401: "Unauthorized",
+		403: "Forbidden",
+		404: "Not Found",
+		409: "Conflict",
+		422: "Unprocessable Entity",
+		500: "Internal Server Error",
+	}
+
+	if desc, exists := descriptions[code]; exists {
+		return fmt.Sprintf("%d %s", code, desc)
+	}
+	return strconv.Itoa(code)
 }
 
 // =============================================================================
@@ -481,45 +443,18 @@ func ValidateAuthInfo(auth *AuthInfo) []string {
 }
 
 // =============================================================================
-// Format Conversion Utilities
-// =============================================================================
-
-// ConvertToOpenAPIMethod converts HTTP method to OpenAPI format
-func ConvertToOpenAPIMethod(method string) string {
-	return strings.ToLower(method)
-}
-
-// ConvertToOpenAPIPath converts path to OpenAPI format
-func ConvertToOpenAPIPath(path string) string {
-	// Convert PocketBase style parameters (:param) to OpenAPI style ({param})
-	re := regexp.MustCompile(`:([a-zA-Z_][a-zA-Z0-9_]*)`)
-	return re.ReplaceAllString(path, "{$1}")
-}
-
-// FormatStatusCode formats an HTTP status code with description
-func FormatStatusCode(code int) string {
-	descriptions := map[int]string{
-		200: "OK",
-		201: "Created",
-		204: "No Content",
-		400: "Bad Request",
-		401: "Unauthorized",
-		403: "Forbidden",
-		404: "Not Found",
-		409: "Conflict",
-		422: "Unprocessable Entity",
-		500: "Internal Server Error",
-	}
-
-	if desc, exists := descriptions[code]; exists {
-		return fmt.Sprintf("%d %s", code, desc)
-	}
-	return strconv.Itoa(code)
-}
-
-// =============================================================================
 // Private Helper Functions
 // =============================================================================
+
+// extractPackageName extracts the package name from a full function name
+func extractPackageName(fullName string) string {
+	parts := strings.Split(fullName, ".")
+	if len(parts) > 1 {
+		// Return the package part, excluding the function name
+		return strings.Join(parts[:len(parts)-1], ".")
+	}
+	return ""
+}
 
 // camelCaseToWords splits camelCase strings into separate words
 func camelCaseToWords(str string) []string {

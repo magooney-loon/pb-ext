@@ -1,7 +1,6 @@
 package main
 
 // API_SOURCE
-// Todo CRUD handlers
 
 import (
 	"encoding/json"
