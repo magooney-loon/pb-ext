@@ -5,70 +5,50 @@
 
     // Global initialization guard
     if (window.apiSystemInitialized) {
-        console.log('API system already initialized, skipping...');
         return;
     }
 
     // System initialization
     async function initializeApp() {
         try {
-            console.log('Initializing API Documentation System...');
-
             // Initialize error/status manager first
             if (typeof ErrorStatusManager !== 'undefined') {
                 ErrorStatusManager.init();
                 ErrorStatusManager.updateStatus('loading', 'Initializing system...');
             }
 
-            // Initialize schema processor for syntax highlighting and formatting
+            // Initialize schema processor for syntax highlighting
             if (typeof SchemaProcessor !== 'undefined') {
-                console.log('Initializing SchemaProcessor...');
                 SchemaProcessor.init();
-            } else {
-                console.warn('SchemaProcessor not available, schema formatting will be limited');
             }
 
             // Initialize API state management
-            console.log('Checking APIState availability...');
             if (typeof APIState !== 'undefined') {
-                console.log('Initializing APIState...');
                 APIState.init();
             } else {
                 throw new Error('APIState not available');
             }
 
-            // Initialize UI controllers (tabs and filters)
-            console.log('Checking UIController availability...');
+            // Initialize UI controllers
             if (typeof UIController !== 'undefined') {
-                console.log('Initializing UIController...');
                 UIController.init();
             } else {
-                console.warn('UIController not available, falling back to legacy controllers');
-
-                // Fallback to individual controllers if consolidated version not available
+                // Fallback to individual controllers
                 if (typeof TabController !== 'undefined') {
-                    console.log('Initializing fallback TabController...');
                     TabController.init();
                 }
                 if (typeof FilterController !== 'undefined') {
-                    console.log('Initializing fallback FilterController...');
                     FilterController.init();
                 }
             }
 
             // Initialize API tester components
-            console.log('Checking APITester availability...');
             if (typeof APITester !== 'undefined') {
-                console.log('Initializing APITester...');
                 APITester.init();
-            } else {
-                console.log('APITester not available, will initialize later if needed');
             }
 
             // Load API versions and endpoints
-            console.log('Checking APILoader availability...');
             if (typeof APILoader !== 'undefined') {
-                console.log('Loading API versions...');
                 await APILoader.loadVersions();
             } else {
                 throw new Error('APILoader not available');
@@ -77,19 +57,14 @@
             // Mark as initialized
             window.apiSystemInitialized = true;
 
-            console.log('API Documentation System initialized successfully');
-
             // Final setup - ensure UI is properly updated
             if (typeof UIController !== 'undefined') {
-                console.log('Final UI update...');
-                // Trigger statistics update
                 UIController.updateStatistics();
                 // Show filters if we have endpoints
                 if (window.APIState && APIState.allEndpoints.length > 0) {
                     const filtersSection = document.getElementById('api-filters');
                     if (filtersSection) {
                         filtersSection.style.display = 'block';
-                        console.log('Filters section made visible');
                     }
                 }
             }
@@ -187,10 +162,9 @@
 
         // Refresh data
         refreshData: () => {
-            if (typeof APILoader !== 'undefined') {
+            if (typeof APILoader !== 'undefined' && APILoader.refresh) {
                 return APILoader.refresh();
             }
-            console.error('APILoader not available');
             return Promise.reject(new Error('APILoader not available'));
         },
 
@@ -213,8 +187,6 @@
 
         // Reset system (for debugging)
         reset: () => {
-            console.warn('Resetting API system...');
-
             if (typeof APIState !== 'undefined') {
                 APIState.reset();
             }
@@ -224,8 +196,6 @@
             }
 
             window.apiSystemInitialized = false;
-
-            console.log('API system reset complete');
         },
 
         // Force reinitialization
@@ -237,10 +207,9 @@
 
     // Global refresh function (backward compatibility)
     window.refreshAPIData = () => {
-        if (typeof APILoader !== 'undefined') {
+        if (typeof APILoader !== 'undefined' && APILoader.refresh) {
             return APILoader.refresh();
         }
-        console.error('APILoader not available for refresh');
     };
 
     // Export initialization function for manual triggering

@@ -15,13 +15,10 @@
                 return;
             }
 
-            console.log('Initializing API Tester Sidebar...');
-
             try {
                 this._bindEvents();
                 this._initializeTabs();
                 this.initialized = true;
-                console.log('API Tester Sidebar initialized successfully');
             } catch (error) {
                 console.error('Failed to initialize API Tester Sidebar:', error);
                 if (typeof ErrorStatusManager !== 'undefined') {
@@ -177,7 +174,6 @@
         // Switch tester tabs with improved error handling
         _switchTesterTab(tabName) {
             if (!tabName) {
-                console.warn('Tab name is required for switching');
                 return;
             }
 
@@ -201,8 +197,6 @@
 
                 // Trigger refresh event for other components
                 this._triggerTabChange(tabName);
-
-                console.log(`Switched to tester tab: ${tabName}`);
             } catch (error) {
                 console.error('Failed to switch tester tab:', error);
             }
@@ -211,7 +205,6 @@
         // Switch response sub-tabs with syntax highlighting updates
         _switchResponseTab(tabName) {
             if (!tabName) {
-                console.warn('Response tab name is required');
                 return;
             }
 
@@ -227,8 +220,10 @@
                 const emptyState = this._getElementById('response-empty-state');
 
                 // Check if we have response content in a more robust way
-                const hasResponse = bodyContent && bodyContent.textContent.trim() &&
-                    !bodyContent.textContent.includes('No response yet');
+                const bodyCode = bodyContent ? bodyContent.querySelector('code') : null;
+                const hasResponse = bodyCode && bodyCode.textContent.trim() &&
+                    !bodyCode.textContent.includes('No response yet') &&
+                    bodyCode.textContent !== '';
 
                 if (!hasResponse) {
                     // Show empty state, hide content
@@ -239,6 +234,7 @@
                     // Hide empty state, show appropriate content
                     if (emptyState) emptyState.style.display = 'none';
 
+                    // Show the selected tab content
                     if (bodyContent) {
                         bodyContent.classList.toggle('active', tabName === 'body');
                         bodyContent.style.display = tabName === 'body' ? 'block' : 'none';
@@ -250,14 +246,14 @@
                     }
 
                     // Re-apply syntax highlighting when tab becomes visible
-                    if (tabName === 'body' && typeof SchemaProcessor !== 'undefined') {
-                        if (bodyContent) {
+                    if (typeof SchemaProcessor !== 'undefined') {
+                        if (tabName === 'body' && bodyContent) {
                             this._refreshSyntaxHighlighting(bodyContent);
+                        } else if (tabName === 'headers' && headersContent) {
+                            this._refreshSyntaxHighlighting(headersContent);
                         }
                     }
                 }
-
-                console.log(`Switched to response tab: ${tabName}`);
             } catch (error) {
                 console.error('Failed to switch response tab:', error);
             }
@@ -282,7 +278,7 @@
                     }
                 });
             } catch (error) {
-                console.warn('Failed to refresh syntax highlighting:', error);
+                // Silent fallback
             }
         },
 
@@ -298,7 +294,7 @@
                 });
                 document.dispatchEvent(event);
             } catch (error) {
-                console.warn('Failed to trigger tab change event:', error);
+                // Silent fallback
             }
         },
 
@@ -309,7 +305,6 @@
                 if (this.isOpen && this.currentEndpoint &&
                     this.currentEndpoint.method === method.toUpperCase() &&
                     this.currentEndpoint.path === path) {
-                    console.log('Same endpoint already open in sidebar');
                     return;
                 }
 
@@ -341,9 +336,6 @@
 
                 // Trigger event for other components
                 this._triggerSidebarOpened();
-
-                console.log(`Opened API tester for: ${method.toUpperCase()} ${path}`);
-
             } catch (error) {
                 console.error('Failed to open sidebar:', error);
                 if (typeof ErrorStatusManager !== 'undefined') {
@@ -360,7 +352,6 @@
                 try {
                     return JSON.parse(endpointData);
                 } catch (error) {
-                    console.warn('Failed to parse endpoint data as JSON:', error);
                     return {};
                 }
             }
@@ -379,7 +370,6 @@
             try {
                 const container = this._getElementById('schema-form-container');
                 if (!container) {
-                    console.error('Schema form container not found');
                     return;
                 }
 
@@ -395,7 +385,6 @@
 
                 // Use APIFormBuilder to generate the parameter form
                 if (typeof APIFormBuilder !== 'undefined') {
-                    console.log('Generating parameter form for endpoint:', data);
 
                     // Generate form with a small delay to ensure proper rendering
                     setTimeout(() => {
@@ -423,7 +412,6 @@
                     }, 10);
 
                 } else {
-                    console.error('APIFormBuilder not available');
                     container.innerHTML = `
                         <div class="txt-center txt-danger p-3">
                             <i class="ri-error-warning-line"></i>
@@ -471,7 +459,7 @@
                 }
 
             } catch (error) {
-                console.warn('Failed to update examples:', error);
+                // Silent fallback
             }
         },
 
@@ -495,7 +483,7 @@
 
                 container.innerHTML = examplesHtml;
             } catch (error) {
-                console.warn('Failed to display examples:', error);
+                // Silent fallback
             }
         },
 
@@ -505,7 +493,6 @@
                 this._hideSidebar();
                 this._triggerSidebarClosed();
                 this.currentEndpoint = null;
-                console.log('API tester sidebar closed');
             } catch (error) {
                 console.error('Failed to close sidebar:', error);
             }
@@ -586,7 +573,7 @@
                 }
 
             } catch (error) {
-                console.warn('Failed to update endpoint info:', error);
+                // Silent fallback
             }
         },
 
@@ -627,7 +614,7 @@
                 }
 
             } catch (error) {
-                console.warn('Failed to update auth info:', error);
+                // Silent fallback
             }
         },
 
@@ -667,7 +654,6 @@
                 return authInfo;
 
             } catch (error) {
-                console.warn('Failed to analyze auth requirements:', error);
                 return authInfo;
             }
         },
@@ -700,14 +686,16 @@
                     responseHeaders.innerHTML = '<pre class="code-block"><code></code></pre>';
                 }
 
-                // Reset status display
-                this._updateResponseStatus('Ready', 'Send a request', 0);
+                // Reset status display using unified approach
+                if (typeof APIRequestHandler !== 'undefined') {
+                    APIRequestHandler.clearResponseStatus();
+                }
 
                 // Reset to body tab
                 this._switchResponseTab('body');
 
             } catch (error) {
-                console.warn('Failed to reset response state:', error);
+                // Silent fallback
             }
         },
 
@@ -719,12 +707,14 @@
                 // Show response content and hide empty state
                 this._showResponseContent();
 
-                // Update status
-                this._updateResponseStatus(
-                    responseData.status || 'Unknown',
-                    responseData.statusText || '',
-                    responseData.time || 0
-                );
+                // Update status using unified approach
+                if (typeof APIRequestHandler !== 'undefined') {
+                    APIRequestHandler.updateResponseStatus(
+                        responseData.status || 'Unknown',
+                        responseData.statusText || '',
+                        responseData.duration || 0
+                    );
+                }
 
                 // Update response content with syntax highlighting
                 this._updateResponseContent(responseData.body, responseData.headers);
@@ -745,48 +735,24 @@
             const copyBtn = this._getElementById('copy-response-btn');
 
             if (emptyState) emptyState.style.display = 'none';
-            if (copyBtn) copyBtn.style.display = 'block';
+            if (copyBtn) copyBtn.style.display = 'inline-block';
 
-            // Show content based on active response tab
-            const activeResponseTab = this._safeQuery('.response-tab.active');
-            const activeTabName = activeResponseTab ? activeResponseTab.dataset.tab : 'body';
+            // Show content based on active tab
+            const activeTab = this._safeQuery('.response-tab.active');
+            const tabName = activeTab ? activeTab.dataset.tab : 'body';
 
             if (responseBody) {
-                responseBody.style.display = activeTabName === 'body' ? 'block' : 'none';
+                responseBody.classList.toggle('active', tabName === 'body');
+                responseBody.style.display = tabName === 'body' ? 'block' : 'none';
             }
+
             if (responseHeaders) {
-                responseHeaders.style.display = activeTabName === 'headers' ? 'block' : 'none';
+                responseHeaders.classList.toggle('active', tabName === 'headers');
+                responseHeaders.style.display = tabName === 'headers' ? 'block' : 'none';
             }
         },
 
-        // Update response status display
-        _updateResponseStatus(status, statusText, time) {
-            try {
-                const statusEl = this._safeQuery('#response-status-info .status-badge');
-                const timeEl = this._safeQuery('#response-status-info .response-time');
 
-                if (statusEl) {
-                    if (typeof status === 'number') {
-                        statusEl.textContent = `${status} ${statusText}`;
-                        statusEl.className = `status-badge status-${Math.floor(status / 100)}xx`;
-                    } else {
-                        statusEl.textContent = status;
-                        statusEl.className = 'status-badge status-ready';
-                    }
-                }
-
-                if (timeEl) {
-                    if (typeof time === 'number' && time > 0) {
-                        timeEl.textContent = `${time}ms`;
-                    } else {
-                        timeEl.textContent = typeof status === 'string' ? status : 'Ready';
-                    }
-                }
-
-            } catch (error) {
-                console.warn('Failed to update response status:', error);
-            }
-        },
 
         // Update response content with enhanced formatting
         _updateResponseContent(body, headers) {
@@ -820,7 +786,7 @@
                 }
 
             } catch (error) {
-                console.warn('Failed to update response content:', error);
+                // Silent fallback
             }
         },
 
@@ -837,7 +803,6 @@
                 }
 
                 if (!activeContent?.textContent || activeContent.textContent.trim() === '') {
-                    console.warn('No response content to copy');
                     this._showCopyFailure('copy-response-btn');
                     return;
                 }
@@ -845,12 +810,10 @@
                 navigator.clipboard.writeText(activeContent.textContent).then(() => {
                     this._showCopySuccess('copy-response-btn');
                 }).catch(err => {
-                    console.warn('Failed to copy response:', err);
                     this._showCopyFailure('copy-response-btn');
                 });
 
             } catch (error) {
-                console.warn('Failed to copy response:', error);
                 this._showCopyFailure('copy-response-btn');
             }
         },
@@ -860,19 +823,17 @@
             try {
                 const activeSchemaContent = this._safeQuery('.tester-tab-content.active .code-block');
                 if (!activeSchemaContent?.textContent) {
-                    console.warn('No schema content to copy');
                     return;
                 }
 
                 navigator.clipboard.writeText(activeSchemaContent.textContent).then(() => {
                     this._showCopySuccess('copy-schema-btn');
                 }).catch(err => {
-                    console.warn('Failed to copy schema:', err);
                     this._showCopyFailure('copy-schema-btn');
                 });
 
             } catch (error) {
-                console.warn('Failed to copy schema:', error);
+                // Silent fallback
             }
         },
 
@@ -923,7 +884,7 @@
                 });
                 document.dispatchEvent(event);
             } catch (error) {
-                console.warn('Failed to trigger sidebar opened event:', error);
+                // Silent fallback
             }
         },
 
@@ -935,7 +896,7 @@
                 });
                 document.dispatchEvent(event);
             } catch (error) {
-                console.warn('Failed to trigger sidebar closed event:', error);
+                // Silent fallback
             }
         },
 
@@ -951,7 +912,6 @@
             try {
                 return context.querySelector(selector);
             } catch (error) {
-                console.warn('Invalid selector:', selector, error);
                 return null;
             }
         },
@@ -960,7 +920,6 @@
             try {
                 return Array.from(context.querySelectorAll(selector));
             } catch (error) {
-                console.warn('Invalid selector:', selector, error);
                 return [];
             }
         },
@@ -1015,14 +974,12 @@
 
         // Cleanup method
         destroy() {
-            console.log('Destroying API Tester Sidebar...');
-
             // Clean up event listeners
             this._eventCleanup.forEach(cleanup => {
                 try {
                     cleanup();
                 } catch (error) {
-                    console.warn('Error during event cleanup:', error);
+                    // Silent cleanup error
                 }
             });
 
@@ -1034,20 +991,15 @@
             this.isOpen = false;
             this._eventCleanup = [];
             this.initialized = false;
-
-            console.log('API Tester Sidebar destroyed');
         },
 
         // Send request using APIRequestHandler with auth mode
         async _sendRequest(authMode = 'guest') {
             if (!this.currentEndpoint) {
-                console.error('No endpoint selected for request');
                 return;
             }
 
             try {
-                console.log(`Sending request for endpoint as ${authMode}:`, this.currentEndpoint.data);
-
                 // Get auth token based on mode
                 let authToken = null;
                 if (authMode === 'admin') {
@@ -1055,27 +1007,19 @@
                     if (adminAuth) {
                         const parsed = JSON.parse(adminAuth);
                         authToken = parsed.token;
-                        console.log('Using admin token for request');
-                    } else {
-                        console.warn('No admin token found in localStorage');
                     }
                 } else if (authMode === 'auth') {
                     const userAuth = localStorage.getItem('pocketbase_auth');
                     if (userAuth) {
                         const parsed = JSON.parse(userAuth);
                         authToken = parsed.token;
-                        console.log('Using user token for request');
-                    } else {
-                        console.warn('No user token found in localStorage');
                     }
                 }
                 // guest mode uses no token (authToken stays null)
 
-                // Use APIRequestHandler to send the request
+                // Use APIRequestHandler to send the request with auth token
                 if (typeof APIRequestHandler !== 'undefined') {
                     await APIRequestHandler.sendRequest(this.currentEndpoint.data, authToken);
-                } else {
-                    console.error('APIRequestHandler not available');
                 }
             } catch (error) {
                 console.error('Failed to send request:', error);
@@ -1085,7 +1029,6 @@
         // Reset form using APIFormBuilder
         _resetForm() {
             if (!this.currentEndpoint) {
-                console.error('No endpoint selected for reset');
                 return;
             }
 
@@ -1093,7 +1036,6 @@
                 // Clear form using APIFormBuilder
                 if (typeof APIFormBuilder !== 'undefined') {
                     APIFormBuilder.clearForm();
-                    console.log('Form reset successfully');
                 } else {
                     // Fallback: manually clear form fields
                     const container = this._getElementById('schema-form-container');
@@ -1138,18 +1080,30 @@
 
             if (responseBody) {
                 responseBody.style.display = 'none';
+                responseBody.classList.remove('active');
                 // Clear the content completely
-                responseBody.innerHTML = '<pre class="code-block"><code></code></pre>';
+                const bodyCode = responseBody.querySelector('code');
+                if (bodyCode) bodyCode.textContent = '';
             }
 
             if (responseHeaders) {
                 responseHeaders.style.display = 'none';
+                responseHeaders.classList.remove('active');
                 // Clear the content completely
-                responseHeaders.innerHTML = '<pre class="code-block"><code></code></pre>';
+                const headersCode = responseHeaders.querySelector('code');
+                if (headersCode) headersCode.textContent = '';
             }
 
-            // Reset status
-            this._updateResponseStatus('Ready', 'Send a request', 0);
+            // Reset response tabs to default (body)
+            const responseTabs = this._safeQueryAll('.response-tab');
+            responseTabs.forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tab === 'body');
+            });
+
+            // Reset status using unified approach
+            if (typeof APIRequestHandler !== 'undefined') {
+                APIRequestHandler.clearResponseStatus();
+            }
         }
     };
 

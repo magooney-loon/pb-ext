@@ -33,16 +33,12 @@
         init() {
             if (this._initialized) return;
 
-            console.log('Initializing Error Status Manager...');
-
             try {
                 this._statusElement = document.getElementById('api-status-badge');
                 this._initialized = true;
 
                 // Set initial status
                 this.updateStatus(this.StatusTypes.INFO, 'System initializing...');
-
-                console.log('Error Status Manager initialized successfully');
             } catch (error) {
                 console.error('Failed to initialize Error Status Manager:', error);
                 this._initialized = false;
@@ -70,12 +66,9 @@
                 this._currentStatus = statusInfo;
                 this._updateStatusDisplay(statusInfo);
 
-                console.log(`Status updated: [${type.toUpperCase()}] ${message}`);
-
                 // Notify observers if available
                 if (window.APIState && typeof APIState.addObserver === 'function') {
-                    // Don't create observer here, just log for debugging
-                    console.debug('Status update:', statusInfo);
+                    // Notify state observers
                 }
 
                 return statusInfo;
@@ -129,7 +122,7 @@
                 const status = versionInfo.status || 'stable';
                 this.updateStatus(status.toLowerCase(), status);
             } catch (error) {
-                console.warn('Failed to update version badge:', error);
+                // Silent fallback
             }
         },
 
@@ -173,8 +166,10 @@
                 // Add to error history
                 this._addToErrorHistory(errorInfo);
 
-                // Log to console with context
-                console.error(`[${context}] ${errorInfo.type.toUpperCase()}: ${errorInfo.message}`, errorInfo);
+                // Log critical errors only
+                if (errorInfo.type === 'CRITICAL' || errorInfo.type === 'AUTHENTICATION') {
+                    console.error(`[${context}] ${errorInfo.type}: ${errorInfo.message}`);
+                }
 
                 // Update status with user-friendly message
                 const userMessage = this._getUserFriendlyMessage(errorInfo);
@@ -313,8 +308,6 @@
                     }
 
                     const delay = baseDelay * Math.pow(2, attempt - 1);
-                    console.warn(`Attempt ${attempt} failed, retrying in ${delay}ms:`, error.message);
-
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
@@ -341,7 +334,6 @@
         // Clear error history
         clearErrorHistory() {
             this._errorHistory = [];
-            console.log('Error history cleared');
         },
 
         // Get system health based on recent errors
@@ -416,7 +408,6 @@
                     this._errorHistory = data.errorHistory.slice(0, this._maxErrorHistory);
                 }
 
-                console.log('Error data imported successfully');
                 return true;
             } catch (error) {
                 console.error('Failed to import error data:', error);
@@ -429,7 +420,6 @@
             this._currentStatus = null;
             this._errorHistory = [];
             this.clearStatus();
-            console.log('Error Status Manager reset');
         },
 
         // Destroy and cleanup
@@ -437,7 +427,6 @@
             this.reset();
             this._statusElement = null;
             this._initialized = false;
-            console.log('Error Status Manager destroyed');
         }
     };
 

@@ -1,0 +1,249 @@
+{{define "api_form_css"}}
+<style>
+/* =============================================================================
+   API FORM STYLES
+   ============================================================================= */
+
+/* =============================================================================
+   FORM SECTIONS
+   ============================================================================= */
+
+.form-section {
+    margin-bottom: 24px;
+}
+
+.form-section:last-child {
+    margin-bottom: 16px;
+}
+
+.section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txtPrimaryColor, #333);
+    margin: 0 0 16px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-title i {
+    font-size: 16px;
+    color: var(--primaryColor, #3b82f6);
+}
+
+.form-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txtPrimaryColor, #333);
+    margin: 0 0 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.form-section-title i {
+    color: var(--primaryColor, #3b82f6);
+    font-size: 16px;
+}
+
+
+
+
+/* =============================================================================
+   QUERY PARAMETERS
+   ============================================================================= */
+
+.query-parameters {
+    position: relative;
+}
+
+.query-param-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.query-param-name,
+.query-param-value {
+    flex: 1;
+    min-width: 0;
+}
+
+.query-param-name {
+    max-width: 140px;
+}
+
+.query-param-value {
+    max-width: 180px;
+}
+
+.add-query-param {
+    flex-shrink: 0;
+    padding: 6px 8px;
+    min-width: 32px;
+}
+
+.added-query-params {
+    margin-top: 8px;
+}
+
+.query-param-added {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 8px;
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 16px;
+    margin-right: 6px;
+    font-size: 12px;
+}
+
+.query-param-added .param-display {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.query-param-added .param-name {
+    font-weight: 500;
+    color: var(--txtPrimaryColor, #333);
+}
+
+.query-param-added .param-value {
+    color: var(--txtHintColor, #666);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.query-param-added input[name^="query-"] {
+    display: none;
+}
+
+.remove-query-param {
+    flex-shrink: 0;
+    padding: 4px;
+    border: none;
+    background: transparent;
+    color: var(--txtHintColor, #666);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.remove-query-param:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+/* Query parameter pairs for manual entry */
+.query-param-pair {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.query-param-pair:last-child {
+    margin-bottom: 0;
+}
+
+.query-param-pair input {
+    flex: 1;
+    min-width: 0;
+}
+
+.query-params-container {
+    margin-bottom: 16px;
+    min-height: 0;
+}
+
+.query-params-container:empty {
+    margin-bottom: 0;
+}
+
+
+
+
+/* =============================================================================
+   FORM VALIDATION
+   ============================================================================= */
+
+.form-field.required .form-label::after {
+    content: ' *';
+    color: #ef4444;
+}
+
+.form-control:invalid {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+.form-control:valid {
+    border-color: #22c55e;
+}
+
+
+
+/* =============================================================================
+   RESPONSIVE DESIGN
+   ============================================================================= */
+
+@media (max-width: 768px) {
+    .query-param-row {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .query-param-name,
+    .query-param-value {
+        width: 100%;
+        max-width: none;
+    }
+
+    .radio-group {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .query-param-pair {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .query-param-pair input {
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .card-body {
+        padding: 16px;
+    }
+
+    .form-section-title {
+        font-size: 13px;
+    }
+
+    .form-control {
+        padding: 8px 10px;
+        font-size: 13px;
+    }
+}
+
+
+/* Loading states */
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+</style>
+{{end}}

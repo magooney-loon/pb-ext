@@ -1,6 +1,6 @@
 {{define "api_loader_js"}}
     // =============================================================================
-    // API LOADER - SIMPLIFIED FOR AST-BASED VERSIONED SYSTEM
+    // SIMPLIFIED API LOADER - FOR CLEAN OPENAPI BACKEND
     // =============================================================================
 
     const APILoader = {
@@ -14,14 +14,13 @@
             try {
                 const authData = localStorage.getItem('__pb_superuser_auth__');
                 if (!authData) {
-                    console.warn('No superuser authentication token found in localStorage');
                     return null;
                 }
 
                 const parsed = JSON.parse(authData);
                 return parsed.token || null;
             } catch (error) {
-                console.error('Failed to parse superuser auth token:', error);
+                console.error('Failed to parse auth token:', error);
                 return null;
             }
         },
@@ -46,18 +45,13 @@
         // Load available API versions
         async loadVersions() {
             if (this.loadingState.versions) {
-                console.log('Versions already loading, skipping duplicate request');
                 return;
             }
 
             this.loadingState.versions = true;
 
             try {
-                if (typeof ErrorStatusManager !== 'undefined') {
-                    ErrorStatusManager.updateStatus('loading', 'Loading API versions...');
-                } else if (typeof StatusManager !== 'undefined') {
-                    StatusManager.updateStatus('loading', 'Loading API versions...');
-                }
+                this.updateStatus('loading', 'Loading API versions...');
 
                 const response = await fetch('/api/docs/versions', this.getAuthenticatedFetchOptions());
                 if (!response.ok) {
@@ -68,21 +62,19 @@
                 }
 
                 const data = await response.json();
-
-                // Validate response structure
-                if (!data || typeof data !== 'object') {
+                if (!data || !data.versions) {
                     throw new Error('Invalid response format from versions endpoint');
                 }
 
-                APIState.availableVersions = data.versions || [];
-                APIState.currentVersion = data.default_version || (APIState.availableVersions.length > 0 ? APIState.availableVersions[0].version : null);
+                // Store version information
+                APIState.availableVersions = data.versions;
+                APIState.currentVersion = data.default_version || (data.versions.length > 0 ? data.versions[0].version : null);
 
-                console.log(`Loaded ${APIState.availableVersions.length} API versions, default: ${APIState.currentVersion}`);
-
+                // Update UI
                 this.populateVersionSelector();
 
                 // Load the current version's endpoints
-                if (APIState.currentVersion && APIState.availableVersions.length > 0) {
+                if (APIState.currentVersion) {
                     await this.loadEndpoints();
                 } else {
                     throw new Error('No API versions available');
@@ -90,16 +82,16 @@
 
             } catch (error) {
                 console.error('Failed to load API versions:', error);
+                this.updateStatus('error', `Failed to load API versions: ${error.message}`);
                 throw error;
             } finally {
                 this.loadingState.versions = false;
             }
         },
 
-        // Load endpoints for current version
+        // Load OpenAPI spec for current version
         async loadEndpoints() {
             if (this.loadingState.endpoints) {
-                console.log('Endpoints already loading, skipping duplicate request');
                 return;
             }
 
@@ -111,11 +103,7 @@
                     throw new Error('No current version selected');
                 }
 
-                if (typeof ErrorStatusManager !== 'undefined') {
-                    ErrorStatusManager.updateStatus('loading', `Loading endpoints for version ${version}...`);
-                } else if (typeof StatusManager !== 'undefined') {
-                    StatusManager.updateStatus('loading', `Loading endpoints for version ${version}...`);
-                }
+                this.updateStatus('loading', `Loading endpoints for version ${version}...`);
 
                 const response = await fetch(`/api/docs/${version}`, this.getAuthenticatedFetchOptions());
                 if (!response.ok) {
@@ -125,57 +113,52 @@
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                const data = await response.json();
-
-                // Validate response structure
-                if (!data || typeof data !== 'object') {
-                    throw new Error('Invalid response format from endpoints API');
+                const openApiSpec = await response.json();
+                if (!openApiSpec || !openApiSpec.endpoints) {
+                    throw new Error('Invalid OpenAPI specification received');
                 }
 
-                // Convert AST data to endpoints format if needed
-                const endpoints = this.convertASTToEndpoints(data);
+                // Store the clean OpenAPI data - no conversion needed!
+                APIState.openApiSchema = openApiSpec;
+                APIState.allEndpoints = openApiSpec.endpoints;
+                APIState.setEndpoints(openApiSpec.endpoints);
 
-                // Set schema and endpoints data
-                APIState.openApiSchema = data;
-                APIState.allEndpoints = endpoints;
-                APIState.setEndpoints(endpoints);
-
-                console.log(`Loaded ${APIState.allEndpoints.length} endpoints for version ${version}`);
-
-                // Update UI components
+                // Update UI
                 this.updateEndpointsList();
                 this.updateStatsDisplay();
-
-                // Update version display and description
                 this.updateVersionDisplay();
+                this.initializeFilters();
 
-                // Initialize filter options and update UI
-                if (typeof UIController !== 'undefined') {
-                    const stats = APIState.apiStats || this.calculateStats();
-                    if (UIController.populateFilterOptions) {
-                        UIController.populateFilterOptions(stats);
-                    }
-                    // Ensure statistics are updated
-                    if (UIController._updateStatistics) {
-                        UIController._updateStatistics();
-                    }
-                    // Show the filters section
-                    const filtersSection = document.getElementById('api-filters');
-                    if (filtersSection) {
-                        filtersSection.style.display = 'block';
-                    }
-                } else if (typeof FilterController !== 'undefined' && FilterController.populateFilterOptions) {
-                    // Fallback for backward compatibility
-                    const stats = APIState.apiStats || this.calculateStats();
-                    FilterController.populateFilterOptions(stats);
-                }
+                // Update other tabs with OpenAPI data
+                this.updateRawSchema('json');
+                this.updateComponents('json');
+
+                this.updateStatus('success', `Loaded ${openApiSpec.endpoints.length} endpoints`);
 
             } catch (error) {
                 console.error('Failed to load endpoints:', error);
+                this.updateStatus('error', `Failed to load endpoints: ${error.message}`);
                 throw error;
             } finally {
                 this.loadingState.endpoints = false;
             }
+        },
+
+        // Switch to different API version
+        async switchVersion(newVersion) {
+            if (newVersion === APIState.currentVersion) {
+                return;
+            }
+
+            APIState.currentVersion = newVersion;
+
+            // Clear current data
+            APIState.allEndpoints = [];
+            APIState.filteredEndpoints = [];
+            APIState.openApiSchema = null;
+
+            // Load new version
+            await this.loadEndpoints();
         },
 
         // Populate version selector dropdown
@@ -185,616 +168,386 @@
                 return;
             }
 
-            // Clear existing options
             versionSelect.innerHTML = '';
 
-            // Add version options with correct version info
             APIState.availableVersions.forEach(versionInfo => {
                 const option = document.createElement('option');
                 option.value = versionInfo.version;
 
-                // Use the version info from the versions API, not current schema
-                const apiTitle = versionInfo.config?.title || 'API';
-                const apiVersion = versionInfo.config?.version || versionInfo.version;
-                const status = versionInfo.status || 'stable';
+                // Enhanced display: show full title, version, and status
+                const title = versionInfo.config?.title || 'API';
+                const version = versionInfo.config?.version || versionInfo.version;
+                const status = versionInfo.status || 'Active';
+                const displayName = `${title} v${version} (${status})`;
 
-                option.textContent = `${apiTitle} v${apiVersion} (${status})`;
+                option.textContent = displayName;
                 option.selected = versionInfo.version === APIState.currentVersion;
                 versionSelect.appendChild(option);
             });
 
-            // Add change listener
-            versionSelect.addEventListener('change', async (e) => {
-                const newVersion = e.target.value;
-                if (newVersion !== APIState.currentVersion) {
-                    await this.switchVersion(newVersion);
-                }
-            });
+            // Add change event listener
+            versionSelect.removeEventListener('change', this.handleVersionChange);
+            versionSelect.addEventListener('change', this.handleVersionChange.bind(this));
         },
 
-        // Switch to different API version
-        async switchVersion(newVersion) {
-            if (!newVersion || newVersion === APIState.currentVersion) {
-                return;
-            }
-
-            try {
-                if (typeof ErrorStatusManager !== 'undefined') {
-                    ErrorStatusManager.updateStatus('loading', `Switching to version ${newVersion}...`);
-                } else if (typeof StatusManager !== 'undefined') {
-                    StatusManager.updateStatus('loading', `Switching to version ${newVersion}...`);
-                }
-
-                // Reset state first
-                APIState.reset();
-
-                // Then update current version
-                APIState.currentVersion = newVersion;
-
-                // Load new version's endpoints
-                await this.loadEndpoints();
-
-                console.log(`Switched to API version ${newVersion}`);
-
-            } catch (error) {
-                console.error('Failed to switch version:', error);
-
-                // Revert version selector
-                const versionSelect = document.getElementById('version-select');
-                if (versionSelect) {
-                    versionSelect.value = APIState.currentVersion;
+        // Handle version selection change
+        async handleVersionChange(event) {
+            const newVersion = event.target.value;
+            if (newVersion && newVersion !== APIState.currentVersion) {
+                try {
+                    await this.switchVersion(newVersion);
+                } catch (error) {
+                    console.error('Failed to switch version:', error);
+                    // Revert selection on error
+                    event.target.value = APIState.currentVersion;
                 }
             }
         },
 
         // Update endpoints list in UI
         updateEndpointsList() {
-            // Render endpoints using EndpointRenderer
             if (typeof EndpointRenderer !== 'undefined' && EndpointRenderer.render) {
                 EndpointRenderer.render();
             }
-
-            // Update endpoint count display and statistics
-            if (typeof UIController !== 'undefined' && UIController._updateStatistics) {
-                UIController._updateStatistics();
-            } else {
-                // Fallback: direct update
-                const countElement = document.getElementById('api-endpoints-count');
-                if (countElement) {
-                    countElement.textContent = APIState.filteredEndpoints.length;
-                }
-            }
-
-            // Update version info display
-            this.updateVersionInfo();
-        },
-
-        // Update version information display
-        updateVersionInfo() {
-            // Update version selector display with detailed info
-            const versionSelect = document.getElementById('version-select');
-            if (versionSelect && APIState.availableVersions.length > 0) {
-                // Clear and repopulate with detailed version info
-                versionSelect.innerHTML = '';
-
-                APIState.availableVersions.forEach(versionData => {
-                    const option = document.createElement('option');
-                    option.value = versionData.version;
-
-                    // Create detailed version display
-                    const statusText = versionData.status ? ` (${versionData.status})` : '';
-                    const endpointCount = versionData.endpoints || 0;
-                    option.textContent = `${versionData.version}${statusText} - ${endpointCount} endpoints`;
-
-                    option.selected = versionData.version === APIState.currentVersion;
-                    versionSelect.appendChild(option);
-                });
-            }
-
-            // Update version selector and description display
-            this.updateVersionDisplay();
-        },
-
-        // Update version display and description
-        updateVersionDisplay() {
-            // Update version selector options to include full API info
-            this.populateVersionSelector();
-
-            // Display API description separately
-            this.displayAPIDescription();
-        },
-
-        // Display API description
-        displayAPIDescription() {
-            // Look for or create description container above filters/stats
-            let descContainer = document.getElementById('api-description-display');
-
-            if (!descContainer) {
-                // Create container before the filters section
-                const filtersSection = document.getElementById('api-filters');
-                if (filtersSection && filtersSection.parentElement) {
-                    descContainer = document.createElement('div');
-                    descContainer.id = 'api-description-display';
-                    descContainer.className = 'api-description-compact';
-                    filtersSection.parentElement.insertBefore(descContainer, filtersSection);
-                }
-            }
-
-            if (descContainer && APIState.openApiSchema) {
-                const description = APIState.openApiSchema.description;
-                if (description && description.trim()) {
-                    // Render as compact row with icon and description
-                    descContainer.innerHTML = `
-                        <div class="flex align-center gap-2 p-2 mb-3" style="background: var(--baseAlt1Color); border-radius: var(--baseRadius); border-left: 3px solid var(--infoColor);">
-                            <i class="ri-information-line txt-info"></i>
-                            <span class="txt-sm flex-fill" style="line-height: 1.4;">${this._escapeHtml(description)}</span>
-                        </div>
-                    `;
-                    descContainer.style.display = 'block';
-                } else {
-                    descContainer.style.display = 'none';
-                }
-            }
-        },
-
-        _escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        },
-
-        // Get CSS class for version status badge
-        getStatusBadgeClass(status) {
-            switch (status) {
-                case 'stable': return 'success';
-                case 'testing': return 'warning';
-                case 'development': return 'info';
-                case 'deprecated': return 'danger';
-                default: return 'secondary';
-            }
-        },
-
-        // Update raw schema content using SchemaProcessor
-        updateRawSchema(format = 'json') {
-            const rawContent = document.getElementById('raw-schema-content');
-            if (!rawContent || !APIState.openApiSchema) {
-                if (rawContent) {
-                    rawContent.innerHTML = '<div class="code-block"><span class="json-null">No schema data available</span></div>';
-                }
-                return;
-            }
-
-            try {
-                if (typeof SchemaProcessor !== 'undefined') {
-                    SchemaProcessor.updateElement('raw-schema-content', APIState.openApiSchema, format);
-                } else {
-                    // Fallback if SchemaProcessor is not available
-                    const content = format === 'yaml'
-                        ? this._basicYamlConvert(APIState.openApiSchema)
-                        : JSON.stringify(APIState.openApiSchema, null, 2);
-                    rawContent.innerHTML = `<div class="code-block"><pre><code>${this._escapeHtml(content)}</code></pre></div>`;
-                }
-            } catch (error) {
-                rawContent.innerHTML = `<div class="code-block"><span class="error">Error formatting schema: ${error.message}</span></div>`;
-                console.error('Failed to update raw schema:', error);
-            }
-        },
-
-        // Update components content using SchemaProcessor
-        updateComponents(format = 'json') {
-            const componentsContent = document.getElementById('components-content');
-            if (!componentsContent) return;
-
-            try {
-                const components = APIState.openApiSchema?.components || {};
-
-                if (Object.keys(components).length === 0) {
-                    componentsContent.innerHTML = '<div class="code-block"><span class="json-null">No components available in this API schema</span></div>';
-                    return;
-                }
-
-                if (typeof SchemaProcessor !== 'undefined') {
-                    SchemaProcessor.updateElement('components-content', components, format);
-                } else {
-                    // Fallback if SchemaProcessor is not available
-                    const content = format === 'yaml'
-                        ? this._basicYamlConvert(components)
-                        : JSON.stringify(components, null, 2);
-                    componentsContent.innerHTML = `<div class="code-block"><pre><code>${this._escapeHtml(content)}</code></pre></div>`;
-                }
-            } catch (error) {
-                componentsContent.innerHTML = `<div class="code-block"><span class="error">Error formatting components: ${error.message}</span></div>`;
-                console.error('Failed to update components:', error);
-            }
-        },
-
-        // Basic YAML conversion fallback
-        _basicYamlConvert(obj) {
-            try {
-                return JSON.stringify(obj, null, 2).replace(/"/g, '').replace(/,\n/g, '\n').replace(/{\n/g, ':\n').replace(/}/g, '');
-            } catch (error) {
-                return JSON.stringify(obj, null, 2);
-            }
-        },
-
-        // HTML escape utility
-        _escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         },
 
         // Update statistics display
         updateStatsDisplay() {
-            const statsContainer = document.getElementById('api-stats');
-            if (!statsContainer) return;
+            const stats = this.calculateStats();
+            APIState.apiStats = stats;
 
-            const stats = APIState.apiStats || this.calculateStats();
-
-            statsContainer.innerHTML = `
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-value">${stats.endpoints}</span>
-                        <span class="stat-label">Endpoints</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-value">${stats.methods}</span>
-                        <span class="stat-label">Methods</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-value">${stats.auth}</span>
-                        <span class="stat-label">Auth Required</span>
-                    </div>
-                </div>
-            `;
+            if (typeof UIController !== 'undefined' && UIController.updateStatistics) {
+                UIController.updateStatistics(stats);
+            }
         },
 
-        // Calculate statistics (enhanced for filter population)
-        calculateStats() {
-            const endpoints = APIState.allEndpoints;
+        // Update version display information
+        updateVersionDisplay() {
+            const versionInfo = APIState.availableVersions.find(v => v.version === APIState.currentVersion);
+            if (!versionInfo) return;
 
-            // Use APIState's detailed calculation if available
-            if (APIState.apiStats && APIState.apiStats.totalEndpoints === endpoints.length) {
-                return APIState.apiStats;
+            // Enhanced version display - update page title and add compact info
+            const title = versionInfo.config?.title || 'API Documentation';
+            const version = versionInfo.config?.version || versionInfo.version;
+            const description = versionInfo.config?.description || '';
+
+            // Update page title
+            if (document.title.includes('API')) {
+                document.title = `${title} v${version} - PocketBase`;
             }
 
-            // Fallback to local calculation with detailed breakdown
+            // Create/update compact API info display under version selector
+            this.updateCompactAPIInfo(title, version, description);
+        },
+
+        // Update compact API information display
+        updateCompactAPIInfo(title, version, description) {
+            const versionSelect = document.getElementById('version-select');
+            if (!versionSelect) return;
+
+            // Look for existing info or create new one
+            let infoDiv = document.getElementById('api-compact-info');
+
+            if (!infoDiv) {
+                infoDiv = document.createElement('div');
+                infoDiv.id = 'api-compact-info';
+                infoDiv.className = 'api-compact-info txt-sm txt-hint mt-2 mb-3';
+
+                // Insert after the entire version selector container (flex container)
+                const flexContainer = versionSelect.closest('.flex') || versionSelect.parentElement;
+                flexContainer.parentElement.insertBefore(infoDiv, flexContainer.nextSibling);
+
+                // Add minimal CSS
+                if (!document.getElementById('api-compact-styles')) {
+                    const style = document.createElement('style');
+                    style.id = 'api-compact-styles';
+                    style.textContent = `
+                        .api-compact-info {
+                            padding: 8px 12px !important;
+                            background: #f8f9fa !important;
+                            border-radius: 4px !important;
+                            border-left: 3px solid #007bff !important;
+                        }
+                        .api-compact-desc {
+                            color: #6c757d !important;
+                            font-style: italic !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+            }
+
+            // Update content - only show description
+            if (description) {
+                infoDiv.innerHTML = `<span class="api-compact-desc">${this._escapeHtml(description)}</span>`;
+                infoDiv.style.display = 'block';
+            } else {
+                infoDiv.style.display = 'none';
+            }
+        },
+
+        // Helper method to escape HTML
+        _escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        },
+
+        // Initialize filter options
+        initializeFilters() {
+            if (typeof UIController !== 'undefined') {
+                const stats = APIState.apiStats || this.calculateStats();
+                if (UIController.populateFilterOptions) {
+                    UIController.populateFilterOptions(stats);
+                }
+
+                // Show filters section
+                const filtersSection = document.getElementById('api-filters');
+                if (filtersSection) {
+                    filtersSection.style.display = 'block';
+                }
+            }
+        },
+
+        // Update raw schema display
+        updateRawSchema(format = 'json') {
+            const rawContent = document.getElementById('raw-schema-content');
+            if (!rawContent) {
+                return;
+            }
+
+            if (!APIState.openApiSchema) {
+                rawContent.innerHTML = '<code>No schema data available</code>';
+                return;
+            }
+
+            try {
+                // Use SchemaProcessor for syntax highlighting if available
+                if (typeof SchemaProcessor !== 'undefined') {
+                    // Pass the original JSON data to syntaxHighlight, let it handle the conversion
+                    const highlighted = SchemaProcessor.syntaxHighlight(APIState.openApiSchema, format);
+                    rawContent.innerHTML = highlighted;
+                } else {
+                    // Fallback for when SchemaProcessor is not available
+                    let content;
+                    if (format === 'yaml') {
+                        content = 'YAML format not available without SchemaProcessor';
+                    } else {
+                        content = JSON.stringify(APIState.openApiSchema, null, 2);
+                    }
+                    rawContent.innerHTML = `<code>${this._escapeHtml(content)}</code>`;
+                }
+
+            } catch (error) {
+                console.error('Failed to update raw schema:', error);
+                rawContent.innerHTML = `<code class="txt-danger">Error formatting schema: ${error.message}</code>`;
+            }
+        },
+
+        // Update components schema display
+        updateComponents(format = 'json') {
+            const componentsContent = document.getElementById('components-content');
+            if (!componentsContent) {
+                return;
+            }
+
+            if (!APIState.openApiSchema?.components || Object.keys(APIState.openApiSchema.components).length === 0) {
+                componentsContent.innerHTML = '<code>No components available</code>';
+                return;
+            }
+
+            try {
+                // Use SchemaProcessor for syntax highlighting if available
+                if (typeof SchemaProcessor !== 'undefined') {
+                    // Pass the original JSON data to syntaxHighlight, let it handle the conversion
+                    const highlighted = SchemaProcessor.syntaxHighlight(APIState.openApiSchema.components, format);
+                    componentsContent.innerHTML = highlighted;
+                } else {
+                    // Fallback for when SchemaProcessor is not available
+                    let content;
+                    if (format === 'yaml') {
+                        content = 'YAML format not available without SchemaProcessor';
+                    } else {
+                        content = JSON.stringify(APIState.openApiSchema.components, null, 2);
+                    }
+                    componentsContent.innerHTML = `<code>${this._escapeHtml(content)}</code>`;
+                }
+
+            } catch (error) {
+                console.error('Failed to update components:', error);
+                componentsContent.innerHTML = `<code class="txt-danger">Error formatting components: ${error.message}</code>`;
+            }
+        },
+
+        // Helper method for HTML escaping
+        _escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        },
+
+        // Calculate statistics from endpoints
+        calculateStats() {
+            const endpoints = APIState.allEndpoints || [];
+
             const stats = {
                 totalEndpoints: endpoints.length,
-                endpoints: endpoints.length, // backward compatibility
-                methodCounts: {},
-                authTypes: {},
-                authRequired: 0,
-                uniqueTags: 0,
+                methods: {},
                 tags: {},
-                validationErrors: 0,
-                lastUpdated: new Date().toISOString()
+                authTypes: {}
             };
-
-            const tagSet = new Set();
 
             endpoints.forEach(endpoint => {
                 // Count methods
-                const method = endpoint.method;
-                stats.methodCounts[method] = (stats.methodCounts[method] || 0) + 1;
-
-                // Count auth types and requirements
-                if (endpoint.auth?.required) {
-                    stats.authRequired++;
-                    const authType = endpoint.auth.type || 'required';
-                    stats.authTypes[authType] = (stats.authTypes[authType] || 0) + 1;
-                } else {
-                    stats.authTypes['none'] = (stats.authTypes['none'] || 0) + 1;
-                }
+                const method = endpoint.method || 'UNKNOWN';
+                stats.methods[method] = (stats.methods[method] || 0) + 1;
 
                 // Count tags
-                if (endpoint.tags && Array.isArray(endpoint.tags)) {
-                    endpoint.tags.forEach(tag => {
-                        tagSet.add(tag);
-                        stats.tags[tag] = (stats.tags[tag] || 0) + 1;
-                    });
-                }
+                (endpoint.tags || []).forEach(tag => {
+                    stats.tags[tag] = (stats.tags[tag] || 0) + 1;
+                });
 
-                // Count validation errors
-                if (!endpoint._validated) {
-                    stats.validationErrors++;
-                }
+                // Count auth types
+                const authType = endpoint.auth?.type || 'none';
+                stats.authTypes[authType] = (stats.authTypes[authType] || 0) + 1;
             });
-
-            stats.uniqueTags = tagSet.size;
-
-            // Backward compatibility fields
-            stats.methods = Object.keys(stats.methodCounts).length;
-            stats.auth = stats.authRequired;
 
             return stats;
         },
 
-        // Refresh all data
-        refresh() {
-            return this.loadVersions();
+
+
+        // Update status message
+        updateStatus(type, message) {
+            if (typeof ErrorStatusManager !== 'undefined') {
+                ErrorStatusManager.updateStatus(type, message);
+            } else if (typeof StatusManager !== 'undefined') {
+                StatusManager.updateStatus(type, message);
+            }
         },
 
-        // Check if loader is ready
-        isReady() {
-            return !this.loadingState.versions && !this.loadingState.endpoints && APIState.allEndpoints.length > 0;
-        },
-
-        // Check if loader is loading
+        // Check if currently loading
         isLoading() {
             return this.loadingState.versions || this.loadingState.endpoints;
         },
 
-        // Convert AST data format to expected endpoints format
-        convertASTToEndpoints(astData) {
-            // Check if this is OpenAPI format (backend-transformed)
-            if (astData.endpoints && Array.isArray(astData.endpoints) && astData.components) {
-                console.log('Detected OpenAPI format, linking component schemas to endpoints...');
-                return this._linkSchemasToEndpoints(astData.endpoints, astData.components.schemas || {});
+        // Initialize the API loader
+        async initialize() {
+            try {
+                await this.loadVersions();
+                return true;
+            } catch (error) {
+                console.error('Failed to initialize API loader:', error);
+                return false;
             }
-
-            // Check if this is already in endpoints format (legacy)
-            if (astData.endpoints && Array.isArray(astData.endpoints)) {
-                return astData.endpoints;
-            }
-
-            // Check if this is AST format with handlers
-            if (!astData.handlers || typeof astData.handlers !== 'object') {
-                console.warn('No handlers found in AST data, returning empty endpoints array');
-                return [];
-            }
-
-            const endpoints = [];
-            const handlers = astData.handlers;
-
-            for (const [handlerName, handlerData] of Object.entries(handlers)) {
-                try {
-                    // Parse handler name to extract method and path info
-                    const parsedHandler = this._parseHandlerName(handlerName);
-
-                    // Extract basic endpoint info
-                    const endpoint = {
-                        method: parsedHandler.method,
-                        path: parsedHandler.path,
-                        handler: handlerName,
-                        description: handlerData.api_description || parsedHandler.description || `Handler: ${handlerName}`,
-                        tags: handlerData.api_tags || parsedHandler.tags || [],
-                        auth: {
-                            required: handlerData.requires_auth || false,
-                            type: handlerData.auth_type || 'none',
-                            description: handlerData.requires_auth ? 'Authentication required' : 'No authentication required',
-                            icon: handlerData.requires_auth ? '🔒' : '🌐'
-                        },
-                        request: null,
-                        response: null
-                    };
-
-                    // Convert request schema
-                    if (handlerData.request_schema && typeof handlerData.request_schema === 'object') {
-                        endpoint.request = handlerData.request_schema;
-                    }
-
-                    // Convert response schema
-                    if (handlerData.response_schema && typeof handlerData.response_schema === 'object') {
-                        endpoint.response = handlerData.response_schema;
-                    }
-
-                    endpoints.push(endpoint);
-
-                } catch (error) {
-                    console.error(`Failed to convert handler ${handlerName}:`, error);
-                    // Add a fallback endpoint for failed conversions
-                    endpoints.push({
-                        method: 'POST',
-                        path: `/api/${handlerName.toLowerCase()}`,
-                        handler: handlerName,
-                        description: `Handler: ${handlerName} (conversion error: ${error.message})`,
-                        tags: ['conversion-error'],
-                        auth: { required: false, type: 'none', description: 'No authentication required', icon: '🌐' },
-                        request: null,
-                        response: null
-                    });
-                }
-            }
-
-            console.log(`Converted ${Object.keys(handlers).length} handlers to ${endpoints.length} endpoints`);
-            return endpoints;
         },
 
-        // Link component schemas to endpoints based on path patterns
-        _linkSchemasToEndpoints(endpoints, componentSchemas) {
-            const linkedEndpoints = endpoints.map((endpoint, index) => {
-                console.log(`Processing endpoint ${index + 1}/${endpoints.length}:`, {
-                    method: endpoint.method,
-                    path: endpoint.path,
-                    handler_name: endpoint.handler_name,
-                    description: endpoint.description
-                });
-
-                const linkedEndpoint = { ...endpoint };
-
-                // Try to find matching request schema
-                const requestSchema = this._findMatchingSchema(endpoint, componentSchemas, 'request');
-                if (requestSchema) {
-                    linkedEndpoint.request = requestSchema;
-                    console.log(`✅ Linked request schema to ${endpoint.path}`);
-                } else {
-                    console.log(`❌ No request schema found for ${endpoint.path}`);
-                }
-
-                // Try to find matching response schema
-                const responseSchema = this._findMatchingSchema(endpoint, componentSchemas, 'response');
-                if (responseSchema) {
-                    linkedEndpoint.response = responseSchema;
-                    console.log(`✅ Linked response schema to ${endpoint.path}`);
-                } else {
-                    console.log(`❌ No response schema found for ${endpoint.path}`);
-                }
-
-                // Ensure auth structure exists
-                if (!linkedEndpoint.auth) {
-                    linkedEndpoint.auth = {
-                        required: false,
-                        type: 'none',
-                        description: 'No authentication required',
-                        icon: '🌐'
-                    };
-                }
-
-                return linkedEndpoint;
-            });
-
-            console.log(`Linked schemas to ${linkedEndpoints.length} endpoints`);
-            return linkedEndpoints;
-        },
-
-        // Find matching schema for endpoint using generic fuzzy matching
-        _findMatchingSchema(endpoint, componentSchemas, type) {
-            console.log(`Looking for ${type} schema for endpoint:`, endpoint.path);
-            console.log('Available schemas:', Object.keys(componentSchemas));
-
-            if (!componentSchemas || Object.keys(componentSchemas).length === 0) {
-                console.log('No component schemas available');
-                return null;
-            }
-
-            // Extract words from endpoint path and description for matching
-            const pathWords = endpoint.path.toLowerCase()
-                .split(/[\/\-_]/)
-                .filter(word => word && word !== 'api')
-                .map(word => word.replace(/[^a-z]/g, ''));
-
-            const descriptionWords = (endpoint.description || '')
-                .toLowerCase()
-                .split(/[\s\-_]/)
-                .filter(word => word && word.length > 2)
-                .map(word => word.replace(/[^a-z]/g, ''));
-
-            const allEndpointWords = [...pathWords, ...descriptionWords];
-            console.log('Endpoint words extracted:', allEndpointWords);
-
-            // For request schemas only (responses are typically dynamic)
-            if (type === 'request') {
-                const requestSchemas = Object.entries(componentSchemas)
-                    .filter(([name]) => name.toLowerCase().includes('request'))
-                    .map(([name, schema]) => ({
-                        name,
-                        schema,
-                        baseWord: name.replace(/request$/i, '').toLowerCase()
-                    }));
-
-                // Find best match by checking word overlap
-                console.log('Request schemas to check:', requestSchemas.map(s => ({name: s.name, baseWord: s.baseWord})));
-
-                for (const {name, schema, baseWord} of requestSchemas) {
-                    const matchScore = allEndpointWords.reduce((score, word) => {
-                        const hasMatch = baseWord.includes(word) || word.includes(baseWord);
-                        console.log(`  Checking '${word}' vs '${baseWord}': ${hasMatch ? 'MATCH' : 'no match'}`);
-                        if (hasMatch) {
-                            return score + word.length; // Longer matches score higher
-                        }
-                        return score;
-                    }, 0);
-
-                    console.log(`Schema '${name}' match score: ${matchScore}`);
-                    if (matchScore > 0) {
-                        console.log(`🎯 Matched schema '${name}' to endpoint ${endpoint.path} (score: ${matchScore})`);
-                        return schema;
-                    }
-                }
-
-                console.log('No matching request schema found');
-            }
-
-            return null;
-        },
-
-        // Parse handler name to extract HTTP method, path, and metadata
-        _parseHandlerName(handlerName) {
-            // Default values
-            let method = 'POST';
-            let path = `/api/${handlerName.toLowerCase()}`;
-            let description = `Handler: ${handlerName}`;
-            let tags = [];
-
-            // Pattern 1: Action-based handlers (createTodoHandler, getTodosHandler, etc.)
-            const actionMatch = handlerName.match(/^(create|get|update|delete|patch|put)(.*)Handler$/i);
-            if (actionMatch) {
-                const action = actionMatch[1].toLowerCase();
-                const resource = actionMatch[2] || 'resource';
-
-                // Map actions to HTTP methods
-                switch (action) {
-                    case 'create':
-                        method = 'POST';
-                        break;
-                    case 'get':
-                        method = 'GET';
-                        break;
-                    case 'update':
-                    case 'patch':
-                        method = 'PATCH';
-                        break;
-                    case 'put':
-                        method = 'PUT';
-                        break;
-                    case 'delete':
-                        method = 'DELETE';
-                        break;
-                }
-
-                // Convert resource name to path
-                const resourcePath = resource.replace(/([A-Z])/g, '/$1').toLowerCase().replace(/^\//, '');
-
-                // Handle plural vs singular patterns
-                if (resource.endsWith('s')) {
-                    // Plural resource (getTodosHandler -> GET /api/todos)
-                    path = `/api/${resourcePath}`;
-                    description = `${action.charAt(0).toUpperCase() + action.slice(1)} all ${resourcePath}`;
-                } else {
-                    // Singular resource (getTodoHandler -> GET /api/todo/{id})
-                    path = `/api/${resourcePath}/{id}`;
-                    description = `${action.charAt(0).toUpperCase() + action.slice(1)} ${resourcePath} by ID`;
-                }
-
-                tags = [resourcePath, action];
-                return { method, path, description, tags };
-            }
-
-            // Pattern 2: Generic handlers (handleServerValidation, timeHandler, etc.)
-            const genericMatch = handlerName.match(/^handle(.*)$/i);
-            if (genericMatch) {
-                const operation = genericMatch[1];
-                const operationPath = operation.replace(/([A-Z])/g, '/$1').toLowerCase().replace(/^\//, '');
-
-                path = `/api/${operationPath}`;
-                description = `Handle ${operation}`;
-                tags = [operationPath];
-                return { method, path, description, tags };
-            }
-
-            // Pattern 3: Simple handlers (timeHandler, statusHandler, etc.)
-            const simpleMatch = handlerName.match(/^(.*)Handler$/i);
-            if (simpleMatch) {
-                const operation = simpleMatch[1];
-                const operationPath = operation.replace(/([A-Z])/g, '/$1').toLowerCase();
-
-                // Most simple handlers are GET operations
-                method = 'GET';
-                path = `/api/${operationPath}`;
-                description = `Get ${operation}`;
-                tags = [operationPath, 'utility'];
-                return { method, path, description, tags };
-            }
-
-            // Fallback: use handler name as-is
-            const fallbackPath = handlerName.replace(/([A-Z])/g, '/$1').toLowerCase().replace(/^\//, '');
+        // DEBUG METHODS FOR TROUBLESHOOTING
+        getDebugInfo() {
             return {
-                method,
-                path: `/api/${fallbackPath}`,
-                description,
-                tags: ['handler']
+                timestamp: new Date().toISOString(),
+                loading: {
+                    versions: this.loadingState.versions,
+                    endpoints: this.loadingState.endpoints
+                },
+                auth: {
+                    hasToken: !!this.getSuperuserAuthToken(),
+                    tokenPreview: this.getSuperuserAuthToken()?.substring(0, 20) + '...' || null
+                },
+                state: {
+                    availableVersions: APIState.availableVersions?.length || 0,
+                    currentVersion: APIState.currentVersion,
+                    allEndpoints: APIState.allEndpoints?.length || 0,
+                    filteredEndpoints: APIState.filteredEndpoints?.length || 0
+                },
+                components: {
+                    APIState: typeof APIState,
+                    UIController: typeof UIController,
+                    EndpointRenderer: typeof EndpointRenderer,
+                    ErrorStatusManager: typeof ErrorStatusManager
+                },
+                dom: {
+                    versionSelect: !!document.getElementById('version-select'),
+                    endpointsList: !!document.getElementById('endpoints-list'),
+                    apiFilters: !!document.getElementById('api-filters')
+                }
             };
+        },
+
+        async testConnection() {
+            try {
+                const response = await fetch('/api/docs/versions', this.getFetchOptions(false));
+                const data = await response.json();
+                return { success: true, status: response.status, data };
+            } catch (error) {
+                console.error('Connection test failed:', error);
+                return { success: false, error: error.message };
+            }
+        },
+
+        async forceReload() {
+            this.loadingState.versions = false;
+            this.loadingState.endpoints = false;
+            APIState.reset();
+            return await this.initialize();
+        },
+
+        checkDependencies() {
+            const deps = {
+                APIState: typeof APIState !== 'undefined',
+                UIController: typeof UIController !== 'undefined',
+                EndpointRenderer: typeof EndpointRenderer !== 'undefined',
+                ErrorStatusManager: typeof ErrorStatusManager !== 'undefined'
+            };
+
+            const missing = Object.entries(deps).filter(([name, available]) => !available);
+
+            if (missing.length > 0) {
+                console.error('Missing dependencies:', missing.map(([name]) => name));
+                return { success: false, missing: missing.map(([name]) => name) };
+            } else {
+                return { success: true };
+            }
         }
     };
+
+    // Export for global use
+    if (typeof window !== 'undefined') {
+        window.APILoader = APILoader;
+
+        // Global debug helper for troubleshooting
+        window.APIDebug = window.APIDebug || {};
+        window.APIDebug.loader = {
+            // Quick status check
+            status: () => APILoader.getDebugInfo(),
+
+            // Test API connection
+            test: () => APILoader.testConnection(),
+
+            // Force reload API data
+            reload: () => APILoader.forceReload(),
+
+            // Check component dependencies
+            deps: () => APILoader.checkDependencies(),
+
+            // Get auth token info
+            auth: () => ({
+                hasToken: !!APILoader.getSuperuserAuthToken(),
+                tokenPreview: APILoader.getSuperuserAuthToken()?.substring(0, 20) + '...' || null
+            }),
+
+            // Manual initialization
+            init: () => APILoader.initialize(),
+
+            // Current state snapshot
+            state: () => ({
+                versions: APIState?.availableVersions || [],
+                currentVersion: APIState?.currentVersion,
+                endpoints: APIState?.allEndpoints?.length || 0,
+                filtered: APIState?.filteredEndpoints?.length || 0
+            })
+        };
+    }
+
 {{end}}

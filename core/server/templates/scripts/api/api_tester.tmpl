@@ -1,228 +1,439 @@
 {{define "api_tester_js"}}
     // =============================================================================
-    // API TESTER - SIMPLIFIED FOR AST-BASED SCHEMAS
+    // SIMPLIFIED API TESTER - USES NEW OPENAPI COMPONENTS
     // =============================================================================
 
     const APITester = {
         currentEndpoint: null,
         initialized: false,
+        _eventCleanup: [],
 
         // Initialize the API tester
         init() {
             if (this.initialized) {
                 return;
             }
-            this.bindEvents();
-            this.initialized = true;
-            console.log('APITester initialized');
+
+            try {
+                this._bindEvents();
+                this._setupStateObservers();
+                this.initialized = true;
+            } catch (error) {
+                console.error('Failed to initialize APITester:', error);
+                this._handleError(error, 'APITester initialization failed');
+            }
         },
 
         // Bind event listeners
-        bindEvents() {
-            // Don't bind events if APITesterSidebar is handling the sidebar functionality
-            if (typeof APITesterSidebar !== 'undefined') {
-                console.log('APITesterSidebar available, skipping button bindings in legacy APITester');
-                return;
-            }
-
-            // Form action buttons
+        _bindEvents() {
+            // Send request button
             const sendBtn = document.getElementById('send-request-btn');
-            const resetBtn = document.getElementById('reset-form-btn');
-
             if (sendBtn) {
-                sendBtn.addEventListener('click', () => this.sendRequest());
+                const cleanup = this._addListener(sendBtn, 'click', () => {
+                    this.sendRequest();
+                });
+                this._eventCleanup.push(cleanup);
             }
 
+            // Reset form button
+            const resetBtn = document.getElementById('reset-form-btn');
             if (resetBtn) {
-                resetBtn.addEventListener('click', () => this.resetForm());
+                const cleanup = this._addListener(resetBtn, 'click', () => {
+                    this.resetForm();
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            // Copy response button
+            const copyBtn = document.getElementById('copy-response-btn');
+            if (copyBtn) {
+                const cleanup = this._addListener(copyBtn, 'click', () => {
+                    this.copyResponse();
+                });
+                this._eventCleanup.push(cleanup);
             }
         },
 
-        // Process endpoint and generate form
+        // Setup state observers to react to endpoint changes
+        _setupStateObservers() {
+            if (typeof APIState !== 'undefined') {
+                const cleanup = APIState.addObserver('endpoint:selected', (data) => {
+                    this.processEndpoint(data.endpoint);
+                });
+                this._eventCleanup.push(cleanup);
+            }
+        },
+
+        // Process endpoint and generate form using simplified components
         processEndpoint(endpoint) {
             if (!endpoint) {
                 console.error('No endpoint provided to process');
+                this._clearTester();
                 return;
             }
 
             this.currentEndpoint = endpoint;
-            console.log('Processing endpoint:', endpoint.method, endpoint.path);
-
-            const container = document.getElementById('schema-form-container');
-            if (!container) {
-                console.error('Schema form container not found');
-                return;
-            }
 
             try {
-                // Generate form using simplified form builder
-                APIFormBuilder.generateParameterForm(container, endpoint);
+                // Update endpoint information display
+                this._updateEndpointInfo(endpoint);
 
-                // Update endpoint info display
-                this.updateEndpointInfo();
+                // Generate parameter form using simplified form builder
+                this._generateParameterForm(endpoint);
+
+                // Update auth requirements display
+                this._updateAuthInfo(endpoint);
+
+                // Clear any previous response
+                this._clearResponse();
+
+                // Update UI state
+                this._updateTesterUI();
 
             } catch (error) {
                 console.error('Failed to process endpoint:', error);
-                this.showError(container, error);
+                this._handleError(error, `Processing endpoint ${endpoint.method} ${endpoint.path}`);
             }
         },
 
         // Update endpoint information display
-        updateEndpointInfo() {
-            const methodElement = document.getElementById('current-method');
-            const pathElement = document.getElementById('current-path');
-            const descElement = document.getElementById('current-description');
+        _updateEndpointInfo(endpoint) {
+            const methodEl = document.getElementById('tester-method');
+            const pathEl = document.getElementById('tester-path');
+            const summaryEl = document.getElementById('tester-summary');
+            const descriptionEl = document.getElementById('tester-description');
 
-            if (methodElement) {
-                methodElement.textContent = this.currentEndpoint.method.toUpperCase();
-                methodElement.className = `http-method ${this.currentEndpoint.method.toLowerCase()}`;
+            if (methodEl) {
+                methodEl.textContent = endpoint.method.toUpperCase();
+                methodEl.className = `method-badge method-${endpoint.method.toLowerCase()}`;
             }
 
-            if (pathElement) {
-                pathElement.textContent = this.currentEndpoint.path;
+            if (pathEl) {
+                pathEl.textContent = endpoint.path;
             }
 
-            if (descElement) {
-                descElement.textContent = this.currentEndpoint.description || 'No description available';
+            if (summaryEl) {
+                summaryEl.textContent = endpoint.summary || endpoint.operationId || 'No summary available';
             }
+
+            if (descriptionEl) {
+                if (endpoint.description) {
+                    descriptionEl.innerHTML = endpoint.description;
+                    descriptionEl.style.display = 'block';
+                } else {
+                    descriptionEl.style.display = 'none';
+                }
+            }
+
+            // Update tags display
+            this._updateTagsDisplay(endpoint.tags || []);
         },
 
-        // Show error state
-        showError(container, error) {
-            container.innerHTML = `
-                <div class="alert alert-danger">
-                    <div class="flex align-center gap-2 mb-2">
-                        <i class="ri-error-warning-line"></i>
-                        <strong>Failed to Process Endpoint</strong>
-                    </div>
-                    <p>${error.message}</p>
-                    <details class="mt-2">
-                        <summary class="txt-sm">Debug Information</summary>
-                        <pre class="txt-xs mt-1">${JSON.stringify({
-                            endpoint: this.currentEndpoint,
-                            error: error.toString()
-                        }, null, 2)}</pre>
-                    </details>
-                </div>
-            `;
+        // Update tags display
+        _updateTagsDisplay(tags) {
+            const tagsEl = document.getElementById('tester-tags');
+            if (!tagsEl) return;
+
+            if (tags.length === 0) {
+                tagsEl.style.display = 'none';
+                return;
+            }
+
+            tagsEl.innerHTML = tags.map(tag =>
+                `<span class="tag-badge">${tag}</span>`
+            ).join('');
+            tagsEl.style.display = 'block';
         },
 
-        // Send HTTP request
-        async sendRequest() {
-            if (!this.currentEndpoint) {
-                console.error('No current endpoint for request');
+        // Generate parameter form using simplified form builder
+        _generateParameterForm(endpoint) {
+            const formContainer = document.getElementById('parameters-form');
+            if (!formContainer) {
+                return;
+            }
+
+            if (typeof APIFormBuilder === 'undefined') {
+                console.error('APIFormBuilder not available');
+                this._showFormError('Form builder not available');
                 return;
             }
 
             try {
-                console.log('Sending request for endpoint:', this.currentEndpoint.method, this.currentEndpoint.path);
-                await APIRequestHandler.sendRequest(this.currentEndpoint);
+                // Use simplified form builder to generate the complete form
+                APIFormBuilder.generateParameterForm(formContainer, endpoint);
             } catch (error) {
-                console.error('Request failed:', error);
-                // Error handling is done by APIRequestHandler
+                console.error('Failed to generate parameter form:', error);
+                this._showFormError('Failed to generate form: ' + error.message);
             }
         },
 
-        // Reset form
+        // Update authentication info display
+        _updateAuthInfo(endpoint) {
+            const authInfoEl = document.getElementById('auth-info');
+            if (!authInfoEl) return;
+
+            if (typeof APISchemaManager === 'undefined') {
+                return;
+            }
+
+            const authInfo = APISchemaManager.getAuthInfo(endpoint);
+
+            if (!authInfo.required) {
+                authInfoEl.innerHTML = `
+                    <div class="auth-info-item">
+                        <i class="ri-global-line"></i>
+                        <span>No authentication required</span>
+                    </div>
+                `;
+                authInfoEl.className = 'auth-info auth-none';
+            } else {
+                authInfoEl.innerHTML = `
+                    <div class="auth-info-item">
+                        <i class="ri-lock-line"></i>
+                        <span>Authentication required (${authInfo.type})</span>
+                    </div>
+                    ${authInfo.description ? `<div class="auth-description">${authInfo.description}</div>` : ''}
+                `;
+                authInfoEl.className = 'auth-info auth-required';
+            }
+        },
+
+        // Send request using simplified request handler
+        async sendRequest() {
+            if (!this.currentEndpoint) {
+                this._showError('No endpoint selected for testing');
+                return;
+            }
+
+            if (typeof APIRequestHandler === 'undefined') {
+                this._showError('Request handler not available');
+                return;
+            }
+
+            try {
+                // Get admin token for regular tester (defaults to superuser auth)
+                let authToken = null;
+                const adminAuth = localStorage.getItem('__pb_superuser_auth__');
+                if (adminAuth) {
+                    const parsed = JSON.parse(adminAuth);
+                    authToken = parsed.token;
+                }
+
+                // Use simplified request handler with admin token
+                await APIRequestHandler.sendRequest(this.currentEndpoint, authToken);
+
+            } catch (error) {
+                console.error('Request failed:', error);
+                this._handleError(error, 'Request execution failed');
+            }
+        },
+
+        // Reset form to initial state
         resetForm() {
-            console.log('Resetting form');
+            if (typeof APIFormBuilder === 'undefined') {
+                return;
+            }
 
-            // Clear form fields
-            APIFormBuilder.clearForm();
+            try {
+                APIFormBuilder.clearForm();
+                this._clearResponse();
+                this._updateStatus('info', 'Form reset');
+            } catch (error) {
+                console.error('Failed to reset form:', error);
+                this._handleError(error, 'Form reset failed');
+            }
+        },
 
-            // Clear response area
-            const responseContainer = document.getElementById('api-response-container');
-            if (responseContainer) {
-                responseContainer.innerHTML = `
-                    <div class="txt-center txt-hint p-4">
-                        <i class="ri-send-plane-line ri-xl"></i>
-                        <p>Send a request to see the response</p>
+        // Copy response data to clipboard
+        async copyResponse() {
+            const responseBody = document.getElementById('response-body');
+            if (!responseBody) {
+                this._showError('No response to copy');
+                return;
+            }
+
+            try {
+                // Extract text content from response
+                const codeElement = responseBody.querySelector('code') || responseBody;
+                const content = codeElement.textContent || codeElement.innerText;
+
+                if (!content || content.trim() === '') {
+                    this._showError('No response content to copy');
+                    return;
+                }
+
+                // Copy to clipboard
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(content);
+                    this._updateStatus('success', 'Response copied to clipboard');
+                } else {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = content;
+                    textArea.style.position = 'fixed';
+                    textArea.style.opacity = '0';
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    this._updateStatus('success', 'Response copied to clipboard');
+                }
+
+            } catch (error) {
+                console.error('Failed to copy response:', error);
+                this._showError('Failed to copy response: ' + error.message);
+            }
+        },
+
+        // Clear response display
+        _clearResponse() {
+            if (typeof APIRequestHandler !== 'undefined' && APIRequestHandler.clearResponse) {
+                APIRequestHandler.clearResponse();
+            } else {
+                // Fallback: clear manually
+                const responseBody = document.getElementById('response-body');
+                const responseHeaders = document.getElementById('response-headers');
+                const responseStatus = document.getElementById('response-status');
+
+                if (responseBody) responseBody.innerHTML = '<div class="txt-hint">No response yet</div>';
+                if (responseHeaders) responseHeaders.innerHTML = '<div class="txt-hint">No headers yet</div>';
+                if (responseStatus) {
+                    responseStatus.className = 'response-status';
+                    responseStatus.innerHTML = '<span class="txt-hint">Ready</span>';
+                }
+            }
+        },
+
+        // Clear tester when no endpoint is selected
+        _clearTester() {
+            this.currentEndpoint = null;
+
+            // Clear form
+            const formContainer = document.getElementById('parameters-form');
+            if (formContainer) {
+                formContainer.innerHTML = '<div class="txt-hint p-4">Select an endpoint to test</div>';
+            }
+
+            // Clear endpoint info
+            const methodEl = document.getElementById('tester-method');
+            const pathEl = document.getElementById('tester-path');
+            const summaryEl = document.getElementById('tester-summary');
+            const descriptionEl = document.getElementById('tester-description');
+
+            if (methodEl) methodEl.textContent = '';
+            if (pathEl) pathEl.textContent = '';
+            if (summaryEl) summaryEl.textContent = '';
+            if (descriptionEl) descriptionEl.style.display = 'none';
+
+            // Clear response
+            this._clearResponse();
+        },
+
+        // Update tester UI state
+        _updateTesterUI() {
+            const sendBtn = document.getElementById('send-request-btn');
+            const resetBtn = document.getElementById('reset-form-btn');
+
+            const hasEndpoint = !!this.currentEndpoint;
+
+            if (sendBtn) sendBtn.disabled = !hasEndpoint;
+            if (resetBtn) resetBtn.disabled = !hasEndpoint;
+            if (exampleBtn) {
+                // Only show example button if endpoint has example data
+                const hasExample = hasEndpoint &&
+                    typeof APISchemaManager !== 'undefined' &&
+                    APISchemaManager.getExampleRequest(this.currentEndpoint);
+                exampleBtn.style.display = hasExample ? 'inline-block' : 'none';
+            }
+        },
+
+        // Show form error
+        _showFormError(message) {
+            const formContainer = document.getElementById('parameters-form');
+            if (formContainer) {
+                formContainer.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="ri-error-warning-line"></i>
+                        ${message}
                     </div>
                 `;
             }
+        },
 
-            // Re-process the endpoint to regenerate clean form
-            if (this.currentEndpoint) {
-                this.processEndpoint(this.currentEndpoint);
+        // Update status message
+        _updateStatus(type, message) {
+            if (typeof ErrorStatusManager !== 'undefined') {
+                ErrorStatusManager.updateStatus(type, message);
             }
         },
 
-        // Public API for opening sidebar (for endpoint renderer integration)
-        openSidebar(method, path, endpoint) {
-            // Try multiple ways to access the sidebar
-            const sidebar = window.APITesterSidebar || window.APITester;
+        // Show error message
+        _showError(message) {
+            this._updateStatus('error', message);
+        },
 
-            if (sidebar && typeof sidebar.openSidebar === 'function' && sidebar !== this) {
-                sidebar.openSidebar(method, path, endpoint);
-            } else if (typeof APITesterSidebar !== 'undefined' && APITesterSidebar.openSidebar) {
-                APITesterSidebar.openSidebar(method, path, endpoint);
+        // Handle errors
+        _handleError(error, context) {
+            const message = error.message || String(error);
+            console.error(`${context}:`, error);
+
+            if (typeof ErrorStatusManager !== 'undefined') {
+                ErrorStatusManager.handleError(error, context);
             } else {
-                console.error('APITesterSidebar not available');
+                this._showError(`${context}: ${message}`);
             }
         },
 
-        // Get current endpoint info
+        // Add event listener with cleanup tracking
+        _addListener(element, event, handler) {
+            element.addEventListener(event, handler);
+            return () => element.removeEventListener(event, handler);
+        },
+
+        // Check if tester is ready
+        isReady() {
+            return this.initialized &&
+                   typeof APIFormBuilder !== 'undefined' &&
+                   typeof APIRequestHandler !== 'undefined' &&
+                   typeof APISchemaManager !== 'undefined';
+        },
+
+        // Get current endpoint
         getCurrentEndpoint() {
             return this.currentEndpoint;
         },
 
-        // Check if endpoint requires authentication
-        requiresAuth() {
-            return this.currentEndpoint?.auth?.required || false;
+        // Set endpoint (for external use)
+        setEndpoint(endpoint) {
+            this.processEndpoint(endpoint);
         },
 
-        // Get endpoint summary information
-        getEndpointSummary() {
-            if (!this.currentEndpoint) return null;
-
-            return {
-                method: this.currentEndpoint.method,
-                path: this.currentEndpoint.path,
-                description: this.currentEndpoint.description || 'No description available',
-                tags: this.currentEndpoint.tags || [],
-                requiresAuth: this.requiresAuth(),
-                authType: this.currentEndpoint.auth?.type || 'none'
-            };
-        },
-
-        // Generate cURL command for current endpoint
-        generateCurlCommand() {
-            if (!this.currentEndpoint) {
-                return 'No endpoint selected';
-            }
-
-            try {
-                const validation = APIFormBuilder.validateForm(this.currentEndpoint);
-                if (!validation.valid) {
-                    return `Error: ${validation.errors.join(', ')}`;
+        // Cleanup resources
+        cleanup() {
+            // Remove event listeners
+            this._eventCleanup.forEach(cleanup => {
+                try {
+                    cleanup();
+                } catch (e) {
+                    // Silent cleanup error
                 }
+            });
+            this._eventCleanup = [];
 
-                return APIRequestHandler.generateCurlCommand(this.currentEndpoint, validation.data);
-            } catch (error) {
-                return `Error generating cURL: ${error.message}`;
-            }
+            this.currentEndpoint = null;
+            this.initialized = false;
         },
 
-        // Copy cURL command to clipboard
-        copyCurlCommand() {
-            if (!this.currentEndpoint) {
-                console.error('No endpoint selected');
-                return;
-            }
-
-            APIRequestHandler.copyCurlCommand(this.currentEndpoint);
+        // Reinitialize tester
+        reinit() {
+            this.cleanup();
+            this.init();
         }
     };
 
-    // Make APITester globally available, but don't overwrite existing APITester (APITesterSidebar)
-    if (!window.APITester) {
+    // Export for global use
+    if (typeof window !== 'undefined') {
         window.APITester = APITester;
-    } else {
-        // Merge functionality if needed
-        if (typeof window.APITester.processEndpoint !== 'function') {
-            window.APITester.processEndpoint = APITester.processEndpoint.bind(APITester);
-            window.APITester.sendRequest = APITester.sendRequest.bind(APITester);
-            window.APITester.resetForm = APITester.resetForm.bind(APITester);
-        }
     }
+
 {{end}}

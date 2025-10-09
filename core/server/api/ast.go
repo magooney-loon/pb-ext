@@ -304,7 +304,7 @@ func (p *ASTParser) handleJSONResponse(call *ast.CallExpr, handlerInfo *ASTHandl
 			}
 		}
 
-		// Fallback: generate a basic object schema
+		// Fallback: generate a basic object schemaa
 		handlerInfo.ResponseSchema = &OpenAPISchema{
 			Type:                 "object",
 			Description:          "Response data",
