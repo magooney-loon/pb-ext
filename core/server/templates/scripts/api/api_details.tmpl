@@ -2,27 +2,13 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
 
-    {{template "api_state_js" .}}
+    {{template "api_core_js" .}}
 
-    {{template "api_error_status_manager_js" .}}
+    {{template "api_data_js" .}}
 
-    {{template "api_schema_processor_js" .}}
+    {{template "api_ui_js" .}}
 
-    {{template "api_ui_controller_js" .}}
-
-    {{template "api_endpoint_renderer_js" .}}
-
-    {{template "api_tester_sidebar_js" .}}
-
-    {{template "api_schema_manager_js" .}}
-
-    {{template "api_form_builder_js" .}}
-
-    {{template "api_request_handler_js" .}}
-
-    {{template "api_tester_js" .}}
-
-    {{template "api_loader_js" .}}
+    {{template "api_testing_js" .}}
 
     {{template "api_init_js" .}}
 

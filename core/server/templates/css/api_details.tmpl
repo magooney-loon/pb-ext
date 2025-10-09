@@ -64,7 +64,7 @@
 
 .api-endpoint-content.active {
     padding: 16px;
-    max-height: 1000px;
+max-height: 100vh;
     border-top: 1px solid var(--baseAlt2Color, #e5e5e5);
 }
 
@@ -327,6 +327,160 @@
     .test-endpoint-btn {
         align-self: flex-end;
     }
+}
+
+/* =============================================================================
+   JSON SYNTAX HIGHLIGHTING
+   ============================================================================= */
+
+.code-block {
+    background: var(--baseAlt1Color, #f8f9fa);
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 4px;
+    overflow: auto;
+    max-height: 100vh;
+    position: relative;
+}
+
+.code-block pre {
+    margin: 0;
+    padding: 12px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.code-block code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+/* JSON Syntax Highlighting */
+.json-key {
+    color: #0066cc;
+    font-weight: 500;
+}
+
+.json-string {
+    color: #22c55e;
+}
+
+.json-number {
+    color: #f59e0b;
+}
+
+.json-boolean {
+    color: #8b5cf6;
+    font-weight: 500;
+}
+
+.json-null {
+    color: #ef4444;
+    font-style: italic;
+}
+
+.json-punctuation {
+    color: #6b7280;
+    font-weight: 500;
+}
+
+/* Parameter and response styling */
+.parameter-item,
+.response-item {
+    padding: 8px 12px;
+    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    background: var(--baseColor, #ffffff);
+}
+
+.parameter-item code {
+    background: var(--baseAlt1Color, #f8f9fa);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.response-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.http-status {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: white;
+}
+
+.http-status.status-200,
+.http-status.status-201,
+.http-status.status-204 {
+    background: #22c55e;
+}
+
+.http-status.status-400,
+.http-status.status-401,
+.http-status.status-403,
+.http-status.status-404 {
+    background: #ef4444;
+}
+
+.http-status.status-500,
+.http-status.status-502,
+.http-status.status-503 {
+    background: #f59e0b;
+}
+
+.response-schema {
+    margin-top: 8px;
+}
+
+.parameters-list,
+.responses-list {
+    margin-top: 8px;
+}
+
+/* Badge styles for filter tags */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 12px;
+    border: 1px solid transparent;
+}
+
+.badge-primary {
+    background-color: var(--successColor, #22c55e);
+    color: white;
+}
+
+.badge-secondary {
+    background-color: var(--baseAlt2Color, #e5e5e5);
+    color: var(--txtPrimaryColor, #333);
+}
+
+.badge-sm {
+    font-size: 10px;
+    padding: 1px 6px;
+}
+
+.badge-xs {
+    font-size: 9px;
+    padding: 1px 4px;
 }
 
 /* =============================================================================

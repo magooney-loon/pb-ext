@@ -1,0 +1,613 @@
+{{define "api_core_js"}}
+    // =============================================================================
+    // API CORE SYSTEM - CENTRALIZED EVENTBUS, STATE & ERROR MANAGEMENT
+    // =============================================================================
+
+    // =============================================================================
+    // EVENT SYSTEM CONSTANTS
+    // =============================================================================
+
+    const APIEvents = {
+        // System lifecycle events
+        SYSTEM: {
+            INIT: 'system:init',
+            READY: 'system:ready',
+            ERROR: 'system:error',
+            RESET: 'system:reset'
+        },
+
+        // Data management events
+        DATA: {
+            LOADING: 'data:loading',
+            LOADED: 'data:loaded',
+            UPDATED: 'data:updated',
+            ERROR: 'data:error',
+            SCHEMA_UPDATED: 'data:schema-updated',
+            ENDPOINTS_UPDATED: 'data:endpoints-updated',
+            VERSIONS_UPDATED: 'data:versions-updated'
+        },
+
+        // UI interaction events
+        UI: {
+            TAB_CHANGED: 'ui:tab-changed',
+            FILTER_APPLIED: 'ui:filter-applied',
+            SIDEBAR_OPENED: 'ui:sidebar-opened',
+            SIDEBAR_CLOSED: 'ui:sidebar-closed'
+        },
+
+        // API testing events
+        TEST: {
+            STARTED: 'test:started',
+            COMPLETED: 'test:completed',
+            FAILED: 'test:failed',
+            CANCELLED: 'test:cancelled'
+        },
+
+        // Status and error events
+        STATUS: {
+            CHANGED: 'status:changed',
+            ERROR: 'status:error',
+            WARNING: 'status:warning',
+            SUCCESS: 'status:success'
+        }
+    };
+
+    // =============================================================================
+    // CENTRALIZED EVENT BUS
+    // =============================================================================
+
+    const EventBus = {
+        _listeners: new Map(),
+        _middleware: [],
+        _debugMode: false,
+
+        // Initialize event bus
+        init() {
+            this._listeners.clear();
+            this._middleware = [];
+            this._setupDefaultMiddleware();
+        },
+
+        // Add event listener
+        on(event, callback, options = {}) {
+            if (!this._listeners.has(event)) {
+                this._listeners.set(event, new Set());
+            }
+
+            const listener = {
+                callback,
+                once: options.once || false,
+                priority: options.priority || 0,
+                id: this._generateListenerId()
+            };
+
+            this._listeners.get(event).add(listener);
+
+            // Return unsubscribe function
+            return () => this.off(event, listener.id);
+        },
+
+        // Remove event listener
+        off(event, listenerId) {
+            const listeners = this._listeners.get(event);
+            if (!listeners) return false;
+
+            for (const listener of listeners) {
+                if (listener.id === listenerId) {
+                    listeners.delete(listener);
+                    return true;
+                }
+            }
+            return false;
+        },
+
+        // Emit event
+        emit(event, data = {}) {
+            try {
+                // Apply middleware
+                const eventData = this._applyMiddleware(event, data);
+
+                const listeners = this._listeners.get(event);
+                if (!listeners || listeners.size === 0) {
+                    if (this._debugMode) {
+                        console.debug(`EventBus: No listeners for event '${event}'`);
+                    }
+                    return;
+                }
+
+                // Sort listeners by priority (higher priority first)
+                const sortedListeners = Array.from(listeners).sort((a, b) => b.priority - a.priority);
+
+                for (const listener of sortedListeners) {
+                    try {
+                        listener.callback(eventData, event);
+
+                        // Remove if it's a one-time listener
+                        if (listener.once) {
+                            listeners.delete(listener);
+                        }
+                    } catch (error) {
+                        console.error(`EventBus: Listener error for event '${event}':`, error);
+                    }
+                }
+
+            } catch (error) {
+                console.error(`EventBus: Failed to emit event '${event}':`, error);
+            }
+        },
+
+        // Apply middleware to event data
+        _applyMiddleware(event, data) {
+            let processedData = { ...data, event, timestamp: new Date().toISOString() };
+
+            for (const middleware of this._middleware) {
+                try {
+                    processedData = middleware(processedData, event) || processedData;
+                } catch (error) {
+                    console.error('EventBus: Middleware error:', error);
+                }
+            }
+
+            return processedData;
+        },
+
+        // Setup default middleware
+        _setupDefaultMiddleware() {
+            // Debug logging middleware
+            if (this._debugMode) {
+                this._middleware.push((data, event) => {
+                    console.debug(`EventBus: ${event}`, data);
+                    return data;
+                });
+            }
+        },
+
+        // Generate unique listener ID
+        _generateListenerId() {
+            return `listener_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        },
+
+        // Enable/disable debug mode
+        setDebugMode(enabled) {
+            this._debugMode = enabled;
+            if (enabled) {
+                this._setupDefaultMiddleware();
+            }
+        }
+    };
+
+    // =============================================================================
+    // CENTRALIZED STATE MANAGER
+    // =============================================================================
+
+    const StateManager = {
+        // Application state structure
+        _state: {
+            api: {
+                schema: null,
+                endpoints: [],
+                filteredEndpoints: [],
+                versions: [],
+                currentVersion: null,
+                stats: null,
+                loading: {
+                    schema: false,
+                    endpoints: false,
+                    versions: false
+                }
+            },
+            ui: {
+                currentTab: 'endpoints',
+                filters: {
+                    search: '',
+                    method: '',
+                    tag: '',
+                    auth: ''
+                },
+                sidebar: {
+                    open: false,
+                    type: null,
+                    data: null
+                }
+            },
+            testing: {
+                activeTest: null,
+                history: [],
+                results: new Map()
+            },
+            system: {
+                initialized: false,
+                errors: [],
+                status: {
+                    type: 'info',
+                    message: 'Initializing...',
+                    timestamp: null
+                }
+            }
+        },
+
+        _initialized: false,
+        _settingState: false,
+
+        // Initialize state manager
+        init() {
+            if (this._initialized) return;
+
+            try {
+                this._setupEventListeners();
+                this._initialized = true;
+
+                EventBus.emit(APIEvents.SYSTEM.INIT, {
+                    state: this.getState()
+                });
+
+            } catch (error) {
+                console.error('StateManager: Failed to initialize:', error);
+                throw error;
+            }
+        },
+
+        // Get state (immutable copy)
+        getState(path = null) {
+            if (path) {
+                return this._getNestedValue(this._state, path);
+            }
+            return JSON.parse(JSON.stringify(this._state));
+        },
+
+        // Update state with validation and events
+        setState(path, value, options = {}) {
+            // Prevent infinite loops
+            if (this._settingState) {
+                console.warn(`StateManager: Prevented recursive setState call for path: ${path}`);
+                return;
+            }
+
+            try {
+                this._settingState = true;
+
+                const oldValue = this._getNestedValue(this._state, path);
+                const newValue = typeof value === 'function' ? value(oldValue) : value;
+
+                this._setNestedValue(this._state, path, newValue);
+
+                // Emit specific state change event only if event name is provided
+                const eventName = this._getStateEventName(path);
+                if (eventName) {
+                    EventBus.emit(eventName, {
+                        path,
+                        value: newValue,
+                        oldValue,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+
+                return newValue;
+
+            } catch (error) {
+                console.error(`StateManager: Failed to set state at ${path}:`, error);
+                throw error;
+            } finally {
+                this._settingState = false;
+            }
+        },
+
+        // Reset state to initial values
+        reset() {
+            this._state = this._getInitialState();
+            EventBus.emit(APIEvents.SYSTEM.RESET);
+        },
+
+        // Get nested value from object
+        _getNestedValue(obj, path) {
+            return path.split('.').reduce((current, key) => current?.[key], obj);
+        },
+
+        // Set nested value in object
+        _setNestedValue(obj, path, value) {
+            const keys = path.split('.');
+            const lastKey = keys.pop();
+            const target = keys.reduce((current, key) => {
+                if (!(key in current)) current[key] = {};
+                return current[key];
+            }, obj);
+            target[lastKey] = value;
+        },
+
+        // Get appropriate event name for state path
+        _getStateEventName(path) {
+            if (path.startsWith('api.')) return APIEvents.DATA.UPDATED;
+            if (path === 'ui.currentTab') return APIEvents.UI.TAB_CHANGED;
+            if (path === 'ui.sidebar') {
+                // Don't emit events for sidebar state changes to prevent loops
+                return null;
+            }
+            if (path.startsWith('ui.sidebar')) {
+                // Handle specific sidebar properties without emitting events
+                return null;
+            }
+            if (path.startsWith('ui.')) return 'ui:state-changed';
+            if (path.startsWith('testing.')) return APIEvents.TEST.STARTED;
+            if (path.startsWith('system.status')) return APIEvents.STATUS.CHANGED;
+            return 'state:changed';
+        },
+
+        // Setup internal event listeners
+        _setupEventListeners() {
+            EventBus.on(APIEvents.SYSTEM.ERROR, (data) => {
+                this.setState('system.errors', errors => [...errors.slice(-49), data]);
+            });
+
+            EventBus.on(APIEvents.STATUS.CHANGED, (data) => {
+                // Update state without emitting another event
+                this._setNestedValue(this._state, 'system.status', data.status);
+            });
+
+            // Handle sidebar events manually to prevent loops
+            EventBus.on(APIEvents.UI.SIDEBAR_OPENED, (data) => {
+                this._setNestedValue(this._state, 'ui.sidebar', {
+                    open: true,
+                    type: data.type || null,
+                    data: data.data || null
+                });
+            });
+
+            EventBus.on(APIEvents.UI.SIDEBAR_CLOSED, (data) => {
+                this._setNestedValue(this._state, 'ui.sidebar', {
+                    open: false,
+                    type: null,
+                    data: null
+                });
+            });
+        },
+
+        // Get initial state structure
+        _getInitialState() {
+            return {
+                api: {
+                    schema: null,
+                    endpoints: [],
+                    filteredEndpoints: [],
+                    versions: [],
+                    currentVersion: null,
+                    stats: null,
+                    loading: { schema: false, endpoints: false, versions: false }
+                },
+                ui: {
+                    currentTab: 'endpoints',
+                    filters: { search: '', method: '', tag: '', auth: '' },
+                    sidebar: { open: false, type: null, data: null }
+                },
+                testing: {
+                    activeTest: null,
+                    history: [],
+                    results: new Map()
+                },
+                system: {
+                    initialized: false,
+                    errors: [],
+                    status: { type: 'info', message: 'Initializing...', timestamp: null }
+                }
+            };
+        }
+    };
+
+    // =============================================================================
+    // INTEGRATED ERROR & STATUS MANAGEMENT
+    // =============================================================================
+
+    const ErrorManager = {
+        // Error type constants
+        Types: {
+            VALIDATION: 'validation',
+            NETWORK: 'network',
+            API: 'api',
+            SYSTEM: 'system',
+            USER: 'user'
+        },
+
+        // Status type constants
+        StatusTypes: {
+            SUCCESS: 'success',
+            ERROR: 'error',
+            LOADING: 'loading',
+            WARNING: 'warning',
+            INFO: 'info'
+        },
+
+        _statusElement: null,
+        _initialized: false,
+
+        // Initialize error management
+        init() {
+            if (this._initialized) return;
+
+            try {
+                this._statusElement = document.getElementById('api-status-badge');
+                this._setupEventListeners();
+                this._initialized = true;
+
+                this.updateStatus('info', 'System initializing...');
+
+            } catch (error) {
+                console.error('ErrorManager: Failed to initialize:', error);
+            }
+        },
+
+        // Update system status
+        updateStatus(type, message, details = {}) {
+            const status = {
+                type: type.toLowerCase(),
+                message,
+                details,
+                timestamp: new Date().toISOString()
+            };
+
+            // Store current status internally
+            this._currentStatus = status;
+
+            // Update UI
+            this._updateStatusDisplay(status);
+
+            // Emit event (StateManager can listen to this)
+            EventBus.emit(APIEvents.STATUS.CHANGED, { status });
+
+            return status;
+        },
+
+        // Handle errors with context
+        handleError(error, context = 'Unknown') {
+            const errorInfo = {
+                id: this._generateErrorId(),
+                message: error.message || 'Unknown error',
+                type: error.type || this.Types.SYSTEM,
+                context,
+                timestamp: new Date().toISOString()
+            };
+
+            console.error(`ErrorManager [${context}]:`, error);
+
+            // Update state
+            const currentErrors = StateManager.getState('system.errors') || [];
+            StateManager.setState('system.errors', [...currentErrors.slice(-49), errorInfo]);
+
+            // Update status
+            this.updateStatus('error', this._getUserFriendlyMessage(errorInfo));
+
+            // Emit error event
+            EventBus.emit(APIEvents.STATUS.ERROR, { error: errorInfo, context });
+
+            return errorInfo;
+        },
+
+        // Setup event listeners
+        _setupEventListeners() {
+            window.addEventListener('unhandledrejection', (event) => {
+                this.handleError(event.reason, 'Unhandled Promise Rejection');
+            });
+
+            window.addEventListener('error', (event) => {
+                this.handleError(event.error || new Error(event.message), 'Global Error');
+            });
+        },
+
+        // Update status display in UI
+        _updateStatusDisplay(status) {
+            if (!this._statusElement) return;
+
+            this._statusElement.textContent = status.message;
+            this._statusElement.className = `badge ${this._getStatusClass(status.type)}`;
+        },
+
+        // Get CSS class for status type
+        _getStatusClass(type) {
+            const classMap = {
+                success: 'badge-success',
+                error: 'badge-danger',
+                loading: 'badge-warning',
+                warning: 'badge-warning',
+                info: 'badge-info'
+            };
+            return classMap[type] || 'badge-secondary';
+        },
+
+        // Convert technical errors to user-friendly messages
+        _getUserFriendlyMessage(errorInfo) {
+            const { type, context, message } = errorInfo;
+
+            if (context.toLowerCase().includes('network')) {
+                return 'Network connection issue';
+            }
+            if (context.toLowerCase().includes('auth')) {
+                return 'Authentication required';
+            }
+            if (type === this.Types.VALIDATION) {
+                return 'Invalid data format';
+            }
+            if (type === this.Types.API) {
+                return 'API service unavailable';
+            }
+
+            return message.length > 80 ? message.substring(0, 77) + '...' : message;
+        },
+
+        // Generate unique error ID
+        _generateErrorId() {
+            return `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        }
+    };
+
+    // =============================================================================
+    // CORE API SYSTEM
+    // =============================================================================
+
+    const APICore = {
+        _initialized: false,
+        _version: '2.0.0',
+
+        // Initialize the core system
+        async init() {
+            if (this._initialized) return;
+
+            try {
+                // Initialize components in order
+                EventBus.init();
+                StateManager.init();
+                ErrorManager.init();
+
+                // Mark as initialized
+                this._initialized = true;
+                StateManager.setState('system.initialized', true);
+
+                // Emit ready event
+                EventBus.emit(APIEvents.SYSTEM.READY, {
+                    version: this._version,
+                    timestamp: new Date().toISOString()
+                });
+
+                ErrorManager.updateStatus('success', 'Core system ready');
+
+            } catch (error) {
+                ErrorManager.handleError(error, 'Core System Initialization');
+                throw error;
+            }
+        },
+
+        // Get system information
+        getSystemInfo() {
+            return {
+                version: this._version,
+                initialized: this._initialized,
+                timestamp: new Date().toISOString()
+            };
+        },
+
+        // Enable debug mode
+        enableDebugMode() {
+            EventBus.setDebugMode(true);
+            console.log('APICore: Debug mode enabled');
+        },
+
+        // Reset entire system
+        async reset() {
+            try {
+                StateManager.reset();
+                EventBus.emit(APIEvents.SYSTEM.RESET);
+                ErrorManager.updateStatus('info', 'System reset');
+            } catch (error) {
+                ErrorManager.handleError(error, 'System Reset');
+            }
+        }
+    };
+
+    // =============================================================================
+    // GLOBAL EXPORTS
+    // =============================================================================
+
+    window.APICore = APICore;
+    window.EventBus = EventBus;
+    window.StateManager = StateManager;
+    window.ErrorManager = ErrorManager;
+    window.APIEvents = APIEvents;
+
+{{end}}

@@ -1,6 +1,6 @@
 {{define "api_init_js"}}
     // =============================================================================
-    // API DOCUMENTATION SYSTEM INITIALIZATION - CONSOLIDATED
+    // API SYSTEM INITIALIZATION - STREAMLINED
     // =============================================================================
 
     // Global initialization guard
@@ -11,81 +11,195 @@
     // System initialization
     async function initializeApp() {
         try {
-            // Initialize error/status manager first
-            if (typeof ErrorStatusManager !== 'undefined') {
-                ErrorStatusManager.init();
-                ErrorStatusManager.updateStatus('loading', 'Initializing system...');
-            }
+            console.log('🚀 Starting API System Initialization...');
 
-            // Initialize schema processor for syntax highlighting
-            if (typeof SchemaProcessor !== 'undefined') {
-                SchemaProcessor.init();
-            }
+            // Initialize core system (EventBus, StateManager, ErrorManager)
+            console.log('📦 Initializing Core System...');
+            await APICore.init();
+            console.log('✅ Core System initialized');
 
-            // Initialize API state management
-            if (typeof APIState !== 'undefined') {
-                APIState.init();
+            // Wait for required modules to be available
+            console.log('⏳ Waiting for required modules...');
+            await waitForModules(['APIDataManager', 'APIUIManager', 'APITestingManager']);
+            console.log('✅ All required modules available');
+
+            // Initialize data management
+            if (typeof APIDataManager !== 'undefined') {
+                console.log('📊 Initializing Data Manager...');
+                await APIDataManager.init();
+                console.log('✅ Data Manager initialized');
             } else {
-                throw new Error('APIState not available');
+                console.error('❌ APIDataManager not found');
             }
 
-            // Initialize UI controllers
-            if (typeof UIController !== 'undefined') {
-                UIController.init();
+            // Initialize UI management
+            if (typeof APIUIManager !== 'undefined') {
+                console.log('🎨 Initializing UI Manager...');
+                APIUIManager.init();
+                console.log('✅ UI Manager initialized');
             } else {
-                // Fallback to individual controllers
-                if (typeof TabController !== 'undefined') {
-                    TabController.init();
-                }
-                if (typeof FilterController !== 'undefined') {
-                    FilterController.init();
-                }
+                console.error('❌ APIUIManager not found');
             }
 
-            // Initialize API tester components
-            if (typeof APITester !== 'undefined') {
-                APITester.init();
-            }
-
-            // Load API versions and endpoints
-            if (typeof APILoader !== 'undefined') {
-                await APILoader.loadVersions();
+            // Initialize testing system
+            if (typeof APITestingManager !== 'undefined') {
+                console.log('🧪 Initializing Testing Manager...');
+                APITestingManager.init();
+                console.log('✅ Testing Manager initialized');
             } else {
-                throw new Error('APILoader not available');
+                console.error('❌ APITestingManager not found');
             }
 
-            // Mark as initialized
+            // Load initial data
+            if (typeof APIDataManager !== 'undefined') {
+                console.log('📡 Loading API versions and data...');
+                await APIDataManager.loadVersions();
+                console.log('✅ API data loaded');
+            } else {
+                console.error('❌ Cannot load data - APIDataManager not available');
+            }
+
+            // Mark system as initialized
             window.apiSystemInitialized = true;
+            StateManager.setState('system.initialized', true);
 
-            // Final setup - ensure UI is properly updated
-            if (typeof UIController !== 'undefined') {
-                UIController.updateStatistics();
-                // Show filters if we have endpoints
-                if (window.APIState && APIState.allEndpoints.length > 0) {
-                    const filtersSection = document.getElementById('api-filters');
-                    if (filtersSection) {
-                        filtersSection.style.display = 'block';
-                    }
-                }
-            }
+            // Final setup
+            console.log('🎯 Setting up final UI...');
+            setupFinalUI();
+            console.log('✅ Final UI setup complete');
 
-            if (typeof ErrorStatusManager !== 'undefined') {
-                ErrorStatusManager.updateStatus('success', 'System ready');
-            }
+            ErrorManager.updateStatus('success', 'System ready');
+            console.log('🎉 API System fully initialized and ready!');
+
+            // Debug info
+            console.log('🔍 System State:', {
+                endpoints: StateManager.getState('api.endpoints')?.length || 0,
+                versions: StateManager.getState('api.versions')?.length || 0,
+                currentVersion: StateManager.getState('api.currentVersion'),
+                schema: !!StateManager.getState('api.schema')
+            });
 
         } catch (error) {
-            console.error('Failed to initialize API Documentation System:', error);
-
-            if (typeof ErrorStatusManager !== 'undefined') {
-                ErrorStatusManager.handleError(error, 'System Initialization');
-            } else {
-                // Fallback error display if ErrorStatusManager not available
-                showInitializationError(error);
-            }
+            console.error('💥 Failed to initialize API System:', error);
+            ErrorManager.handleError(error, 'System Initialization');
+            showInitializationError(error);
         }
     }
 
-    // Fallback error display function
+    // Wait for required modules to be available
+    async function waitForModules(moduleNames, timeout = 5000) {
+        console.log('⏳ Waiting for modules:', moduleNames);
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < timeout) {
+            const availableModules = moduleNames.filter(name => typeof window[name] !== 'undefined');
+            const missingModules = moduleNames.filter(name => typeof window[name] === 'undefined');
+
+            console.log('📦 Module status:', {
+                available: availableModules,
+                missing: missingModules,
+                elapsed: Date.now() - startTime + 'ms'
+            });
+
+            if (missingModules.length === 0) {
+                console.log('✅ All required modules are available!');
+                return;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        const missing = moduleNames.filter(name => typeof window[name] === 'undefined');
+        console.error('❌ Timeout waiting for modules:', missing);
+        throw new Error(`Required modules not available after ${timeout}ms: ${missing.join(', ')}`);
+    }
+
+    // Setup final UI state
+    function setupFinalUI() {
+        console.log('🎯 Setting up final UI state...');
+
+        const endpoints = StateManager.getState('api.endpoints') || [];
+        const versions = StateManager.getState('api.versions') || [];
+        const currentVersion = StateManager.getState('api.currentVersion');
+
+        console.log('📊 Final UI Data:', {
+            endpoints: endpoints.length,
+            versions: versions.length,
+            currentVersion: currentVersion
+        });
+
+        // Update version selector
+        const versionSelect = document.getElementById('version-select');
+        if (versionSelect && versions.length > 0) {
+            console.log('🔄 Updating version selector with', versions.length, 'versions');
+            versionSelect.innerHTML = versions.map(version =>
+                `<option value="${version.version}" ${version.version === currentVersion ? 'selected' : ''}>
+                    ${version.version} ${version.status ? `(${version.status})` : ''}
+                </option>`
+            ).join('');
+        } else {
+            console.warn('⚠️ Version selector not found or no versions available');
+        }
+
+        // Update endpoint statistics
+        updateStatistics(endpoints);
+
+        if (endpoints.length > 0) {
+            // Show filters section if we have endpoints
+            const filtersSection = document.getElementById('api-filters');
+            if (filtersSection) {
+                filtersSection.style.display = 'block';
+                console.log('✅ Filters section shown');
+            } else {
+                console.warn('⚠️ Filters section not found');
+            }
+
+            // Update statistics
+            EventBus.emit(APIEvents.UI.TAB_CHANGED, {
+                tab: StateManager.getState('ui.currentTab'),
+                endpointCount: endpoints.length
+            });
+        } else {
+            console.warn('⚠️ No endpoints found - filters hidden');
+        }
+    }
+
+    // Update statistics display
+    function updateStatistics(endpoints) {
+        console.log('📈 Updating statistics for', endpoints.length, 'endpoints');
+
+        // Count statistics
+        const stats = {
+            totalEndpoints: endpoints.length,
+            uniquePaths: new Set(endpoints.map(e => e.path)).size,
+            authRequired: endpoints.filter(e => e.auth?.required).length,
+            totalTags: new Set(endpoints.flatMap(e => e.tags || [])).size
+        };
+
+        console.log('📊 Calculated stats:', stats);
+
+        // Update DOM elements
+        const updates = [
+            { id: 'api-endpoints-count', value: stats.totalEndpoints },
+            { id: 'stats-unique-paths', value: stats.uniquePaths },
+            { id: 'stats-auth-required', value: stats.authRequired },
+            { id: 'stats-total-tags', value: stats.totalTags },
+            { id: 'filtered-count', value: stats.totalEndpoints },
+            { id: 'total-count', value: stats.totalEndpoints }
+        ];
+
+        updates.forEach(({ id, value }) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value;
+                console.log(`✅ Updated ${id}: ${value}`);
+            } else {
+                console.warn(`⚠️ Element not found: ${id}`);
+            }
+        });
+    }
+
+    // Show initialization error
     function showInitializationError(error) {
         const container = document.getElementById('main-content');
         if (container) {
@@ -108,110 +222,16 @@
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initializeApp);
     } else {
-        // DOM is already loaded
         setTimeout(initializeApp, 0);
     }
 
-    // Expose global utilities and debug functions
-    window.APIDebug = {
-        // System state
-        getState: () => {
-            if (typeof APIState !== 'undefined') {
-                return APIState.getDebugInfo();
-            }
-            return { error: 'APIState not available' };
-        },
-
-        // Health check
-        healthCheck: () => {
-            const results = {
-                system: window.apiSystemInitialized || false,
-                timestamp: new Date().toISOString()
-            };
-
-            // Check API State
-            if (typeof APIState !== 'undefined') {
-                results.apiState = APIState.isHealthy();
-            }
-
-            // Check Error/Status Manager
-            if (typeof ErrorStatusManager !== 'undefined') {
-                results.errorManager = ErrorStatusManager.getSystemHealth();
-            }
-
-            // Check UI Controller
-            if (typeof UIController !== 'undefined') {
-                results.uiController = {
-                    available: true,
-                    currentTab: UIController.getCurrentTab(),
-                    availableTabs: UIController.getAvailableTabs()
-                };
-            }
-
-            // Check API Loader
-            if (typeof APILoader !== 'undefined') {
-                results.apiLoader = {
-                    available: true,
-                    ready: APILoader.isReady(),
-                    loading: APILoader.isLoading()
-                };
-            }
-
-            return results;
-        },
-
-        // Refresh data
-        refreshData: () => {
-            if (typeof APILoader !== 'undefined' && APILoader.refresh) {
-                return APILoader.refresh();
-            }
-            return Promise.reject(new Error('APILoader not available'));
-        },
-
-        // System readiness check
-        isReady: () => {
-            if (!window.apiSystemInitialized) return false;
-            if (typeof APILoader !== 'undefined') {
-                return APILoader.isReady();
-            }
-            return false;
-        },
-
-        // Get error information
-        getErrors: () => {
-            if (typeof ErrorStatusManager !== 'undefined') {
-                return ErrorStatusManager.getErrorHistory();
-            }
-            return [];
-        },
-
-        // Reset system (for debugging)
-        reset: () => {
-            if (typeof APIState !== 'undefined') {
-                APIState.reset();
-            }
-
-            if (typeof ErrorStatusManager !== 'undefined') {
-                ErrorStatusManager.reset();
-            }
-
-            window.apiSystemInitialized = false;
-        },
-
-        // Force reinitialization
-        reinitialize: () => {
-            window.APIDebug.reset();
-            setTimeout(initializeApp, 100);
-        }
-    };
-
-    // Global refresh function (backward compatibility)
+    // Global utilities
     window.refreshAPIData = () => {
-        if (typeof APILoader !== 'undefined' && APILoader.refresh) {
-            return APILoader.refresh();
+        if (typeof APIDataManager !== 'undefined' && APIDataManager.refresh) {
+            return APIDataManager.refresh();
         }
     };
 
-    // Export initialization function for manual triggering
     window.initializeAPISystem = initializeApp;
+
 {{end}}

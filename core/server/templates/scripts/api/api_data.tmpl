@@ -1,0 +1,728 @@
+{{define "api_data_js"}}
+    // =============================================================================
+    // API DATA MANAGEMENT - CONSOLIDATED LOADER, SCHEMA PROCESSOR & MANAGER
+    // =============================================================================
+
+    const APIDataManager = {
+        // Loading state
+        _loading: {
+            versions: false,
+            endpoints: false
+        },
+
+        _initialized: false,
+
+        // Initialize data manager
+        init() {
+            if (this._initialized) return;
+
+            try {
+                console.log('📊 APIDataManager: Starting initialization...');
+                this._setupEventListeners();
+                this._initialized = true;
+
+                EventBus.emit(APIEvents.DATA.LOADED, {
+                    component: 'APIDataManager',
+                    initialized: true
+                });
+
+                console.log('✅ APIDataManager: Initialization complete!');
+
+            } catch (error) {
+                console.error('💥 APIDataManager: Initialization failed:', error);
+                ErrorManager.handleError(error, 'APIDataManager Initialization');
+            }
+        },
+
+        // =============================================================================
+        // API DATA LOADING
+        // =============================================================================
+
+        // Get superuser authentication token
+        getAuthToken() {
+            try {
+                const authData = localStorage.getItem('__pb_superuser_auth__');
+                if (!authData) return null;
+
+                const parsed = JSON.parse(authData);
+                return parsed.token || null;
+            } catch (error) {
+                console.error('Failed to parse auth token:', error);
+                return null;
+            }
+        },
+
+        // Create authenticated fetch options
+        createAuthenticatedOptions(options = {}) {
+            const token = this.getAuthToken();
+            if (!token) {
+                throw new Error('SuperUser authentication required');
+            }
+
+            return {
+                ...options,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            };
+        },
+
+        // Load available API versions
+        async loadVersions() {
+            if (this._loading.versions) {
+                console.log('⏳ APIDataManager: Already loading versions, skipping...');
+                return;
+            }
+
+            console.log('📡 APIDataManager: Starting to load versions...');
+            this._loading.versions = true;
+            StateManager.setState('api.loading.versions', true);
+
+            try {
+                EventBus.emit(APIEvents.DATA.LOADING, { type: 'versions' });
+                ErrorManager.updateStatus('loading', 'Loading API versions...');
+
+                console.log('🔐 Creating authenticated request to /api/docs/versions');
+                const response = await fetch('/api/docs/versions', this.createAuthenticatedOptions());
+
+                console.log('📨 Version fetch response:', {
+                    status: response.status,
+                    ok: response.ok,
+                    statusText: response.statusText
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        console.error('❌ Authentication failed - SuperUser login required');
+                        throw new Error('SuperUser authentication required');
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('📊 Raw versions data:', data);
+
+                if (!data || !data.versions) {
+                    console.error('❌ Invalid response format:', data);
+                    throw new Error('Invalid response format from versions endpoint');
+                }
+
+                console.log('✅ Parsed versions:', {
+                    count: data.versions.length,
+                    versions: data.versions.map(v => v.version),
+                    defaultVersion: data.default_version
+                });
+
+                // Update state
+                StateManager.setState('api.versions', data.versions);
+                const selectedVersion = data.default_version || data.versions[0]?.version || null;
+                StateManager.setState('api.currentVersion', selectedVersion);
+
+                console.log('💾 State updated with versions and current version:', selectedVersion);
+
+                // Update UI version selector
+                this._updateVersionSelector(data.versions, selectedVersion);
+
+                // Load endpoints for current version
+                if (selectedVersion) {
+                    console.log('🔄 Loading endpoints for version:', selectedVersion);
+                    await this.loadEndpoints();
+                } else {
+                    console.warn('⚠️ No version selected - skipping endpoint loading');
+                }
+
+                EventBus.emit(APIEvents.DATA.VERSIONS_UPDATED, {
+                    versions: data.versions,
+                    currentVersion: selectedVersion
+                });
+
+                console.log('✅ APIDataManager: Versions loaded successfully');
+
+            } catch (error) {
+                console.error('💥 APIDataManager: Failed to load versions:', error);
+                ErrorManager.handleError(error, 'Loading API Versions');
+                EventBus.emit(APIEvents.DATA.ERROR, { type: 'versions', error });
+            } finally {
+                this._loading.versions = false;
+                StateManager.setState('api.loading.versions', false);
+                console.log('🔄 APIDataManager: Version loading completed');
+            }
+        },
+
+        // Load endpoints for current version
+        async loadEndpoints() {
+            if (this._loading.endpoints) {
+                console.log('⏳ APIDataManager: Already loading endpoints, skipping...');
+                return;
+            }
+
+            const version = StateManager.getState('api.currentVersion');
+            console.log('📡 APIDataManager: Loading endpoints for version:', version);
+
+            if (!version) {
+                console.error('❌ No current version selected for endpoint loading');
+                throw new Error('No current version selected');
+            }
+
+            this._loading.endpoints = true;
+            StateManager.setState('api.loading.endpoints', true);
+
+            try {
+                EventBus.emit(APIEvents.DATA.LOADING, { type: 'endpoints', version });
+                ErrorManager.updateStatus('loading', `Loading endpoints for version ${version}...`);
+
+                console.log('🔐 Creating authenticated request to /api/docs/' + version);
+                const response = await fetch(`/api/docs/${version}`, this.createAuthenticatedOptions());
+
+                console.log('📨 Endpoints fetch response:', {
+                    status: response.status,
+                    ok: response.ok,
+                    statusText: response.statusText
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        console.error('❌ Authentication failed for endpoints');
+                        throw new Error('SuperUser authentication required');
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const openApiSpec = await response.json();
+                console.log('📊 Raw OpenAPI spec:', {
+                    hasEndpoints: !!openApiSpec?.endpoints,
+                    endpointCount: openApiSpec?.endpoints?.length || 0,
+                    hasComponents: !!openApiSpec?.components,
+                    openApiVersion: openApiSpec?.openapi || openApiSpec?.swagger
+                });
+
+                if (!openApiSpec || !openApiSpec.endpoints) {
+                    console.error('❌ Invalid OpenAPI specification:', openApiSpec);
+                    throw new Error('Invalid OpenAPI specification received');
+                }
+
+                // Process and validate endpoints
+                console.log('⚙️ Processing', openApiSpec.endpoints.length, 'endpoints...');
+                const processedEndpoints = this._processEndpoints(openApiSpec.endpoints);
+                console.log('✅ Processed endpoints:', processedEndpoints.length);
+
+                console.log('📈 Calculating statistics...');
+                const stats = this._calculateStats(processedEndpoints, openApiSpec);
+                console.log('📊 Calculated stats:', stats);
+
+                // Update state
+                console.log('💾 Updating state with processed data...');
+                StateManager.setState('api.schema', openApiSpec);
+                StateManager.setState('api.endpoints', processedEndpoints);
+                StateManager.setState('api.filteredEndpoints', processedEndpoints);
+                StateManager.setState('api.stats', stats);
+
+                console.log('📡 Emitting data update events...');
+                EventBus.emit(APIEvents.DATA.SCHEMA_UPDATED, { schema: openApiSpec });
+                EventBus.emit(APIEvents.DATA.ENDPOINTS_UPDATED, {
+                    endpoints: processedEndpoints,
+                    stats: stats
+                });
+
+                ErrorManager.updateStatus('success', `Loaded ${processedEndpoints.length} endpoints`);
+                console.log('✅ APIDataManager: Endpoints loaded successfully');
+
+            } catch (error) {
+                console.error('💥 APIDataManager: Failed to load endpoints:', error);
+                ErrorManager.handleError(error, 'Loading API Endpoints');
+                EventBus.emit(APIEvents.DATA.ERROR, { type: 'endpoints', error });
+            } finally {
+                this._loading.endpoints = false;
+                StateManager.setState('api.loading.endpoints', false);
+                console.log('🔄 APIDataManager: Endpoint loading completed');
+            }
+        },
+
+        // Refresh current data
+        async refresh() {
+            try {
+                await this.loadVersions();
+            } catch (error) {
+                ErrorManager.handleError(error, 'Refreshing API Data');
+            }
+        },
+
+        // Check if data manager is ready
+        isReady() {
+            return this._initialized && !this._loading.versions && !this._loading.endpoints;
+        },
+
+        // =============================================================================
+        // SCHEMA PROCESSING & SYNTAX HIGHLIGHTING
+        // =============================================================================
+
+        // Format schema for display with syntax highlighting
+        formatSchemaForDisplay(schema, format = 'json') {
+            if (!schema) {
+                return '<div class="code-block"><span class="json-null">No schema available</span></div>';
+            }
+
+            if (typeof schema === 'string') {
+                return `<div class="code-block"><pre><code>${this._escapeHtml(schema)}</code></pre></div>`;
+            }
+
+            try {
+                const formatted = this.syntaxHighlight(schema, format);
+                return `<div class="code-block">${formatted}</div>`;
+            } catch (error) {
+                console.warn('Schema formatting failed, using fallback:', error);
+                return `<div class="code-block"><pre><code>${this._escapeHtml(JSON.stringify(schema, null, 2))}</code></pre></div>`;
+            }
+        },
+
+
+
+        // Syntax highlighting for JSON/YAML with improved error handling
+        syntaxHighlight(obj, format = 'json') {
+            try {
+                if (obj === null || obj === undefined) {
+                    return '<span class="json-null">null</span>';
+                }
+
+                let str;
+
+                if (format === 'yaml') {
+                    str = this._convertToYaml(obj);
+                } else {
+                    // Handle already stringified objects
+                    if (typeof obj === 'string') {
+                        try {
+                            // Try to parse and re-stringify for consistent formatting
+                            const parsed = JSON.parse(obj);
+                            str = JSON.stringify(parsed, null, 2);
+                        } catch {
+                            // If parsing fails, use the string as-is
+                            str = obj;
+                        }
+                    } else {
+                        str = JSON.stringify(obj, null, 2);
+                    }
+                }
+
+                if (!str) {
+                    return '<span class="json-null">No data</span>';
+                }
+
+                // Enhanced regex for better JSON token matching
+                return str.replace(
+                    /("(?:[^"\\]|\\.)*"(?=\s*:))|("(?:[^"\\]|\\.)*")|(\b(?:true|false|null)\b)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}[\],])/g,
+                    (match, key, string, boolean, number, punctuation) => {
+                        if (key) {
+                            return '<span class="json-key">' + this._escapeHtml(match) + '</span>';
+                        } else if (string) {
+                            return '<span class="json-string">' + this._escapeHtml(match) + '</span>';
+                        } else if (boolean) {
+                            return '<span class="json-boolean">' + this._escapeHtml(match) + '</span>';
+                        } else if (number) {
+                            return '<span class="json-number">' + this._escapeHtml(match) + '</span>';
+                        } else if (punctuation) {
+                            return '<span class="json-punctuation">' + this._escapeHtml(match) + '</span>';
+                        }
+                        return this._escapeHtml(match);
+                    }
+                );
+
+            } catch (error) {
+                console.warn('Syntax highlighting failed:', error);
+                return '<pre>' + this._escapeHtml(String(obj)) + '</pre>';
+            }
+        },
+
+        // Improved YAML conversion with proper formatting
+        _convertToYaml(obj, indent = 0) {
+            try {
+                if (obj === null || obj === undefined) return 'null';
+
+                const spaces = '  '.repeat(indent);
+
+                if (typeof obj === 'string') {
+                    // Escape strings that need it
+                    if (obj.includes('\n') || obj.includes(':') || obj.includes('#') ||
+                        obj.includes('[') || obj.includes(']') || obj.includes('{') || obj.includes('}') ||
+                        obj.match(/^(true|false|null|\d+)$/i)) {
+                        return `"${obj.replace(/"/g, '\\"')}"`;
+                    }
+                    return obj;
+                }
+
+                if (typeof obj === 'number' || typeof obj === 'boolean') {
+                    return String(obj);
+                }
+
+                if (Array.isArray(obj)) {
+                    if (obj.length === 0) return '[]';
+                    return obj.map(item => {
+                        const yamlItem = this._convertToYaml(item, indent);
+                        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+                            // For objects in arrays, we need proper indentation
+                            const itemLines = yamlItem.split('\n');
+                            const firstLine = itemLines[0];
+                            const remainingLines = itemLines.slice(1).map(line => `${spaces}  ${line}`);
+                            return `${spaces}- ${firstLine}\n${remainingLines.join('\n')}`;
+                        }
+                        return `${spaces}- ${yamlItem}`;
+                    }).join('\n');
+                }
+
+                if (typeof obj === 'object') {
+                    if (Object.keys(obj).length === 0) return '{}';
+                    return Object.entries(obj)
+                        .map(([key, value]) => {
+                            const yamlValue = this._convertToYaml(value, indent + 1);
+                            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                                return `${spaces}${key}:\n${yamlValue}`;
+                            } else if (Array.isArray(value) && value.length > 0) {
+                                return `${spaces}${key}:\n${yamlValue}`;
+                            }
+                            return `${spaces}${key}: ${yamlValue}`;
+                        })
+                        .join('\n');
+                }
+
+                return String(obj);
+            } catch (error) {
+                console.warn('YAML conversion failed:', error);
+                return JSON.stringify(obj, null, 2);
+            }
+        },
+
+        // =============================================================================
+        // SCHEMA MANAGEMENT UTILITIES
+        // =============================================================================
+
+        // Extract path parameters from endpoint
+        extractPathParameters(endpoint) {
+            if (!endpoint?.path) return [];
+
+            const pathParams = [];
+            const matches = endpoint.path.match(/{([^}]+)}/g);
+
+            if (matches) {
+                matches.forEach(match => {
+                    const paramName = match.slice(1, -1);
+                    pathParams.push({
+                        name: paramName,
+                        type: 'string',
+                        required: true,
+                        description: `Path parameter: ${paramName}`
+                    });
+                });
+            }
+
+            return pathParams;
+        },
+
+        // Extract request fields from endpoint schema
+        extractRequestFields(endpoint) {
+            if (!endpoint?.request) return [];
+
+            return this._extractFieldsFromSchema(endpoint.request);
+        },
+
+        // Validate request data against endpoint schema
+        validateRequestData(endpoint, formData) {
+            const errors = [];
+
+            // Validate path parameters
+            const pathParams = this.extractPathParameters(endpoint);
+            pathParams.forEach(param => {
+                if (param.required && !formData.pathParams?.[param.name]) {
+                    errors.push(`Path parameter '${param.name}' is required`);
+                }
+            });
+
+            // Validate request body fields
+            const requestFields = this.extractRequestFields(endpoint);
+            requestFields.forEach(field => {
+                if (field.required && !formData.requestBody?.[field.name]) {
+                    errors.push(`Field '${field.name}' is required`);
+                }
+            });
+
+            return {
+                valid: errors.length === 0,
+                errors: errors
+            };
+        },
+
+        // Build URL with path parameters
+        buildUrl(endpoint, pathParams = {}) {
+            if (!endpoint?.path) return '';
+
+            let url = endpoint.path;
+
+            // Replace path parameters
+            Object.entries(pathParams).forEach(([key, value]) => {
+                url = url.replace(`{${key}}`, encodeURIComponent(value));
+            });
+
+            return url;
+        },
+
+        // Prepare request body from form data
+        prepareRequestBody(endpoint, formData) {
+            if (!endpoint?.requestBody || !formData?.requestBody) {
+                return null;
+            }
+
+            const contentType = 'application/json';
+
+            if (contentType.includes('application/json')) {
+                return JSON.stringify(formData.requestBody);
+            }
+
+            if (contentType.includes('application/x-www-form-urlencoded')) {
+                const params = new URLSearchParams();
+                Object.entries(formData.requestBody).forEach(([key, value]) => {
+                    params.append(key, value);
+                });
+                return params.toString();
+            }
+
+            return formData.requestBody;
+        },
+
+        // Check if endpoint requires authentication
+        requiresAuth(endpoint) {
+            return endpoint?.auth?.required === true;
+        },
+
+        // Get authentication info for endpoint
+        getAuthInfo(endpoint) {
+            if (!endpoint?.auth?.required) {
+                return {
+                    required: false,
+                    type: 'none',
+                    description: 'No authentication required'
+                };
+            }
+
+            return {
+                required: true,
+                type: endpoint.auth.type || 'bearer',
+                description: endpoint.auth.description || 'Authentication required',
+                icon: endpoint.auth.icon || '🔐'
+            };
+        },
+
+        // Get example request for endpoint
+        getExampleRequest(endpoint) {
+            if (!endpoint) return null;
+
+            const example = {
+                method: endpoint.method.toUpperCase(),
+                url: endpoint.path,
+                headers: {},
+                body: null
+            };
+
+            // Add example path parameters
+            const pathParams = this.extractPathParameters(endpoint);
+            pathParams.forEach(param => {
+                example.url = example.url.replace(`{${param.name}}`, `example_${param.name}`);
+            });
+
+            // Add example request body
+            if (endpoint.request) {
+                const exampleBody = this._generateExampleFromSchema(endpoint.request);
+                example.body = exampleBody;
+            }
+
+            // Add content type header if needed
+            if (endpoint.request) {
+                example.headers['Content-Type'] = 'application/json';
+            }
+
+            return example;
+        },
+
+        // =============================================================================
+        // PRIVATE HELPER METHODS
+        // =============================================================================
+
+        // Setup event listeners
+        _setupEventListeners() {
+            console.log('🔧 APIDataManager: Setting up event listeners...');
+
+            // Listen for version changes
+            EventBus.on(APIEvents.UI.TAB_CHANGED, (data) => {
+                console.log('📡 APIDataManager: Received tab change event:', data);
+                if (data.version && data.version !== StateManager.getState('api.currentVersion')) {
+                    console.log('🔄 Version change detected, loading new endpoints...');
+                    StateManager.setState('api.currentVersion', data.version);
+                    this.loadEndpoints();
+                }
+            });
+
+            console.log('✅ APIDataManager: Event listeners setup complete');
+        },
+
+        // Process raw endpoints data
+        _processEndpoints(endpoints) {
+            return endpoints.map(endpoint => ({
+                ...endpoint,
+                id: `${endpoint.method}_${endpoint.path}`.replace(/[^a-zA-Z0-9]/g, '_'),
+                auth: this.getAuthInfo(endpoint)
+            }));
+        },
+
+        // Calculate statistics for endpoints
+        _calculateStats(endpoints, schema) {
+            console.log('📈 Calculating statistics for', endpoints.length, 'endpoints');
+
+            const methodCounts = {};
+            const tagCounts = {};
+            let authRequiredCount = 0;
+
+            endpoints.forEach(endpoint => {
+                // Method counts
+                const method = endpoint.method?.toLowerCase() || 'unknown';
+                methodCounts[method] = (methodCounts[method] || 0) + 1;
+
+                // Tag counts
+                if (endpoint.tags && Array.isArray(endpoint.tags)) {
+                    endpoint.tags.forEach(tag => {
+                        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                    });
+                }
+
+                // Auth counts
+                if (endpoint.auth?.required) {
+                    authRequiredCount++;
+                }
+            });
+
+            const stats = {
+                totalEndpoints: endpoints.length,
+                methodCounts,
+                tagCounts,
+                authRequiredCount,
+                uniquePaths: new Set(endpoints.map(e => e.path)).size,
+                totalTags: Object.keys(tagCounts).length,
+                schemaVersion: schema.openapi || schema.swagger || 'unknown'
+            };
+
+            console.log('📊 Statistics calculated:', stats);
+            return stats;
+        },
+
+        // Update version selector UI
+        _updateVersionSelector(versions, currentVersion) {
+            console.log('🔄 Updating version selector UI:', {
+                versions: versions.length,
+                currentVersion: currentVersion
+            });
+
+            const selector = document.getElementById('version-select');
+            if (!selector) {
+                console.error('❌ Version selector element not found (looking for #version-select)');
+                return;
+            }
+
+            const options = versions.map(version =>
+                `<option value="${version.version}" ${version.version === currentVersion ? 'selected' : ''}>
+                    ${version.version} ${version.status ? `(${version.status})` : ''}
+                </option>`
+            ).join('');
+
+            selector.innerHTML = options;
+            console.log('✅ Version selector updated with', versions.length, 'options');
+        },
+
+        // Extract fields from schema object
+        _extractFieldsFromSchema(schema, prefix = '') {
+            const fields = [];
+
+            if (schema.type === 'object' && schema.properties) {
+                Object.entries(schema.properties).forEach(([key, prop]) => {
+                    const fieldName = prefix ? `${prefix}.${key}` : key;
+                    const required = schema.required && schema.required.includes(key);
+
+                    if (prop.type === 'object' && prop.properties) {
+                        fields.push(...this._extractFieldsFromSchema(prop, fieldName));
+                    } else {
+                        fields.push({
+                            name: fieldName,
+                            type: prop.type || 'string',
+                            required: required,
+                            description: prop.description || '',
+                            example: prop.example
+                        });
+                    }
+                });
+            }
+
+            return fields;
+        },
+
+        // Generate example data from schema
+        _generateExampleFromSchema(schema) {
+            if (!schema) return null;
+
+            switch (schema.type) {
+                case 'object':
+                    const obj = {};
+                    if (schema.properties) {
+                        Object.entries(schema.properties).forEach(([key, prop]) => {
+                            obj[key] = this._generateExampleFromSchema(prop);
+                        });
+                    }
+                    return obj;
+
+                case 'array':
+                    return schema.items ? [this._generateExampleFromSchema(schema.items)] : [];
+
+                case 'string':
+                    return schema.example || 'example_string';
+
+                case 'number':
+                case 'integer':
+                    return schema.example || 123;
+
+                case 'boolean':
+                    return schema.example !== undefined ? schema.example : true;
+
+                default:
+                    return schema.example || null;
+            }
+        },
+
+        // Convert object to basic YAML format
+        _convertToYaml(obj, indent = 0) {
+            const spaces = '  '.repeat(indent);
+
+            if (Array.isArray(obj)) {
+                return obj.map(item => `${spaces}- ${this._convertToYaml(item, indent + 1)}`).join('\n');
+            }
+
+            if (typeof obj === 'object' && obj !== null) {
+                return Object.entries(obj)
+                    .map(([key, value]) => `${spaces}${key}: ${this._convertToYaml(value, indent + 1)}`)
+                    .join('\n');
+            }
+
+            return obj;
+        },
+
+        // Escape HTML characters
+        _escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    };
+
+    // =============================================================================
+    // GLOBAL EXPORTS
+    // =============================================================================
+
+    window.APIDataManager = APIDataManager;
+
+{{end}}

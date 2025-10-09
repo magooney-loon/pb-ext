@@ -1,0 +1,787 @@
+{{define "api_testing_js"}}
+    // =============================================================================
+    // API TESTING MANAGEMENT - CONSOLIDATED TESTER, SIDEBAR, FORM BUILDER & HANDLER
+    // =============================================================================
+
+    const APITestingManager = {
+        // Testing state
+        _currentEndpoint: null,
+        _activeRequest: null,
+        _testHistory: [],
+        _initialized: false,
+        _eventCleanup: [],
+
+        // Initialize testing manager
+        init() {
+            if (this._initialized) return;
+
+            try {
+                this._setupEventListeners();
+                this._setupSidebar();
+                this._setupFormHandlers();
+                this._initialized = true;
+
+                EventBus.emit(APIEvents.TEST.STARTED, {
+                    component: 'APITestingManager',
+                    initialized: true
+                });
+
+            } catch (error) {
+                ErrorManager.handleError(error, 'APITestingManager Initialization');
+            }
+        },
+
+        // =============================================================================
+        // SIDEBAR MANAGEMENT
+        // =============================================================================
+
+        // Open testing sidebar with endpoint
+        openSidebar(endpoint) {
+            try {
+                this._currentEndpoint = endpoint;
+                StateManager.setState('testing.activeTest', endpoint);
+
+                // Show sidebar
+                const sidebar = document.getElementById('api-tester-sidebar');
+                if (sidebar) {
+                    sidebar.classList.add('active');
+                }
+
+                // Build form for endpoint
+                this._buildTestForm(endpoint);
+
+                // Update URL display
+                this._updateUrlDisplay(endpoint);
+
+                EventBus.emit(APIEvents.UI.SIDEBAR_OPENED, {
+                    type: 'testing',
+                    endpoint: endpoint
+                });
+
+            } catch (error) {
+                ErrorManager.handleError(error, 'Opening Test Sidebar');
+            }
+        },
+
+        // Close testing sidebar
+        closeSidebar() {
+            try {
+                const sidebar = document.getElementById('api-tester-sidebar');
+                if (sidebar) {
+                    sidebar.classList.remove('active');
+                }
+
+                this._currentEndpoint = null;
+                StateManager.setState('testing.activeTest', null);
+
+                EventBus.emit(APIEvents.UI.SIDEBAR_CLOSED, {
+                    type: 'testing'
+                });
+
+            } catch (error) {
+                ErrorManager.handleError(error, 'Closing Test Sidebar');
+            }
+        },
+
+        // =============================================================================
+        // FORM BUILDING
+        // =============================================================================
+
+        // Build test form for endpoint
+        _buildTestForm(endpoint) {
+            const container = document.getElementById('api-test-form');
+            if (!container) return;
+
+            const sections = [];
+
+            // Build path parameters section
+            const pathParams = APIDataManager.extractPathParameters(endpoint);
+            if (pathParams.length > 0) {
+                sections.push(this._buildPathParametersSection(pathParams));
+            }
+
+            // Build query parameters section
+            if (endpoint.parameters) {
+                const queryParams = endpoint.parameters.filter(p => p.in === 'query');
+                if (queryParams.length > 0) {
+                    sections.push(this._buildQueryParametersSection(queryParams));
+                }
+            }
+
+            // Build headers section
+            if (endpoint.parameters) {
+                const headerParams = endpoint.parameters.filter(p => p.in === 'header');
+                if (headerParams.length > 0) {
+                    sections.push(this._buildHeadersSection(headerParams));
+                }
+            }
+
+            // Build request body section
+            const requestFields = APIDataManager.extractRequestFields(endpoint);
+            if (requestFields.length > 0) {
+                sections.push(this._buildRequestBodySection(requestFields, endpoint));
+            }
+
+            // Build authentication section
+            if (endpoint.auth?.required) {
+                sections.push(this._buildAuthSection(endpoint.auth));
+            }
+
+            container.innerHTML = sections.join('');
+
+            // Attach form event listeners
+            this._attachFormListeners(container);
+        },
+
+        // Build path parameters section
+        _buildPathParametersSection(pathParams) {
+            const fields = pathParams.map(param => `
+                <div class="form-field">
+                    <label for="path_${param.name}" class="form-label">
+                        ${param.name}
+                        ${param.required ? '<span class="txt-danger">*</span>' : ''}
+                    </label>
+                    <input type="text"
+                           id="path_${param.name}"
+                           name="pathParams[${param.name}]"
+                           class="form-control"
+                           placeholder="${param.description || `Enter ${param.name}`}"
+                           ${param.required ? 'required' : ''}>
+                    ${param.description ? `<small class="form-help">${param.description}</small>` : ''}
+                </div>
+            `).join('');
+
+            return `
+                <div class="form-section">
+                    <h4 class="form-section-title">Path Parameters</h4>
+                    ${fields}
+                </div>
+            `;
+        },
+
+        // Build query parameters section
+        _buildQueryParametersSection(queryParams) {
+            const fields = queryParams.map(param => `
+                <div class="form-field">
+                    <label for="query_${param.name}" class="form-label">
+                        ${param.name}
+                        ${param.required ? '<span class="txt-danger">*</span>' : ''}
+                    </label>
+                    <input type="text"
+                           id="query_${param.name}"
+                           name="queryParams[${param.name}]"
+                           class="form-control"
+                           placeholder="${param.description || `Enter ${param.name}`}"
+                           ${param.required ? 'required' : ''}>
+                    ${param.description ? `<small class="form-help">${param.description}</small>` : ''}
+                </div>
+            `).join('');
+
+            return `
+                <div class="form-section">
+                    <h4 class="form-section-title">Query Parameters</h4>
+                    ${fields}
+                </div>
+            `;
+        },
+
+        // Build headers section
+        _buildHeadersSection(headerParams) {
+            const fields = headerParams.map(param => `
+                <div class="form-field">
+                    <label for="header_${param.name}" class="form-label">
+                        ${param.name}
+                        ${param.required ? '<span class="txt-danger">*</span>' : ''}
+                    </label>
+                    <input type="text"
+                           id="header_${param.name}"
+                           name="headers[${param.name}]"
+                           class="form-control"
+                           placeholder="${param.description || `Enter ${param.name}`}"
+                           ${param.required ? 'required' : ''}>
+                    ${param.description ? `<small class="form-help">${param.description}</small>` : ''}
+                </div>
+            `).join('');
+
+            return `
+                <div class="form-section">
+                    <h4 class="form-section-title">Headers</h4>
+                    ${fields}
+                </div>
+            `;
+        },
+
+        // Build request body section
+        _buildRequestBodySection(requestFields, endpoint) {
+            const contentType = 'application/json';
+
+            let bodyInput;
+            if (contentType.includes('application/json')) {
+                // JSON body - show as textarea for manual editing or build form fields
+                bodyInput = `
+                    <div class="form-field">
+                        <label class="form-label">Request Body (JSON)</label>
+                        <textarea id="request-body"
+                                  name="requestBody"
+                                  class="form-control code-input"
+                                  rows="8"
+                                  placeholder='{\n  "key": "value"\n}'></textarea>
+                        <div class="form-actions mt-2">
+                            <button type="button" class="btn btn-xs btn-outline" onclick="APITestingManager.loadExampleBody()">
+                                Load Example
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline" onclick="APITestingManager.formatJsonBody()">
+                                Format JSON
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Form fields for other content types
+                const fields = requestFields.map(field => `
+                    <div class="form-field">
+                        <label for="body_${field.name}" class="form-label">
+                            ${field.name}
+                            ${field.required ? '<span class="txt-danger">*</span>' : ''}
+                        </label>
+                        <input type="text"
+                               id="body_${field.name}"
+                               name="requestBody[${field.name}]"
+                               class="form-control"
+                               placeholder="${field.description || field.example || `Enter ${field.name}`}"
+                               ${field.required ? 'required' : ''}>
+                        ${field.description ? `<small class="form-help">${field.description}</small>` : ''}
+                    </div>
+                `).join('');
+
+                bodyInput = fields;
+            }
+
+            return `
+                <div class="form-section">
+                    <h4 class="form-section-title">Request Body</h4>
+                    <div class="mb-2">
+                        <span class="badge badge-sm">${contentType}</span>
+                    </div>
+                    ${bodyInput}
+                </div>
+            `;
+        },
+
+        // Build authentication section
+        _buildAuthSection(auth) {
+            return `
+                <div class="form-section">
+                    <h4 class="form-section-title">Authentication</h4>
+                    <div class="auth-info mb-2">
+                        <span class="auth-icon">${auth.icon}</span>
+                        <span class="txt-sm">${auth.description}</span>
+                        <span class="badge badge-sm">${auth.type}</span>
+                    </div>
+                    <div class="form-field">
+                        <label for="auth-token" class="form-label">Authorization Token</label>
+                        <input type="password"
+                               id="auth-token"
+                               name="authToken"
+                               class="form-control"
+                               placeholder="Enter authorization token">
+                        <small class="form-help">Leave empty to use current session token</small>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Load example body data
+        loadExampleBody() {
+            if (!this._currentEndpoint) return;
+
+            const example = APIDataManager.getExampleRequest(this._currentEndpoint);
+            if (example?.body) {
+                const textarea = document.getElementById('request-body');
+                if (textarea) {
+                    textarea.value = JSON.stringify(example.body, null, 2);
+                }
+            }
+        },
+
+        // Format JSON in body textarea
+        formatJsonBody() {
+            const textarea = document.getElementById('request-body');
+            if (!textarea) return;
+
+            try {
+                const json = JSON.parse(textarea.value);
+                textarea.value = JSON.stringify(json, null, 2);
+            } catch (error) {
+                ErrorManager.handleError(error, 'JSON Formatting');
+            }
+        },
+
+        // =============================================================================
+        // REQUEST HANDLING
+        // =============================================================================
+
+        // Send test request
+        async sendRequest() {
+            if (!this._currentEndpoint) {
+                ErrorManager.handleError(new Error('No endpoint selected'), 'Send Request');
+                return;
+            }
+
+            try {
+                // Collect form data
+                const formData = this._collectFormData();
+
+                // Validate request
+                const validation = APIDataManager.validateRequestData(this._currentEndpoint, formData);
+                if (!validation.valid) {
+                    throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
+                }
+
+                // Show loading state
+                this._setLoadingState(true);
+
+                // Build request configuration
+                const requestConfig = this._buildRequestConfig(this._currentEndpoint, formData);
+
+                // Execute request
+                const result = await this._executeRequest(requestConfig);
+
+                // Store result in history
+                this._addToHistory(requestConfig, result);
+
+                // Display result
+                this._displayResult(result);
+
+                EventBus.emit(APIEvents.TEST.COMPLETED, {
+                    endpoint: this._currentEndpoint,
+                    result: result
+                });
+
+            } catch (error) {
+                ErrorManager.handleError(error, 'API Test Request');
+                this._displayError(error);
+
+                EventBus.emit(APIEvents.TEST.FAILED, {
+                    endpoint: this._currentEndpoint,
+                    error: error.message
+                });
+            } finally {
+                this._setLoadingState(false);
+            }
+        },
+
+        // Collect form data
+        _collectFormData() {
+            const form = document.getElementById('api-test-form');
+            if (!form) return {};
+
+            const formData = new FormData(form);
+            const data = {
+                pathParams: {},
+                queryParams: {},
+                headers: {},
+                requestBody: {},
+                authToken: formData.get('authToken') || null
+            };
+
+            // Parse form data into structured format
+            for (const [key, value] of formData.entries()) {
+                if (key.startsWith('pathParams[')) {
+                    const paramName = key.match(/\[([^\]]+)\]/)[1];
+                    data.pathParams[paramName] = value;
+                } else if (key.startsWith('queryParams[')) {
+                    const paramName = key.match(/\[([^\]]+)\]/)[1];
+                    data.queryParams[paramName] = value;
+                } else if (key.startsWith('headers[')) {
+                    const headerName = key.match(/\[([^\]]+)\]/)[1];
+                    data.headers[headerName] = value;
+                } else if (key.startsWith('requestBody[')) {
+                    const fieldName = key.match(/\[([^\]]+)\]/)[1];
+                    data.requestBody[fieldName] = value;
+                } else if (key === 'requestBody') {
+                    // Handle JSON body
+                    try {
+                        data.requestBody = value ? JSON.parse(value) : null;
+                    } catch (error) {
+                        data.requestBody = value; // Keep as string if not valid JSON
+                    }
+                }
+            }
+
+            return data;
+        },
+
+        // Build request configuration
+        _buildRequestConfig(endpoint, formData) {
+            // Build URL with path parameters
+            const baseUrl = window.location.origin;
+            let url = APIDataManager.buildUrl(endpoint, formData.pathParams);
+
+            // Add query parameters
+            if (Object.keys(formData.queryParams).length > 0) {
+                const queryString = new URLSearchParams(formData.queryParams).toString();
+                url += (url.includes('?') ? '&' : '?') + queryString;
+            }
+
+            // Prepare request body
+            const body = APIDataManager.prepareRequestBody(endpoint, formData);
+
+            // Build headers
+            const headers = {
+                ...formData.headers
+            };
+
+            // Add content type if body exists
+            if (body && endpoint.request) {
+                headers['Content-Type'] = 'application/json';
+            }
+
+            // Add authentication if provided
+            const authToken = formData.authToken || APIDataManager.getAuthToken();
+            if (authToken && APIDataManager.requiresAuth(endpoint)) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+
+            return {
+                method: endpoint.method.toUpperCase(),
+                url: baseUrl + url,
+                headers: headers,
+                body: body,
+                endpoint: endpoint,
+                timestamp: new Date().toISOString()
+            };
+        },
+
+        // Execute HTTP request
+        async _executeRequest(config) {
+            const startTime = Date.now();
+
+            try {
+                const fetchOptions = {
+                    method: config.method,
+                    headers: config.headers
+                };
+
+                if (config.body && config.method !== 'GET' && config.method !== 'HEAD') {
+                    fetchOptions.body = config.body;
+                }
+
+                const response = await fetch(config.url, fetchOptions);
+                const endTime = Date.now();
+
+                // Parse response
+                let responseData;
+                const contentType = response.headers.get('Content-Type') || '';
+
+                if (contentType.includes('application/json')) {
+                    responseData = await response.json();
+                } else {
+                    responseData = await response.text();
+                }
+
+                return {
+                    success: true,
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    data: responseData,
+                    duration: endTime - startTime,
+                    timestamp: config.timestamp
+                };
+
+            } catch (error) {
+                const endTime = Date.now();
+
+                return {
+                    success: false,
+                    error: error.message,
+                    duration: endTime - startTime,
+                    timestamp: config.timestamp
+                };
+            }
+        },
+
+        // Display request result
+        _displayResult(result) {
+            const container = document.getElementById('api-test-result');
+            if (!container) return;
+
+            if (result.success) {
+                container.innerHTML = `
+                    <div class="result-section">
+                        <div class="result-header">
+                            <h4>Response</h4>
+                            <div class="result-meta">
+                                <span class="http-status status-${result.status}">${result.status} ${result.statusText}</span>
+                                <span class="duration">${result.duration}ms</span>
+                            </div>
+                        </div>
+
+                        <div class="result-content">
+                            <div class="result-tabs">
+                                <button class="result-tab active" data-tab="body">Response Body</button>
+                                <button class="result-tab" data-tab="headers">Headers</button>
+                            </div>
+
+                            <div class="result-body active" data-content="body">
+                                <div class="code-block">
+                                    ${APIDataManager.formatSchemaForDisplay(result.data)}
+                                </div>
+                                <button class="btn btn-xs btn-outline mt-2" onclick="APITestingManager.copyResponse()">
+                                    <i class="ri-file-copy-line"></i> Copy Response
+                                </button>
+                            </div>
+
+                            <div class="result-body" data-content="headers">
+                                <div class="code-block">
+                                    <pre><code>${JSON.stringify(result.headers, null, 2)}</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="result-section">
+                        <div class="result-header error">
+                            <h4>Request Failed</h4>
+                            <span class="duration">${result.duration}ms</span>
+                        </div>
+                        <div class="result-content">
+                            <div class="alert alert-danger">
+                                <strong>Error:</strong> ${result.error}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Setup result tab switching
+            this._setupResultTabs();
+        },
+
+        // Display error
+        _displayError(error) {
+            const container = document.getElementById('api-test-result');
+            if (!container) return;
+
+            container.innerHTML = `
+                <div class="result-section">
+                    <div class="result-header error">
+                        <h4>Request Failed</h4>
+                    </div>
+                    <div class="result-content">
+                        <div class="alert alert-danger">
+                            <strong>Error:</strong> ${error.message}
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        // Copy response to clipboard
+        copyResponse() {
+            const resultBody = document.querySelector('.result-body.active .code-block');
+            if (!resultBody) return;
+
+            const text = resultBody.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                ErrorManager.updateStatus('success', 'Response copied to clipboard');
+            }).catch(error => {
+                ErrorManager.handleError(error, 'Copy Response');
+            });
+        },
+
+        // =============================================================================
+        // UI HELPERS & EVENT HANDLING
+        // =============================================================================
+
+        // Setup event listeners
+        _setupEventListeners() {
+            // Listen for sidebar open requests
+            EventBus.on(APIEvents.UI.SIDEBAR_OPENED, (data) => {
+                if (data.type === 'testing' && data.endpoint) {
+                    this.openSidebar(data.endpoint);
+                }
+            });
+        },
+
+        // Setup sidebar UI
+        _setupSidebar() {
+            // Close button
+            const closeBtn = document.getElementById('close-sidebar-btn');
+            if (closeBtn) {
+                const cleanup = this._addClickListener(closeBtn, () => {
+                    this.closeSidebar();
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            // Send request button
+            const sendBtn = document.getElementById('send-request-btn');
+            if (sendBtn) {
+                const cleanup = this._addClickListener(sendBtn, () => {
+                    this.sendRequest();
+                });
+                this._eventCleanup.push(cleanup);
+            }
+
+            // Reset form button
+            const resetBtn = document.getElementById('reset-form-btn');
+            if (resetBtn) {
+                const cleanup = this._addClickListener(resetBtn, () => {
+                    this.resetForm();
+                });
+                this._eventCleanup.push(cleanup);
+            }
+        },
+
+        // Setup form handlers
+        _setupFormHandlers() {
+            // Form submission
+            const form = document.getElementById('api-test-form');
+            if (form) {
+                const cleanup = this._addSubmitListener(form, (e) => {
+                    e.preventDefault();
+                    this.sendRequest();
+                });
+                this._eventCleanup.push(cleanup);
+            }
+        },
+
+        // Setup result tab switching
+        _setupResultTabs() {
+            const tabs = document.querySelectorAll('.result-tab');
+            const contents = document.querySelectorAll('.result-body');
+
+            tabs.forEach(tab => {
+                const cleanup = this._addClickListener(tab, () => {
+                    const targetTab = tab.dataset.tab;
+
+                    // Update active tab
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+
+                    // Update active content
+                    contents.forEach(c => c.classList.remove('active'));
+                    const targetContent = document.querySelector(`[data-content="${targetTab}"]`);
+                    if (targetContent) {
+                        targetContent.classList.add('active');
+                    }
+                });
+                this._eventCleanup.push(cleanup);
+            });
+        },
+
+        // Attach form listeners
+        _attachFormListeners(container) {
+            // URL update on path parameter changes
+            const pathInputs = container.querySelectorAll('input[name*="pathParams"]');
+            pathInputs.forEach(input => {
+                const cleanup = this._addInputListener(input, () => {
+                    this._updateUrlDisplay(this._currentEndpoint);
+                });
+                this._eventCleanup.push(cleanup);
+            });
+        },
+
+        // Update URL display
+        _updateUrlDisplay(endpoint) {
+            const urlDisplay = document.getElementById('request-url-display');
+            if (!urlDisplay || !endpoint) return;
+
+            // Get current path parameter values
+            const pathParams = {};
+            const pathInputs = document.querySelectorAll('input[name*="pathParams"]');
+            pathInputs.forEach(input => {
+                const paramName = input.name.match(/\[([^\]]+)\]/)?.[1];
+                if (paramName) {
+                    pathParams[paramName] = input.value || `{${paramName}}`;
+                }
+            });
+
+            const url = APIDataManager.buildUrl(endpoint, pathParams);
+            urlDisplay.textContent = `${endpoint.method.toUpperCase()} ${url}`;
+        },
+
+        // Reset form
+        resetForm() {
+            const form = document.getElementById('api-test-form');
+            if (form) {
+                form.reset();
+                this._updateUrlDisplay(this._currentEndpoint);
+            }
+
+            const resultContainer = document.getElementById('api-test-result');
+            if (resultContainer) {
+                resultContainer.innerHTML = '';
+            }
+        },
+
+        // Set loading state
+        _setLoadingState(loading) {
+            const sendBtn = document.getElementById('send-request-btn');
+            if (sendBtn) {
+                sendBtn.disabled = loading;
+                sendBtn.innerHTML = loading
+                    ? '<i class="ri-loader-line rotating"></i> Sending...'
+                    : '<i class="ri-send-plane-line"></i> Send Request';
+            }
+        },
+
+        // Add to test history
+        _addToHistory(request, result) {
+            const historyItem = {
+                id: Date.now(),
+                request: request,
+                result: result,
+                timestamp: new Date().toISOString()
+            };
+
+            this._testHistory.unshift(historyItem);
+
+            // Keep only last 10 items
+            if (this._testHistory.length > 10) {
+                this._testHistory = this._testHistory.slice(0, 10);
+            }
+
+            StateManager.setState('testing.history', this._testHistory);
+        },
+
+        // Helper: Add click listener
+        _addClickListener(element, handler) {
+            if (!element) return null;
+            element.addEventListener('click', handler);
+            return () => element.removeEventListener('click', handler);
+        },
+
+        // Helper: Add input listener
+        _addInputListener(element, handler) {
+            if (!element) return null;
+            const listener = (e) => handler(e.target.value, e);
+            element.addEventListener('input', listener);
+            return () => element.removeEventListener('input', listener);
+        },
+
+        // Helper: Add submit listener
+        _addSubmitListener(element, handler) {
+            if (!element) return null;
+            element.addEventListener('submit', handler);
+            return () => element.removeEventListener('submit', handler);
+        },
+
+        // Cleanup
+        cleanup() {
+            this._eventCleanup.forEach(cleanup => cleanup());
+            this._eventCleanup = [];
+        }
+    };
+
+    // =============================================================================
+    // GLOBAL EXPORTS
+    // =============================================================================
+
+    window.APITestingManager = APITestingManager;
+
+{{end}}
