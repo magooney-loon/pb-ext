@@ -9,6 +9,7 @@ Enhanced PocketBase server with monitoring, logging & API docs.
 ## Core Features
 
 - **API Schema**: Auto-generates OpenAPI docs UI for your endpoints
+- **Cron Tracking**: Logs and monitors scheduled cron jobs
 - **System Monitoring**: Real-time CPU, memory, disk, network, and runtime metrics
 - **Structured Logging**: Complete logging with error tracking and request tracing
 - **Visitor Analytics**: Track visitor stats, page views, device types, and browsers
