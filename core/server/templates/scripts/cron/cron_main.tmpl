@@ -441,8 +441,8 @@ if (!window.cronSystemInitialized) {
                                 <span class="txt-hint">${log.trigger_type}</span>
                                 ${hasDetails ? '<span class="txt-hint">• Click to expand</span>' : ''}
                             </div>
-                            ${log.error ? `<div class="log-details txt-danger" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Error:</strong><br><pre style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px; color: var(--cron-danger);">${this.escapeHtml(log.error)}</pre></div>` : ''}
-                            ${log.output ? `<div class="log-details txt-primary" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Output:</strong><br><pre style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px;">${this.escapeHtml(log.output)}</pre></div>` : ''}
+                            ${log.error ? `<div class="log-details txt-danger" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Error:</strong><br><pre style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px; color: var(--cron-danger); cursor: text; user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text;" title="Click and drag to select text">${this.escapeHtml(log.error)}</pre></div>` : ''}
+                            ${log.output ? `<div class="log-details txt-primary" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Output:</strong><br><pre style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px; cursor: text; user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text;" title="Click and drag to select text">${this.escapeHtml(log.output)}</pre></div>` : ''}
                         </div>
                     </div>
                 `;
@@ -455,6 +455,17 @@ if (!window.cronSystemInitialized) {
             // Add click handlers for expandable log entries only
             logsContainer.querySelectorAll('.cron-log-entry.has-details').forEach(entry => {
                 entry.addEventListener('click', (e) => {
+                    // Don't collapse if user is selecting text
+                    const selection = window.getSelection();
+                    if (selection && selection.toString().length > 0) {
+                        return;
+                    }
+
+                    // Don't collapse if clicking inside pre elements (output/error areas)
+                    if (e.target.closest('pre')) {
+                        return;
+                    }
+
                     e.preventDefault();
                     e.stopPropagation();
 

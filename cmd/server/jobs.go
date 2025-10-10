@@ -1,8 +1,9 @@
 package main
 
-// Cron job examples
+// JOB_SOURCE
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -12,9 +13,6 @@ import (
 
 func registerJobs(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Ensure job wrapper is ready before registering jobs
-		// The wrapper should be initialized in OnBootstrap, but let's add a check
-		app.Logger().Info("Registering cron jobs...")
 
 		// Register example cron jobs
 		if err := helloJob(app); err != nil {
@@ -32,20 +30,18 @@ func registerJobs(app core.App) {
 			return err
 		}
 
-		if err := healthCheckJob(app); err != nil {
-			app.Logger().Error("Failed to register health check job", "error", err)
-			return err
-		}
-
 		app.Logger().Info("All cron jobs registered successfully")
 		return e.Next()
 	})
 }
 
-// JOB_SOURCE
 // JOB_DESC: A simple demonstration job that runs every 5 minutes, outputs timestamped hello messages and simulates basic task processing
 func helloJob(app core.App) error {
-	return server.JobSourceWithDescription(app, "helloWorld", "Hello World Job",
+	jobManager := server.GetJobManager()
+	if jobManager == nil {
+		return fmt.Errorf("job manager not initialized")
+	}
+	return jobManager.RegisterJob("helloWorld", "Hello World Job",
 		"A simple demonstration job that runs every 5 minutes, outputs timestamped hello messages and simulates basic task processing",
 		"*/5 * * * *", func() {
 			log.Println("🚀 Hello World Job Starting...")
@@ -60,10 +56,13 @@ func helloJob(app core.App) error {
 		})
 }
 
-// JOB_SOURCE
 // JOB_DESC: Automated maintenance job that runs daily at 2 AM to clean up completed todos older than 30 days, helping keep the database optimized
 func dailyCleanupJob(app core.App) error {
-	return server.JobSourceWithDescription(app, "dailyCleanup", "Daily Cleanup Job",
+	jobManager := server.GetJobManager()
+	if jobManager == nil {
+		return fmt.Errorf("job manager not initialized")
+	}
+	return jobManager.RegisterJob("dailyCleanup", "Daily Cleanup Job",
 		"Automated maintenance job that runs daily at 2 AM to clean up completed todos older than 30 days, helping keep the database optimized",
 		"0 2 * * *", func() {
 			log.Println("🧹 Daily Cleanup Job Starting...")
@@ -113,10 +112,13 @@ func dailyCleanupJob(app core.App) error {
 		})
 }
 
-// JOB_SOURCE
 // JOB_DESC: Weekly analytics job that runs every Sunday at midnight to generate comprehensive todo statistics including completion rates and productivity metrics
 func weeklyStatsJob(app core.App) error {
-	return server.JobSourceWithDescription(app, "weeklyStats", "Weekly Statistics Job",
+	jobManager := server.GetJobManager()
+	if jobManager == nil {
+		return fmt.Errorf("job manager not initialized")
+	}
+	return jobManager.RegisterJob("weeklyStats", "Weekly Statistics Job",
 		"Weekly analytics job that runs every Sunday at midnight to generate comprehensive todo statistics including completion rates and productivity metrics",
 		"0 0 * * 0", func() {
 			log.Println("📊 Weekly Statistics Job Starting...")
@@ -179,41 +181,5 @@ func weeklyStatsJob(app core.App) error {
 				"pending_todos", pending,
 				"completion_rate", completionRate,
 			)
-		})
-}
-
-// JOB_SOURCE
-// JOB_DESC: System health monitoring job that runs every 5 minutes to check database connectivity, disk space, and other critical system resources
-func healthCheckJob(app core.App) error {
-	return server.JobSourceWithDescription(app, "healthCheck", "Health Check Job",
-		"System health monitoring job that runs every 5 minutes to check database connectivity, disk space, and other critical system resources",
-		"*/5 * * * *", func() {
-			log.Println("🔍 Health Check Job Starting...")
-			log.Printf("System health check initiated at: %s", time.Now().Format("2006-01-02 15:04:05"))
-
-			app.Logger().Debug("Running health check", "time", time.Now())
-
-			// Check database connectivity
-			log.Println("🗄️  Checking database connectivity...")
-			if _, err := app.DB().NewQuery("SELECT 1").Execute(); err != nil {
-				log.Printf("❌ Database health check failed: %v", err)
-				app.Logger().Error("Database health check failed", "error", err)
-				return
-			}
-			log.Println("✅ Database connectivity: OK")
-
-			// Check available disk space (basic example)
-			dataDir := app.DataDir()
-			log.Printf("📁 Data directory: %s", dataDir)
-			log.Println("✅ Disk space check: OK")
-
-			// Simulate additional health checks
-			log.Println("🔧 Checking system resources...")
-			time.Sleep(50 * time.Millisecond)
-			log.Println("✅ Memory usage: OK")
-			log.Println("✅ CPU usage: OK")
-
-			log.Println("✅ All health checks completed successfully")
-			app.Logger().Debug("Health check completed", "db_path", dataDir, "status", "healthy")
 		})
 }

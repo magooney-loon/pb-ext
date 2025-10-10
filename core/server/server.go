@@ -14,11 +14,13 @@ import (
 
 // Server wraps PocketBase with additional stats
 type Server struct {
-	app       *pocketbase.PocketBase
-	stats     *ServerStats
-	analytics *Analytics
-	jobLogger *JobLogger
-	options   *options
+	app         *pocketbase.PocketBase
+	stats       *ServerStats
+	analytics   *Analytics
+	jobLogger   *JobLogger
+	jobManager  *JobManager
+	jobHandlers *JobHandlers
+	options     *options
 }
 
 // ServerStats tracks server metrics
@@ -94,9 +96,14 @@ func (s *Server) Start() error {
 		} else {
 			s.jobLogger = jobLogger
 
-			// Initialize job wrapper for automatic job logging
-			InitializeJobWrapper(app, jobLogger)
-			app.Logger().Info("✅ Job logging system initialized")
+			// Initialize job manager for unified job handling
+			InitializeJobManager(app, jobLogger)
+			s.jobManager = GetJobManager()
+
+			// Initialize job handlers for API endpoints
+			s.jobHandlers = NewJobHandlers(s.jobManager, jobLogger)
+
+			app.Logger().Info("✅ Job management system initialized")
 		}
 
 		app.Logger().Info("✨ Server bootstrap complete",
@@ -183,12 +190,17 @@ func (s *Server) Start() error {
 			s.jobLogger.RegisterRoutes(e)
 		}
 
+		// Register job management API routes
+		if s.jobHandlers != nil {
+			s.jobHandlers.RegisterJobRoutes(e)
+			app.Logger().Info("⚡ Job API routes registered")
+		}
+
 		// Initialize API documentation system
 		app.Logger().Info("📚 AST API system initialized")
 
-		// Initialize cron jobs API
-		s.RegisterCronRoutes(e)
-		app.Logger().Info("⏰ Cron jobs API initialized")
+		// Legacy cron routes are now handled by JobHandlers
+		app.Logger().Info("⏰ Job management API initialized")
 
 		// Serve static files from pb_public with improved path resolution
 		publicDirPath := "./pb_public"
