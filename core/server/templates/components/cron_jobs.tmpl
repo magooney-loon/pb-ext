@@ -1,68 +1,44 @@
 {{define "cron_jobs"}}
 
 <div class="section m-t-base">
-
-
-    <!-- Cron Jobs Table -->
-    <div class="card">
-
-            <div class="flex align-center">
-
-<header class="section-header">
+    <header class="section-header">
         <h4 class="section-title">
-             <i class="ri-time-line"></i>
-                   Cron Jobs
+            <i class="ri-time-line"></i>
+            Cron Jobs
         </h4>
     </header>
 
-
-                <div class="flex align-center gap-5">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <label style="font-size: 13px; color: var(--txtHintColor);">Timezone:</label>
-                        <select class="field-input" id="cron-timezone" style="padding: 4px 8px; width: 120px;" onchange="updateCronTimezone()">
-                            <option value="UTC" selected>UTC</option>
-                            <option value="America/New_York">EST</option>
-                            <option value="America/Los_Angeles">PST</option>
-                            <option value="Europe/London">GMT</option>
-                            <option value="Asia/Tokyo">JST</option>
-                            <option value="Europe/Berlin">CET</option>
-                            <option value="Asia/Shanghai">CST</option>
-                        </select>
-                    </div>
-                    <button class="btn btn-sm btn-outline" onclick="refreshCronJobs()">
-                        <i class="ri-refresh-line"></i>
-                        <span>Refresh</span>
-                    </button>
-
-                </div>
+    <div class="card">
+        <div class="flex justify-between align-center m-b-base" style="padding: 10px 0; border-bottom: 1px solid var(--baseAlt2Color);">
+            <div class="txt-sm">
+                <span class="txt-hint">Running:</span>
+                <span class="txt-bold txt-success" id="active-jobs">0</span>
             </div>
 
-<!-- Stats Overview -->
-    <div class="flex gap-5 m-t-base">
-        <div class="card card-sm view-card">
+            <div class="flex align-center gap-sm">
+                <label class="txt-sm txt-hint m-r-5">Timezone:</label>
+                <select class="field-input" id="cron-timezone" onchange="updateCronTimezone()" style="width: 80px; padding: 3px 6px; font-size: 12px;">
+                    <option value="UTC" selected>UTC</option>
+                    <option value="America/New_York">EST</option>
+                    <option value="America/Los_Angeles">PST</option>
+                    <option value="Europe/London">GMT</option>
+                    <option value="Asia/Tokyo">JST</option>
+                    <option value="Europe/Berlin">CET</option>
+                    <option value="Asia/Shanghai">CST</option>
+                </select>
 
-                <div class="flex flex-column">
-                    <div class="flex align-center gap-5 m-b-5">
-                        <i class="ri-time-line txt-hint"></i>
-                        <div class="txt-lg" id="total-jobs">0</div>
-                    </div>
-                    <div class="txt-hint txt-sm">Total Jobs</div>
-                </div>
+                <label class="txt-sm txt-hint m-l-sm">
+                    <input type="checkbox" id="show-system-jobs" checked onchange="toggleSystemJobs()" class="m-r-5">
+                    Show System
+                </label>
 
+                <button class="btn btn-sm btn-outline m-l-sm" onclick="refreshCronJobs()">
+                    <i class="ri-refresh-line"></i>
+                    Refresh
+                </button>
+            </div>
         </div>
-        <div class="card card-sm view-card">
-
-                <div class="flex flex-column">
-                    <div class="flex align-center gap-5 m-b-5">
-                        <i class="ri-play-line txt-success"></i>
-                        <div class="txt-lg txt-success" id="active-jobs">0</div>
-                    </div>
-                    <div class="txt-hint txt-sm">Running Jobs</div>
-                </div>
-
-        </div>
-    </div>
-            <div class="cron-jobs-container" id="cron-jobs-list">
+        <div class="cron-jobs-container" id="cron-jobs-list">
                 <!-- Loading state -->
                 <div class="cron-loading" id="cron-loading">
                     <i class="ri-loader-4-line animate-spin"></i>
@@ -84,7 +60,7 @@
                     <table class="table">
                         <thead>
                             <tr>
-                                <th>Job Name</th>
+                                <th>Job Details</th>
                                 <th>Schedule</th>
                                 <th>Actions</th>
                             </tr>
@@ -148,6 +124,18 @@ app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
                         <div style="font-weight: 600;">Range:</div>
                         <div><code>0-59 0-23 1-31 1-12 0-6</code></div>
                     </div>
+                </div>
+
+                <h6 style="margin-top: 20px; margin-bottom: 12px;">Job Descriptions</h6>
+                <div style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 16px;">
+                    <p style="margin: 0; font-size: 13px;">Use the <code>// JOB_DESC:</code> directive to add descriptions to your cron jobs:</p>
+                    <pre style="background: var(--baseColor); border: 1px solid var(--baseAlt2Color); border-radius: 4px; padding: 12px; margin: 8px 0 0; font-size: 12px;"><code>// JOB_SOURCE
+// JOB_DESC: This job cleans up old records daily
+func cleanupJob(app core.App) error {
+    return server.JobSourceWithDescription(app, "cleanup",
+        "Daily Cleanup", "Removes old records from database",
+        "0 2 * * *", func() { ... })
+}</code></pre>
                 </div>
 
                 <h6 style="margin-top: 20px; margin-bottom: 12px;">Common Examples</h6>

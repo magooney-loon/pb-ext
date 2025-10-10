@@ -80,10 +80,20 @@ class CronAPI {
 
     /**
      * Get all cron jobs
+     * @param {boolean} showSystemJobs - Whether to include system jobs (default: true)
      * @returns {Promise<Array>} List of cron jobs
      */
-    async getJobs() {
-        return await this.makeRequest(this.endpoints.jobs);
+    async getJobs(showSystemJobs = true) {
+        const params = new URLSearchParams();
+        if (!showSystemJobs) {
+            params.append('show_system', 'false');
+        }
+
+        const endpoint = params.toString() ?
+            `${this.endpoints.jobs}?${params.toString()}` :
+            this.endpoints.jobs;
+
+        return await this.makeRequest(endpoint);
     }
 
     /**

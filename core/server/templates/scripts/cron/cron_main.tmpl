@@ -85,8 +85,17 @@ if (!window.cronSystemInitialized) {
             }
         }
 
-        async getJobs() {
-            return await this.makeRequest(this.endpoints.jobs);
+        async getJobs(showSystemJobs = true) {
+            const params = new URLSearchParams();
+            if (!showSystemJobs) {
+                params.append('show_system', 'false');
+            }
+
+            const endpoint = params.toString() ?
+                `${this.endpoints.jobs}?${params.toString()}` :
+                this.endpoints.jobs;
+
+            return await this.makeRequest(endpoint);
         }
 
         async createJob(jobData) {
@@ -139,7 +148,8 @@ if (!window.cronSystemInitialized) {
      * Handles all user interface interactions for cron job management
      */
     class CronUI {
-        constructor() {
+        constructor(manager = null) {
+            this.manager = manager;
             this.elements = {
                 // Main containers
                 loading: document.getElementById('cron-loading'),
@@ -230,42 +240,44 @@ if (!window.cronSystemInitialized) {
         }
 
         createJobRow(job) {
+            const truncatedDescription = job.description ? this.truncateText(job.description, 45) : '';
             return `
-                <tr class="cron-jobs-table__row">
-                    <td class="cron-jobs-table__cell">
-                        <div class="flex align-center">
-                            <div class="flex flex-column">
-                                <div class="txt-bold">${this.escapeHtml(job.name || job.id)}</div>
-                            </div>
+                <tr class="row-handle">
+                    <td class="col-type-text">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                            <div class="cron-job-name">${this.escapeHtml(job.name || job.id)}</div>
+                            <span class="cron-job-type ${job.is_system_job ? 'system' : 'user'}">
+                                ${job.is_system_job ? '🔧 System' : '👤 User'}
+                            </span>
+                        </div>
+                        ${truncatedDescription ? `<div class="cron-job-description" title="${this.escapeHtml(job.description)}">${this.escapeHtml(truncatedDescription)}</div>` : ''}
+                    </td>
+                    <td class="col-type-text nowrap">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <code class="cron-expression">${this.escapeHtml(job.expression)}</code>
+                            <div class="cron-description">${this.getCronDescription(job.expression)}</div>
                         </div>
                     </td>
-                    <td class="cron-jobs-table__cell">
-                        <div class="flex flex-column">
-                            <code class="txt-sm">${this.escapeHtml(job.expression)}</code>
-                            <small class="txt-hint">${this.getCronDescription(job.expression)}</small>
-                        </div>
-                    </td>
-                    <td class="cron-jobs-table__cell">
-                        <div class="flex gap-5">
-                            <button class="btn btn-xs btn-outline"
-                                    onclick="cronManager.showJobDetails('${job.id}')"
-                                    title="View Details">
-                                <i class="ri-eye-line"></i>
-                            </button>
-                            <button class="btn btn-xs btn-success"
-                                    onclick="cronManager.runJob('${job.id}')"
-                                    title="Run Now">
-                                <i class="ri-play-line"></i>
-                            </button>
-                            <button class="btn btn-xs btn-danger"
-                                    onclick="cronManager.deleteJob('${job.id}')"
-                                    title="Delete">
-                                <i class="ri-delete-bin-line"></i>
-                            </button>
-                        </div>
+                    <td class="col-type-action">
+                        <button class="btn btn-xs btn-outline" onclick="cronManager.showJobDetails('${job.id}')" title="View Details">
+                            <i class="ri-eye-line"></i>
+                        </button>
+                        <button class="btn btn-xs btn-success" onclick="cronManager.runJob('${job.id}')" title="Run Now">
+                            <i class="ri-play-line"></i>
+                        </button>
+                        ${!job.is_system_job ? `
+                        <button class="btn btn-xs btn-danger" onclick="cronManager.deleteJob('${job.id}')" title="Delete">
+                            <i class="ri-delete-bin-line"></i>
+                        </button>
+                        ` : ''}
                     </td>
                 </tr>
             `;
+        }
+
+        truncateText(text, maxLength) {
+            if (!text || text.length <= maxLength) return text;
+            return text.substring(0, maxLength) + '...';
         }
 
         updateStats(stats) {
@@ -303,6 +315,10 @@ if (!window.cronSystemInitialized) {
 
             this.elements.detailsModal.style.display = 'flex';
             window.currentJobDetails = job;
+
+            // Load job logs (use stored page or first page)
+            const currentPage = window.jobLogPages && window.jobLogPages[job.id] ? window.jobLogPages[job.id] : 1;
+            this.loadJobLogs(job.id, currentPage);
         }
 
         hideDetailsModal() {
@@ -315,43 +331,261 @@ if (!window.cronSystemInitialized) {
         createJobDetailsHTML(job) {
             return `
                 <div class="cron-job-details">
-                    <div class="cron-job-details__section">
-                        <h6>Basic Information</h6>
-                        <div class="cron-job-details__grid">
-                            <div class="cron-job-details__field">
-                                <label>Name:</label>
-                                <span>${this.escapeHtml(job.name || job.id)}</span>
-                            </div>
-                            <div class="cron-job-details__field">
-                                <label>Expression:</label>
-                                <code>${this.escapeHtml(job.expression)}</code>
-                            </div>
-                            <div class="cron-job-details__field">
-                                <label>Description:</label>
-                                <span>${this.getCronDescription(job.expression)}</span>
-                            </div>
+                    <!-- Compact Basic Information -->
+                    <div style="background: var(--baseAlt1Color); border-radius: 6px; padding: 16px; margin-bottom: 20px;">
+                        <div style="display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 12px 20px; align-items: center;">
+                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase;">Name:</strong>
+                            <span style="font-weight: 600;">${this.escapeHtml(job.name || job.id)}</span>
+
+                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase;">Type:</strong>
+                            <span class="cron-job-type ${job.is_system_job ? 'system' : 'user'}">
+                                ${job.is_system_job ? '🔧 System Job' : '👤 User Job'}
+                            </span>
+
+                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase;">Expression:</strong>
+                            <code style="background: var(--baseColor); padding: 3px 6px; border-radius: 3px; font-family: var(--monospaceFontFamily);">${this.escapeHtml(job.expression)}</code>
+
+                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase;">Schedule:</strong>
+                            <span style="color: var(--txtPrimaryColor);">${this.getCronDescription(job.expression)}</span>
+
+                            ${job.description ? `
+                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase; grid-column: 1;">Description:</strong>
+                            <span style="grid-column: 2 / -1; color: var(--txtHintColor); font-style: italic;">${this.escapeHtml(job.description)}</span>
+                            ` : ''}
                         </div>
                     </div>
 
                     <div class="cron-job-details__section">
-                        <h6>Implementation</h6>
-                        <div class="cron-job-details__info">
-                            <p class="txt-hint">PocketBase cron jobs are implemented as compiled Go functions and registered at runtime. The source code is not accessible through the API.</p>
-                            <div style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 12px; margin-top: 12px;">
-                                <div style="font-size: 12px; color: var(--txtHintColor); margin-bottom: 6px;">Typical registration:</div>
-                                <code style="font-size: 11px;">app.Cron().MustAdd("${this.escapeHtml(job.id)}", "${this.escapeHtml(job.expression)}", func() { /* Go implementation */ })</code>
-                            </div>
+                        <div class="cron-job-details__section-header">
+                            <i class="ri-history-line"></i>
+                            <span>Execution Logs</span>
+                            <button type="button" class="btn btn-xs btn-outline" onclick="refreshJobLogs('${this.escapeHtml(job.id)}')" style="margin-left: auto;">
+                                <i class="ri-refresh-line"></i>
+                                <span>Refresh</span>
+                            </button>
                         </div>
-                    </div>
-
-                    <div class="cron-job-details__section">
-                        <h6>Execution Information</h6>
-                        <div class="cron-job-details__info">
-                            <p class="txt-hint">Note: PocketBase cron jobs don't provide detailed execution history. Check server logs for execution details.</p>
+                        <div id="job-logs-${this.escapeHtml(job.id)}" class="cron-logs">
+                            <div class="cron-loading" style="padding: 2rem; text-align: center;">
+                                <i class="ri-loader-4-line animate-spin"></i>
+                                <span>Loading execution logs...</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             `;
+        }
+
+        async loadJobLogs(jobId, page = 1, perPage = 20) {
+            try {
+                const response = await fetch(`/api/cron/logs/${jobId}?page=${page}&per_page=${perPage}`, {
+                    headers: {
+                        'Authorization': `Bearer ${this.manager ? this.manager.getAuthToken() : this.getAuthTokenFallback()}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                if (result.success && result.data) {
+                    this.displayJobLogs(jobId, result.data.logs || [], result.data.pagination);
+                } else {
+                    this.displayJobLogsError(jobId, result.message || 'Failed to load logs');
+                }
+            } catch (error) {
+                console.error('Error loading job logs:', error);
+                this.displayJobLogsError(jobId, error.message);
+            }
+        }
+
+        displayJobLogs(jobId, logs, pagination = null) {
+            const logsContainer = document.getElementById(`job-logs-${jobId}`);
+            if (!logsContainer) return;
+
+            if (logs.length === 0) {
+                logsContainer.innerHTML = `
+                    <div class="cron-empty" style="padding: 2rem; text-align: center;">
+                        <i class="ri-file-list-line txt-hint" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
+                        <p class="txt-hint">No execution logs found</p>
+                        <p class="txt-hint" style="font-size: 12px;">Logs will appear here when the job runs</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const logsHTML = logs.map(log => {
+                const statusClass = log.status === 'completed' ? 'success' :
+                                   log.status === 'failed' ? 'error' : 'info';
+                const statusIcon = log.status === 'completed' ? 'ri-check-line' :
+                                   log.status === 'failed' ? 'ri-close-line' : 'ri-time-line';
+
+                const duration = log.duration ? this.formatDuration(log.duration) : 'N/A';
+                const timestamp = new Date(log.start_time).toLocaleString();
+                const hasDetails = log.output || log.error;
+
+                return `
+                    <div class="cron-log-entry cron-log-entry--${statusClass} ${hasDetails ? 'has-details' : ''}" style="cursor: ${hasDetails ? 'pointer' : 'default'};">
+                        <div class="cron-log-entry__timestamp">${timestamp}</div>
+                        <div class="cron-log-entry__status">
+                            <i class="${statusIcon}"></i>
+                        </div>
+                        <div class="cron-log-entry__message">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="cron-status cron-status--${log.status === 'completed' ? 'active' : log.status === 'failed' ? 'failed' : 'paused'}">
+                                    ${log.status}
+                                </span>
+                                <span class="txt-hint">•</span>
+                                <span class="txt-hint">${duration}</span>
+                                <span class="txt-hint">•</span>
+                                <span class="txt-hint">${log.trigger_type}</span>
+                                ${hasDetails ? '<span class="txt-hint">• Click to expand</span>' : ''}
+                            </div>
+                            ${log.error ? `<div class="log-details txt-danger" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Error:</strong><br><pre style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px; color: var(--cron-danger);">${this.escapeHtml(log.error)}</pre></div>` : ''}
+                            ${log.output ? `<div class="log-details txt-primary" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Output:</strong><br><pre style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px;">${this.escapeHtml(log.output)}</pre></div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const paginationHTML = pagination ? this.createPaginationHTML(jobId, pagination) : '';
+
+            logsContainer.innerHTML = logsHTML + paginationHTML;
+
+            // Add click handlers for expandable log entries only
+            logsContainer.querySelectorAll('.cron-log-entry.has-details').forEach(entry => {
+                entry.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const isExpanded = entry.classList.contains('expanded');
+                    entry.classList.toggle('expanded');
+
+                    const details = entry.querySelectorAll('.log-details');
+                    details.forEach(detail => {
+                        detail.style.display = !isExpanded ? 'block' : 'none';
+                    });
+
+                    // Update the "Click to expand" text
+                    const expandHint = entry.querySelector('.txt-hint:last-child');
+                    if (expandHint && expandHint.textContent.includes('Click to')) {
+                        expandHint.textContent = !isExpanded ? '• Click to collapse' : '• Click to expand';
+                    }
+                });
+            });
+        }
+
+        displayJobLogsError(jobId, errorMessage) {
+            const logsContainer = document.getElementById(`job-logs-${jobId}`);
+            if (!logsContainer) return;
+
+            logsContainer.innerHTML = `
+                <div class="cron-empty" style="padding: 2rem; text-align: center;">
+                    <i class="ri-error-warning-line txt-danger" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
+                    <p class="txt-danger">Failed to load execution logs</p>
+                    <p class="txt-hint" style="font-size: 12px;">${this.escapeHtml(errorMessage)}</p>
+                    <button type="button" class="btn btn-xs btn-outline" onclick="refreshJobLogs('${jobId}')" style="margin-top: 8px;">
+                        <i class="ri-refresh-line"></i>
+                        <span>Retry</span>
+                    </button>
+                </div>
+            `;
+        }
+
+        refreshJobLogs(jobId, page = 1) {
+            // Store current page context for this job
+            if (!window.jobLogPages) {
+                window.jobLogPages = {};
+            }
+            window.jobLogPages[jobId] = page;
+
+            this.loadJobLogs(jobId, page);
+        }
+
+        createPaginationHTML(jobId, pagination) {
+            if (!pagination || pagination.total_pages <= 1) return '';
+
+            const currentPage = pagination.page;
+            const totalPages = pagination.total_pages;
+
+            let paginationItems = '';
+
+            // Previous button
+            if (pagination.has_prev) {
+                paginationItems += `<button class="btn btn-xs btn-outline" onclick="refreshJobLogs('${jobId}', ${currentPage - 1})" style="margin-right: 4px;"><i class="ri-arrow-left-line"></i></button>`;
+            }
+
+            // Page numbers (show max 5 pages around current)
+            const startPage = Math.max(1, currentPage - 2);
+            const endPage = Math.min(totalPages, currentPage + 2);
+
+            if (startPage > 1) {
+                paginationItems += `<button class="btn btn-xs btn-outline" onclick="refreshJobLogs('${jobId}', 1)" style="margin-right: 2px;">1</button>`;
+                if (startPage > 2) {
+                    paginationItems += `<span style="margin: 0 4px;">...</span>`;
+                }
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                const isActive = i === currentPage;
+                paginationItems += `<button class="btn btn-xs ${isActive ? 'btn-success' : 'btn-outline'}" ${isActive ? 'disabled' : `onclick="refreshJobLogs('${jobId}', ${i})"`} style="margin-right: 2px;">${i}</button>`;
+            }
+
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    paginationItems += `<span style="margin: 0 4px;">...</span>`;
+                }
+                paginationItems += `<button class="btn btn-xs btn-outline" onclick="refreshJobLogs('${jobId}', ${totalPages})" style="margin-right: 2px;">${totalPages}</button>`;
+            }
+
+            // Next button
+            if (pagination.has_next) {
+                paginationItems += `<button class="btn btn-xs btn-outline" onclick="refreshJobLogs('${jobId}', ${currentPage + 1})" style="margin-left: 4px;"><i class="ri-arrow-right-line"></i></button>`;
+            }
+
+            return `
+                <div class="cron-logs-pagination" style="padding: 12px; border-top: 1px solid var(--baseAlt2Color); display: flex; align-items: center; justify-content: space-between; font-size: 12px;">
+                    <div class="txt-hint">
+                        Showing page ${currentPage} of ${totalPages} (${pagination.total} total logs)
+                    </div>
+                    <div>
+                        ${paginationItems}
+                    </div>
+                </div>
+            `;
+        }
+
+        getAuthTokenFallback() {
+            const possibleTokenKeys = [
+                '__pb_superuser_auth__'
+            ];
+
+            for (const key of possibleTokenKeys) {
+                const authData = localStorage.getItem(key);
+                if (authData) {
+                    try {
+                        const parsed = JSON.parse(authData);
+                        return parsed.token;
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            }
+            return null;
+        }
+
+        formatDuration(nanoseconds) {
+            if (!nanoseconds) return 'N/A';
+
+            const ms = Math.round(nanoseconds / 1000000);
+            if (ms < 1000) return `${ms}ms`;
+
+            const seconds = Math.round(ms / 1000 * 10) / 10;
+            if (seconds < 60) return `${seconds}s`;
+
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.round((seconds % 60) * 10) / 10;
+            return `${minutes}m ${remainingSeconds}s`;
         }
 
         getCronDescription(expression) {
@@ -489,13 +723,14 @@ if (!window.cronSystemInitialized) {
     class CronManager {
         constructor() {
             this.api = window.CronAPI;
-            this.ui = window.CronUI;
+            this.ui = null; // Will be set after initialization
             this.state = {
                 jobs: [],
                 status: 'unknown',
                 config: {},
                 isInitialized: false,
-                pollingInterval: null
+                pollingInterval: null,
+                showSystemJobs: true
             };
 
             this.config = {
@@ -503,6 +738,10 @@ if (!window.cronSystemInitialized) {
                 retryAttempts: 3,
                 retryDelay: 1000
             };
+        }
+
+        getAuthToken() {
+            return this.api ? this.api.getAuthToken() : null;
         }
 
         async initialize() {
@@ -532,7 +771,8 @@ if (!window.cronSystemInitialized) {
             this.ui.showLoading();
 
             try {
-                const jobs = await this.api.getJobs();
+                const showSystemJobs = this.state.showSystemJobs !== false; // default to true
+                const jobs = await this.api.getJobs(showSystemJobs);
                 this.state.jobs = Array.isArray(jobs) ? jobs : [];
 
                 this.ui.renderJobs(this.state.jobs);
@@ -618,6 +858,23 @@ if (!window.cronSystemInitialized) {
             try {
                 await this.api.runJob(jobId);
                 this.ui.showSuccess(`Job "${job.name || job.id}" executed successfully`);
+
+                // Refresh logs if job details modal is open
+                if (window.currentJobDetails && window.currentJobDetails.id === jobId) {
+                    // Get current page from pagination if available
+                    const logsContainer = document.getElementById(`job-logs-${jobId}`);
+                    let currentPage = 1;
+                    if (logsContainer) {
+                        const activePageBtn = logsContainer.querySelector('.btn-success[disabled]');
+                        if (activePageBtn) {
+                            currentPage = parseInt(activePageBtn.textContent) || 1;
+                        }
+                    }
+
+                    setTimeout(() => {
+                        this.ui.refreshJobLogs(jobId, currentPage);
+                    }, 1000); // Wait 1 second for log to be written
+                }
             } catch (error) {
                 this.ui.showError('Failed to run job: ' + error.message);
             }
@@ -662,8 +919,9 @@ if (!window.cronSystemInitialized) {
 
     // Initialize the system
     window.CronAPI = new CronAPI();
-    window.CronUI = new CronUI();
     window.cronManager = new CronManager();
+    window.CronUI = new CronUI(window.cronManager);
+    window.cronManager.ui = window.CronUI;
 
     // Mark as initialized to prevent double initialization
     window.cronSystemInitialized = true;
@@ -711,6 +969,24 @@ if (typeof window.loadCronJobs === 'undefined') {
 
 if (typeof window.refreshCronJobs === 'undefined') {
     window.refreshCronJobs = function() {
+        if (window.cronManager) {
+            return window.cronManager.loadJobs();
+        }
+    };
+}
+
+if (typeof window.toggleSystemJobs === 'undefined') {
+    window.toggleSystemJobs = function() {
+        const checkbox = document.getElementById('show-system-jobs');
+        if (window.cronManager && checkbox) {
+            window.cronManager.state.showSystemJobs = checkbox.checked;
+            window.cronManager.loadJobs();
+        }
+    };
+}
+
+if (typeof window.refreshCronJobs === 'undefined') {
+    window.refreshCronJobs = function() {
         return window.cronManager?.refresh();
     };
 }
@@ -733,6 +1009,12 @@ window.updateCronTimezone = () => {
 window.runJobFromDetails = () => {
     if (window.currentJobDetails) {
         window.cronManager.runJob(window.currentJobDetails.id);
+    }
+};
+
+window.refreshJobLogs = (jobId, page = 1) => {
+    if (window.cronManager && window.cronManager.ui) {
+        window.cronManager.ui.refreshJobLogs(jobId, page);
     }
 };
 
