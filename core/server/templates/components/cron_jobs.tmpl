@@ -1,0 +1,219 @@
+{{define "cron_jobs"}}
+
+<div class="section m-t-base">
+    <header class="section-header">
+        <h4 class="section-title">
+            <i class="ri-time-line"></i>
+            Cron Jobs
+        </h4>
+    </header>
+
+    <div class="card">
+        <div class="flex justify-between align-center m-b-base" style="padding: 10px 0; border-bottom: 1px solid var(--baseAlt2Color);">
+            <div class="txt-sm">
+                <span class="txt-hint">Running:</span>
+                <span class="txt-bold txt-success" id="active-jobs">0</span>
+            </div>
+
+            <div class="flex align-center gap-sm">
+                <label class="txt-sm txt-hint m-r-5">Timezone:</label>
+                <select class="field-input" id="cron-timezone" onchange="updateCronTimezone()" style="width: 80px; padding: 3px 6px; font-size: 12px;">
+                    <option value="UTC" selected>UTC</option>
+                    <option value="America/New_York">EST</option>
+                    <option value="America/Los_Angeles">PST</option>
+                    <option value="Europe/London">GMT</option>
+                    <option value="Asia/Tokyo">JST</option>
+                    <option value="Europe/Berlin">CET</option>
+                    <option value="Asia/Shanghai">CST</option>
+                </select>
+
+                <label class="txt-sm txt-hint m-l-sm">
+                    <input type="checkbox" id="show-system-jobs" checked onchange="toggleSystemJobs()" class="m-r-5">
+                    Show System
+                </label>
+
+                <button class="btn btn-sm btn-outline m-l-sm" onclick="refreshCronJobs()">
+                    <i class="ri-refresh-line"></i>
+                    Refresh
+                </button>
+            </div>
+        </div>
+        <div class="cron-jobs-container" id="cron-jobs-list">
+                <!-- Loading state -->
+                <div class="cron-loading" id="cron-loading">
+                    <i class="ri-loader-4-line animate-spin"></i>
+                    <span>Loading cron jobs...</span>
+                </div>
+
+                <!-- Empty state -->
+                <div class="cron-empty" id="cron-empty" style="display: none;">
+                    <div class="flex flex-column align-center txt-center p-lg">
+                        <i class="ri-time-line txt-hint" style="font-size: 48px;"></i>
+                        <h5 class="m-t-base m-b-5">No cron jobs found</h5>
+                        <p class="txt-hint">Cron jobs must be registered in your Go application code.</p>
+
+                    </div>
+                </div>
+
+                <!-- Jobs table -->
+                <div class="table-wrapper" id="cron-table-wrapper" style="display: none;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Job Details</th>
+                                <th>Schedule</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cron-jobs-tbody">
+                            <!-- Jobs will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+
+
+</div>
+
+<!-- Cron Job Information Modal -->
+<div class="overlay" id="cron-info-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div class="popup" style="background: var(--baseColor); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 90vw; max-height: 90vh; overflow: hidden; position: relative; width: 700px;">
+        <div class="popup-header" style="padding: 20px 24px; border-bottom: 1px solid var(--baseAlt2Color); display: flex; align-items: center; justify-content: space-between;">
+            <h4 class="popup-title" style="margin: 0; font-size: 18px; font-weight: 600;">How to Add Cron Jobs</h4>
+            <button type="button" class="popup-close-btn" onclick="hideCronJobInfo()" style="background: none; border: none; font-size: 20px; cursor: pointer; padding: 4px; border-radius: 4px;">
+                <i class="ri-close-line"></i>
+            </button>
+        </div>
+        <div class="popup-content" style="padding: 24px; max-height: calc(90vh - 120px); overflow-y: auto;">
+            <div class="cron-info-content">
+                <div class="alert alert-info" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 6px; padding: 16px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                        <i class="ri-information-line" style="color: #3b82f6;"></i>
+                        <strong>PocketBase Cron Jobs</strong>
+                    </div>
+                    <p style="margin: 0; color: var(--txtHintColor);">
+                        PocketBase cron jobs must be registered in your Go application code. They cannot be created or edited through the web interface.
+                    </p>
+                </div>
+
+                <h6 style="margin-top: 20px; margin-bottom: 12px;">Registration Example</h6>
+                <pre style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.4;"><code>// In your main.go or hooks file
+app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
+    // Add a daily cleanup job
+    app.Cron().MustAdd("dailyCleanup", "0 2 * * *", func() {
+        app.Logger().Info("Running daily cleanup...")
+        // Your cleanup logic here
+    })
+
+    // Add a hourly report job
+    app.Cron().MustAdd("hourlyReport", "0 * * * *", func() {
+        app.Logger().Info("Generating hourly report...")
+        // Your report logic here
+    })
+
+    return e.Next()
+})</code></pre>
+
+                <h6 style="margin-top: 20px; margin-bottom: 12px;">Cron Expression Format</h6>
+                <div style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 16px;">
+                    <div style="display: grid; grid-template-columns: 1fr 3fr; gap: 8px; font-size: 13px;">
+                        <div style="font-weight: 600;">Format:</div>
+                        <div><code>minute hour day month weekday</code></div>
+
+                        <div style="font-weight: 600;">Range:</div>
+                        <div><code>0-59 0-23 1-31 1-12 0-6</code></div>
+                    </div>
+                </div>
+
+                <h6 style="margin-top: 20px; margin-bottom: 12px;">Job Descriptions</h6>
+                <div style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 16px;">
+                    <p style="margin: 0; font-size: 13px;">Use the <code>// JOB_DESC:</code> directive to add descriptions to your cron jobs:</p>
+                    <pre style="background: var(--baseColor); border: 1px solid var(--baseAlt2Color); border-radius: 4px; padding: 12px; margin: 8px 0 0; font-size: 12px;"><code>// JOB_SOURCE
+// JOB_DESC: This job cleans up old records daily
+func cleanupJob(app core.App) error {
+    return server.JobSourceWithDescription(app, "cleanup",
+        "Daily Cleanup", "Removes old records from database",
+        "0 2 * * *", func() { ... })
+}</code></pre>
+                </div>
+
+                <h6 style="margin-top: 20px; margin-bottom: 12px;">Common Examples</h6>
+                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 12px; font-size: 13px;">
+                    <div><code>0 0 * * *</code></div>
+                    <div>Daily at midnight</div>
+
+                    <div><code>0 */2 * * *</code></div>
+                    <div>Every 2 hours</div>
+
+                    <div><code>30 9 * * 1</code></div>
+                    <div>Every Monday at 9:30 AM</div>
+
+                    <div><code>0 0 1 * *</code></div>
+                    <div>First day of every month</div>
+
+                    <div><code>*/15 * * * *</code></div>
+                    <div>Every 15 minutes</div>
+                </div>
+
+                <h6 style="margin-top: 20px; margin-bottom: 12px;">Macros</h6>
+                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 12px; font-size: 13px;">
+                    <div><code>@yearly</code></div>
+                    <div>Run once a year (0 0 1 1 *)</div>
+
+                    <div><code>@monthly</code></div>
+                    <div>Run once a month (0 0 1 * *)</div>
+
+                    <div><code>@weekly</code></div>
+                    <div>Run once a week (0 0 * * 0)</div>
+
+                    <div><code>@daily</code></div>
+                    <div>Run once a day (0 0 * * *)</div>
+
+                    <div><code>@hourly</code></div>
+                    <div>Run once an hour (0 * * * *)</div>
+                </div>
+            </div>
+        </div>
+        <div class="popup-footer" style="padding: 16px 24px; border-top: 1px solid var(--baseAlt2Color); display: flex; gap: 12px; justify-content: flex-end;">
+            <button type="button" class="btn btn-outline" onclick="hideCronJobInfo()">Close</button>
+            <a href="https://github.com/pocketbase/pocketbase/discussions" target="_blank" class="btn btn-success">
+                <i class="ri-external-link-line"></i>
+                <span>PocketBase Docs</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Job Details Modal -->
+<div class="overlay" id="cron-details-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div class="popup popup-lg" style="background: var(--baseColor); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 90vw; max-height: 90vh; overflow: hidden; position: relative;">
+        <div class="popup-header" style="padding: 20px 24px; border-bottom: 1px solid var(--baseAlt2Color); display: flex; align-items: center; justify-content: space-between;">
+            <h4 class="popup-title" style="margin: 0; font-size: 18px; font-weight: 600;">Job Details</h4>
+            <button type="button" class="popup-close-btn" onclick="hideCronDetailsModal()" style="background: none; border: none; font-size: 20px; cursor: pointer; padding: 4px; border-radius: 4px;">
+                <i class="ri-close-line"></i>
+            </button>
+        </div>
+        <div class="popup-content" style="padding: 24px; max-height: calc(90vh - 120px); overflow-y: auto;">
+            <div id="cron-job-details">
+                <!-- Job details will be populated here -->
+            </div>
+        </div>
+        <div class="popup-footer" style="padding: 16px 24px; border-top: 1px solid var(--baseAlt2Color); display: flex; gap: 12px; justify-content: flex-end;">
+            <button type="button" class="btn btn-outline" onclick="hideCronDetailsModal()">Close</button>
+            <button type="button" class="btn btn-success" onclick="runJobFromDetails()" id="run-job-from-details">
+                <i class="ri-play-line"></i>
+                <span>Run Now</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+
+
+{{template "cron_jobs_css" .}}
+{{template "cron_details_js" .}}
+
+
+
+{{end}}

@@ -14,22 +14,26 @@
         const healthTab = document.querySelector('.health-tab');
         const analyticsTab = document.querySelector('.analytics-tab');
         const apiTab = document.querySelector('.api-tab');
+        const cronTab = document.querySelector('.cron-tab');
         const healthSection = document.getElementById('health-section');
         const analyticsSection = document.getElementById('analytics-section');
         const apiSection = document.getElementById('api-section');
+        const cronSection = document.getElementById('cron-section');
 
-        if (!healthTab || !analyticsTab || !apiTab || !healthSection || !analyticsSection || !apiSection) return;
+        if (!healthTab || !analyticsTab || !apiTab || !cronTab || !healthSection || !analyticsSection || !apiSection || !cronSection) return;
 
         function switchToTab(tabName) {
             // Remove current-route class from all tabs
             healthTab.classList.remove('current-route');
             analyticsTab.classList.remove('current-route');
             apiTab.classList.remove('current-route');
+            cronTab.classList.remove('current-route');
 
             // Hide all sections
             healthSection.style.display = 'none';
             analyticsSection.style.display = 'none';
             apiSection.style.display = 'none';
+            cronSection.style.display = 'none';
 
             if (tabName === 'health') {
                 healthTab.classList.add('current-route');
@@ -43,9 +47,15 @@
                 apiTab.classList.add('current-route');
                 apiSection.style.display = 'block';
                 window.location.hash = 'api';
+            } else if (tabName === 'cron') {
+                cronTab.classList.add('current-route');
+                cronSection.style.display = 'block';
+                window.location.hash = 'cron';
+                // Initialize cron jobs when tab is shown
+                if (typeof initializeCronJobs === 'function') {
+                    initializeCronJobs();
+                }
             }
-
-
         }
 
         // Set initial tab based on hash
@@ -53,6 +63,8 @@
             switchToTab('analytics');
         } else if (window.location.hash === '#api') {
             switchToTab('api');
+        } else if (window.location.hash === '#cron') {
+            switchToTab('cron');
         } else {
             switchToTab('health');
         }
@@ -73,12 +85,19 @@
             switchToTab('api');
         });
 
+        cronTab.addEventListener('click', function(e) {
+            e.preventDefault();
+            switchToTab('cron');
+        });
+
         // Handle hash changes (for browser navigation)
         window.addEventListener('hashchange', function() {
             if (window.location.hash === '#analytics') {
                 switchToTab('analytics');
             } else if (window.location.hash === '#api') {
                 switchToTab('api');
+            } else if (window.location.hash === '#cron') {
+                switchToTab('cron');
             } else {
                 switchToTab('health');
             }

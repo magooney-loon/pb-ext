@@ -1,0 +1,451 @@
+{{define "cron_jobs_css"}}
+<style>
+/* =============================================================================
+   CRON JOBS MANAGEMENT - CLEAN CSS
+   ============================================================================= */
+
+/* Base Variables */
+:root {
+    --cron-border-radius: 6px;
+    --cron-transition: all 0.15s ease-in-out;
+}
+
+/* =============================================================================
+   CONTAINER & LAYOUT
+   ============================================================================= */
+
+.cron-jobs-container {
+    background: var(--baseColor);
+    border-radius: var(--cron-border-radius);
+    overflow: hidden;
+}
+
+
+
+
+
+.cron-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 3rem 2rem;
+    color: var(--txtHintColor);
+    font-size: 14px;
+}
+
+.cron-loading i {
+    font-size: 20px;
+}
+
+.cron-empty {
+    text-align: center;
+    padding: 3rem 2rem;
+}
+
+.cron-empty i {
+    font-size: 3rem;
+    color: var(--txtHintColor);
+    margin-bottom: 1rem;
+}
+
+/* =============================================================================
+   TABLE STYLING - WORK WITH POCKETBASE CSS
+   ============================================================================= */
+
+/* Use PocketBase table classes and extend them */
+.cron-jobs-container .table {
+    table-layout: auto;
+}
+
+/* Job name styling */
+.cron-job-name {
+    font-weight: 600;
+    color: var(--txtPrimaryColor);
+    display: block;
+    margin-bottom: 6px;
+    font-size: 14px;
+}
+
+/* Job description - use PocketBase hint styling */
+.cron-job-description {
+    font-size: 11px;
+    color: var(--txtHintColor);
+    opacity: 0.7;
+    line-height: 1.4;
+    margin-top: 3px;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Job type badges */
+.cron-job-type {
+    display: inline-block;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-top: 2px;
+    vertical-align: top;
+}
+
+.cron-job-type.system {
+    background: rgba(255, 152, 0, 0.1);
+    color: #f57c00;
+    border: 1px solid rgba(255, 152, 0, 0.2);
+}
+
+.cron-job-type.user {
+    background: rgba(76, 175, 80, 0.1);
+    color: #388e3c;
+    border: 1px solid rgba(76, 175, 80, 0.2);
+}
+
+/* Schedule column styling */
+.cron-expression {
+    background: var(--baseAlt1Color);
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: var(--monospaceFontFamily);
+    color: var(--txtPrimaryColor);
+    display: inline-block;
+    margin-bottom: 4px;
+    font-weight: 500;
+}
+
+.cron-description {
+    font-size: 10px;
+    color: var(--txtHintColor);
+    opacity: 0.75;
+    display: block;
+    line-height: 1.3;
+    font-weight: 500;
+}
+
+/* Column widths */
+.cron-jobs-container .table td:first-child {
+    min-width: 220px;
+    width: 45%;
+    padding-right: 20px;
+}
+
+.cron-jobs-container .table td:last-child {
+    white-space: nowrap;
+    width: 1%;
+    text-align: right;
+}
+
+/* Button spacing */
+.cron-jobs-container .table td:last-child .btn {
+    margin-right: 4px;
+}
+
+.cron-jobs-container .table td:last-child .btn:last-child {
+    margin-right: 0;
+}
+
+/* =============================================================================
+   MODALS
+   ============================================================================= */
+
+.popup {
+    background: var(--baseColor);
+    border-radius: var(--cron-border-radius);
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: hidden;
+    position: relative;
+}
+
+.popup-lg {
+    width: 800px;
+    max-width: 90vw;
+}
+
+.popup-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--baseAlt2Color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--baseColor);
+}
+
+.popup-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--txtPrimaryColor);
+}
+
+.popup-close-btn {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    color: var(--txtHintColor);
+    transition: var(--cron-transition);
+}
+
+.popup-close-btn:hover {
+    background: var(--baseAlt1Color);
+    color: var(--txtPrimaryColor);
+}
+
+.popup-content {
+    padding: 24px;
+    max-height: calc(90vh - 120px);
+    overflow-y: auto;
+}
+
+.popup-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--baseAlt2Color);
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    background: var(--baseColor);
+}
+
+/* =============================================================================
+   JOB DETAILS
+   ============================================================================= */
+
+.cron-job-details {
+    color: var(--txtPrimaryColor);
+}
+
+.cron-job-details__section {
+    margin-bottom: 24px;
+}
+
+.cron-job-details__section:last-child {
+    margin-bottom: 0;
+}
+
+.cron-job-details__section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--baseAlt2Color);
+    color: var(--txtPrimaryColor);
+}
+
+.cron-job-details__section-header i {
+    color: var(--primaryColor);
+}
+
+/* Compact job details styling - using inline styles for better control */
+
+/* =============================================================================
+   CRON LOGS
+   ============================================================================= */
+
+.cron-logs {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--baseAlt2Color);
+    border-radius: var(--cron-border-radius);
+}
+
+.cron-log-entry {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--baseAlt2Color);
+    font-size: 13px;
+    transition: var(--cron-transition);
+    cursor: default;
+}
+
+.cron-log-entry:last-child {
+    border-bottom: none;
+}
+
+.cron-log-entry.has-details {
+    cursor: pointer;
+}
+
+.cron-log-entry:hover {
+    background: var(--baseAlt1Color);
+}
+
+.cron-log-entry--success {
+    border-left: 3px solid var(--successColor);
+}
+
+.cron-log-entry--error {
+    border-left: 3px solid var(--dangerColor);
+}
+
+.cron-log-entry__timestamp {
+    color: var(--txtHintColor);
+    font-size: 12px;
+    min-width: 140px;
+}
+
+.cron-log-entry__status {
+    display: flex;
+    align-items: center;
+    width: 20px;
+}
+
+.cron-log-entry--success .cron-log-entry__status {
+    color: var(--successColor);
+}
+
+.cron-log-entry--error .cron-log-entry__status {
+    color: var(--dangerColor);
+}
+
+.cron-log-entry__message {
+    flex: 1;
+    color: var(--txtPrimaryColor);
+}
+
+.cron-log-entry.has-details {
+    position: relative;
+    padding-right: 32px;
+}
+
+.cron-log-entry.has-details::after {
+    content: '▶';
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--txtHintColor);
+    font-size: 10px;
+    transition: all 0.2s ease;
+}
+
+.cron-log-entry.has-details:hover::after {
+    color: var(--primaryColor);
+}
+
+.cron-log-entry.has-details.expanded::after {
+    content: '▼';
+    transform: translateY(-50%);
+}
+
+.cron-log-entry.expanded {
+    background: var(--baseAlt1Color);
+    border-left-width: 4px;
+}
+
+.cron-log-entry .log-details {
+    display: none;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--baseAlt2Color);
+    animation: fadeIn 0.15s ease-out;
+}
+
+.cron-log-entry.expanded .log-details {
+    display: block !important;
+}
+
+.cron-log-entry .log-details pre {
+    margin: 4px 0 0 0;
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: var(--monospaceFontFamily);
+    font-size: 11px;
+    line-height: 1.4;
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+}
+
+.cron-log-entry .log-details pre:hover {
+    background: var(--baseAlt2Color) !important;
+    transition: background-color 0.15s ease;
+}
+
+.cron-log-entry .log-details pre::selection {
+    background: var(--primaryColor);
+    color: var(--baseColor);
+}
+
+.cron-log-entry .log-details pre::-moz-selection {
+    background: var(--primaryColor);
+    color: var(--baseColor);
+}
+
+.cron-logs-pagination {
+    background: var(--baseAlt1Color);
+    border-top: 1px solid var(--baseAlt2Color);
+    border-radius: 0 0 var(--cron-border-radius) var(--cron-border-radius);
+}
+
+.cron-logs-pagination .btn {
+    min-width: 28px;
+    height: 24px;
+    font-size: 11px;
+    padding: 0 6px;
+}
+
+.cron-logs-pagination .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* =============================================================================
+   ANIMATIONS
+   ============================================================================= */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.cron-loading i.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* =============================================================================
+   ACCESSIBILITY & RESPONSIVE
+   ============================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .cron-loading i.animate-spin {
+        animation: none;
+    }
+}
+</style>
+{{end}}

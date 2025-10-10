@@ -14,10 +14,13 @@ import (
 
 // Server wraps PocketBase with additional stats
 type Server struct {
-	app       *pocketbase.PocketBase
-	stats     *ServerStats
-	analytics *Analytics
-	options   *options
+	app         *pocketbase.PocketBase
+	stats       *ServerStats
+	analytics   *Analytics
+	jobLogger   *JobLogger
+	jobManager  *JobManager
+	jobHandlers *JobHandlers
+	options     *options
 }
 
 // ServerStats tracks server metrics
@@ -84,6 +87,23 @@ func (s *Server) Start() error {
 
 		if err := e.Next(); err != nil {
 			return NewInternalError("bootstrap_initialization", "Failed to initialize core resources", err)
+		}
+
+		// Initialize job logging system early so it's available for job registration
+		jobLogger, err := InitializeJobLogger(app)
+		if err != nil {
+			app.Logger().Error("Failed to initialize job logger", "error", err)
+		} else {
+			s.jobLogger = jobLogger
+
+			// Initialize job manager for unified job handling
+			InitializeJobManager(app, jobLogger)
+			s.jobManager = GetJobManager()
+
+			// Initialize job handlers for API endpoints
+			s.jobHandlers = NewJobHandlers(s.jobManager, jobLogger)
+
+			app.Logger().Info("✅ Job management system initialized")
 		}
 
 		app.Logger().Info("✨ Server bootstrap complete",
@@ -165,10 +185,22 @@ func (s *Server) Start() error {
 			app.Logger().Info("✅ Analytics system initialized")
 		}
 
+		// Register job logging routes (job logger was initialized in OnBootstrap)
+		if s.jobLogger != nil {
+			s.jobLogger.RegisterRoutes(e)
+		}
+
+		// Register job management API routes
+		if s.jobHandlers != nil {
+			s.jobHandlers.RegisterJobRoutes(e)
+			app.Logger().Info("⚡ Job API routes registered")
+		}
+
 		// Initialize API documentation system
-		// NOTE: API docs routes are now handled by the version manager to prevent conflicts
-		// s.RegisterAPIDocsRoutes(e)
 		app.Logger().Info("📚 AST API system initialized")
+
+		// Legacy cron routes are now handled by JobHandlers
+		app.Logger().Info("⏰ Job management API initialized")
 
 		// Serve static files from pb_public with improved path resolution
 		publicDirPath := "./pb_public"
