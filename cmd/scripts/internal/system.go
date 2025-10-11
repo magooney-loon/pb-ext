@@ -19,14 +19,15 @@ func CheckSystemRequirements() error {
 		{"Git", "git", []string{"--version"}},
 	}
 
-	PrintStep("🔍", "Checking system requirements...")
+	PrintStep("🔍", "Validating system requirements and tool availability...")
 
 	for _, req := range requirements {
 		if !CheckCommand(req.command, req.args...) {
-			PrintError("%s is not installed or not in PATH", req.name)
-			return fmt.Errorf("%s is required but not found", req.name)
+			PrintError("%s is not installed or not available in system PATH", req.name)
+			return fmt.Errorf("%s is required but not found - please install and ensure it's in your PATH", req.name)
 		}
-		PrintSuccess("%s is available", req.name)
+		version := GetCommandOutput(req.command, req.args...)
+		PrintSuccess("%s is available (%s)", req.name, version)
 	}
 
 	return nil

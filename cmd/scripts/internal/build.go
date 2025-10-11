@@ -95,11 +95,11 @@ func BuildFrontend(rootDir string, installDeps bool) error {
 		return nil
 
 	case FrontendTypeStatic:
-		PrintStep("📄", "Static frontend")
+		PrintStep("📄", "Processing static frontend assets")
 		return CopyStaticFiles(rootDir, frontendDir)
 
 	case FrontendTypeNpm:
-		PrintStep("⚙️", "Building frontend")
+		PrintStep("⚙️", "Building frontend with npm")
 
 		if err := ValidateFrontendSetup(frontendDir); err != nil {
 			return err
@@ -140,7 +140,7 @@ func BuildFrontendCore(frontendDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintSuccess("Built in %v", duration.Round(time.Millisecond))
+	PrintSuccess("Frontend build completed in %v", duration.Round(time.Millisecond))
 	return nil
 }
 
@@ -212,7 +212,7 @@ func CopyFrontendToDist(rootDir, outputDir string) error {
 
 // BuildServerBinary builds the server binary for production
 func BuildServerBinary(rootDir, outputDir string) error {
-	PrintStep("🏗️", "Building server")
+	PrintStep("🏗️", "Building optimized server binary")
 
 	binaryName := AppName
 	if runtime.GOOS == "windows" {
@@ -235,7 +235,7 @@ func BuildServerBinary(rootDir, outputDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintSuccess("Built in %v", duration.Round(time.Millisecond))
+	PrintSuccess("Server binary built in %v (optimized with -ldflags)", duration.Round(time.Millisecond))
 	return nil
 }
 

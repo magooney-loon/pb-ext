@@ -227,38 +227,64 @@ func parseTestOutput(output string, result *TestResult) {
 func printTestSummary(suite TestSuite) {
 	fmt.Println()
 
+	// Header with visual separation
 	if suite.Success {
-		fmt.Printf("\n✅ %sAll tests passed%s\n", Bold+Green, Reset)
+		fmt.Printf("  %s🧪 Test Suite Completed Successfully%s\n", Bold+Green, Reset)
 	} else {
-		fmt.Printf("\n❌ %sTest suite failed%s\n", Bold+Red, Reset)
+		fmt.Printf("  %s🚨 Test Suite Failed%s\n", Bold+Red, Reset)
+	}
+	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
+	fmt.Println()
+
+	// Test metrics in a clean table format
+	fmt.Printf("  %s📊 Test Results%s\n", Bold, Reset)
+	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
+
+	// Calculate success rate
+	successRate := float64(suite.TotalPassed) / float64(suite.TotalTests) * 100
+	if suite.TotalTests == 0 {
+		successRate = 0
 	}
 
-	fmt.Printf("\n📊 %sSummary%s\n", Bold, Reset)
-	fmt.Printf("  %s•%s Total: %d\n", Gray, Reset, suite.TotalTests)
-	fmt.Printf("  %s•%s Passed: %s%d%s\n", Gray, Reset, Green, suite.TotalPassed, Reset)
+	fmt.Printf("    %sTotal Tests     %s%d%s\n", Gray, Reset, suite.TotalTests, Reset)
+	fmt.Printf("    %sPassed          %s%s%d%s\n", Gray, Reset, Green, suite.TotalPassed, Reset)
 
 	if suite.TotalFailed > 0 {
-		fmt.Printf("  %s•%s Failed: %s%d%s\n", Gray, Reset, Red, suite.TotalFailed, Reset)
+		fmt.Printf("    %sFailed          %s%s%d%s\n", Gray, Reset, Red, suite.TotalFailed, Reset)
 	}
 
-	fmt.Printf("  %s•%s Duration: %dms\n", Gray, Reset, suite.Duration.Milliseconds())
-	fmt.Printf("  %s•%s Packages: %d\n", Gray, Reset, len(suite.Results))
+	fmt.Printf("    %sSuccess Rate    %s%.1f%%%s\n", Gray, Reset, successRate, Reset)
+	fmt.Printf("    %sDuration        %s%dms%s\n", Gray, Reset, suite.Duration.Milliseconds(), Reset)
+	fmt.Printf("    %sPackages        %s%d%s\n", Gray, Reset, len(suite.Results), Reset)
 
 	if !suite.Success {
-		fmt.Printf("\n🚨 %sFailed Packages%s\n", Bold+Red, Reset)
+		fmt.Println()
+		fmt.Printf("  %s🚨 Failed Test Packages%s\n", Bold+Red, Reset)
+		fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
 		for _, result := range suite.Results {
 			if !result.Success {
-				fmt.Printf("  %s• %s%s (%d failures)\n",
-					Red, result.Package, Reset, result.Failed)
+				fmt.Printf("    %s▸ %s%-30s%s %s%d failures%s\n",
+					Red, Bold, result.Package, Reset, Red, result.Failed, Reset)
 			}
 		}
 	}
 
-	fmt.Println()
+	// Success footer
+	if suite.Success {
+		fmt.Printf("\n%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n", Green, Reset)
+		fmt.Printf("%s✅ All tests passed! Your code is ready for deployment.%s\n", Bold+Green, Reset)
+		fmt.Printf("%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n\n", Green, Reset)
+	} else {
+		fmt.Printf("\n%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n", Red, Reset)
+		fmt.Printf("%s❌ Test failures detected. Please review and fix before deployment.%s\n", Bold+Red, Reset)
+		fmt.Printf("%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n\n", Red, Reset)
+	}
 }
 
 // RunTestSuiteAndGenerateReport runs the full test suite and generates reports
 func RunTestSuiteAndGenerateReport(rootDir, outputDir string) error {
+	PrintStep("🧪", "Initializing comprehensive test suite...")
+
 	reportsDir := filepath.Join(outputDir, "test-reports")
 	if err := os.MkdirAll(reportsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create test reports directory: %w", err)
@@ -267,9 +293,11 @@ func RunTestSuiteAndGenerateReport(rootDir, outputDir string) error {
 	// Get test packages using auto-discovery
 	packages := getTestPackages()
 	if len(packages) == 0 {
-		PrintWarning("No test packages found")
+		PrintWarning("No test packages discovered in project")
 		return nil
 	}
+
+	PrintStep("🔍", "Discovered %d test packages for execution", len(packages))
 
 	// Run test suite with formatted output
 	suite := runTestSuite(packages)

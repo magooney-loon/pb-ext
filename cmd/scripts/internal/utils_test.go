@@ -37,22 +37,22 @@ func TestPrintBanner(t *testing.T) {
 		{
 			name:      "Development operation",
 			operation: "DEVELOPMENT",
-			contains:  []string{"▲", AppName, "v1.0.0", "development"},
+			contains:  []string{"┌─────────", "▲", AppName, "v1.0.0", "DEVELOPMENT", "└─────────"},
 		},
 		{
 			name:      "Production operation",
 			operation: "PRODUCTION",
-			contains:  []string{"▲", AppName, "v1.0.0", "production"},
+			contains:  []string{"┌─────────", "▲", AppName, "v1.0.0", "PRODUCTION", "└─────────"},
 		},
 		{
 			name:      "Testing operation",
 			operation: "TESTING",
-			contains:  []string{"▲", AppName, "v1.0.0", "testing"},
+			contains:  []string{"┌─────────", "▲", AppName, "v1.0.0", "TESTING", "└─────────"},
 		},
 		{
 			name:      "Empty operation",
 			operation: "",
-			contains:  []string{"▲", AppName, "v1.0.0"},
+			contains:  []string{"┌─────────", "▲", AppName, "v1.0.0", "└─────────"},
 		},
 	}
 
@@ -278,13 +278,13 @@ func TestPrintInfo(t *testing.T) {
 			name:     "Simple info",
 			format:   "Starting server",
 			args:     []any{},
-			contains: []string{"•", "Starting server"},
+			contains: []string{"▸", "Starting server"},
 		},
 		{
 			name:     "Info with formatting",
 			format:   "Listening on port %d",
 			args:     []any{8080},
-			contains: []string{"•", "Listening on port 8080"},
+			contains: []string{"▸", "Listening on port 8080"},
 		},
 	}
 
@@ -294,8 +294,8 @@ func TestPrintInfo(t *testing.T) {
 				PrintInfo(tt.format, tt.args...)
 			})
 
-			if !strings.Contains(output, "•") {
-				t.Errorf("PrintInfo output should contain '•', got: %s", output)
+			if !strings.Contains(output, "▸") {
+				t.Errorf("PrintInfo output should contain '▸', got: %s", output)
 			}
 		})
 	}
@@ -316,11 +316,11 @@ func TestPrintBuildSummary(t *testing.T) {
 			duration:     duration,
 			isProduction: false,
 			contains: []string{
-				"Build Complete",
-				"Type:", "Development",
-				"Duration:", "500ms",
-				"Target:", runtime.GOOS + "/" + runtime.GOARCH,
-				"pb_public/", "development build",
+				"Build Completed Successfully",
+				"Build Type", "Development",
+				"Duration", "500ms",
+				"Target Platform", runtime.GOOS + "/" + runtime.GOARCH,
+				"pb_public/",
 			},
 		},
 		{
@@ -328,11 +328,11 @@ func TestPrintBuildSummary(t *testing.T) {
 			duration:     duration,
 			isProduction: true,
 			contains: []string{
-				"Build Complete",
-				"Type:", "Production",
-				"Duration:", "500ms",
-				"Target:", runtime.GOOS + "/" + runtime.GOARCH,
-				"dist/", "production build",
+				"Build Completed Successfully",
+				"Build Type", "Production",
+				"Duration", "500ms",
+				"Target Platform", runtime.GOOS + "/" + runtime.GOARCH,
+				"dist/",
 			},
 		},
 		{
@@ -340,8 +340,8 @@ func TestPrintBuildSummary(t *testing.T) {
 			duration:     0,
 			isProduction: false,
 			contains: []string{
-				"Build Complete",
-				"Duration:", "0s",
+				"Build Completed Successfully",
+				"Duration", "0s",
 			},
 		},
 	}
@@ -374,19 +374,19 @@ func TestPrintTestSummary(t *testing.T) {
 			name:     "Test summary",
 			duration: duration,
 			contains: []string{
-				"Test Suite Complete",
-				"Type:", "Testing",
-				"Duration:", "1.2s",
-				"Target:", runtime.GOOS + "/" + runtime.GOARCH,
-				"Output:",
+				"Test Suite Completed",
+				"Suite Type", "Testing",
+				"Duration", "1.2s",
+				"Target Platform", runtime.GOOS + "/" + runtime.GOARCH,
+				"Generated Reports",
 			},
 		},
 		{
 			name:     "Zero duration test summary",
 			duration: 0,
 			contains: []string{
-				"Test Suite Complete",
-				"Duration:", "0s",
+				"Test Suite Completed",
+				"Duration", "0s",
 			},
 		},
 	}
@@ -577,7 +577,7 @@ func TestFormattingEdgeCases(t *testing.T) {
 				PrintInfo(tt.format, tt.args...)
 			})
 
-			if !strings.Contains(output, "•") {
+			if !strings.Contains(output, "▸") {
 				t.Error("Output should contain the info symbol")
 			}
 		})
@@ -657,7 +657,7 @@ func TestLongDuration(t *testing.T) {
 	})
 
 	// Should contain some representation of the duration
-	if !strings.Contains(output, "Duration:") {
+	if !strings.Contains(output, "Duration") {
 		t.Error("Output should contain duration information")
 	}
 

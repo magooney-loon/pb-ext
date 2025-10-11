@@ -1,7 +1,5 @@
 package main
 
-// JOB_SOURCE
-
 import (
 	"fmt"
 	"time"

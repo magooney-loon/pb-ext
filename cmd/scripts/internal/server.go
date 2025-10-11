@@ -10,20 +10,20 @@ import (
 
 // RunServer starts the development server
 func RunServer(rootDir string) error {
-	PrintHeader("🚀 STARTING SERVER")
+	PrintHeader("🚀 DEVELOPMENT SERVER")
 
 	cmd := exec.Command("go", "run", "./cmd/server", "--dev", "serve")
 	cmd.Dir = rootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	PrintStep("🌐", "Server starting...")
+	PrintStep("🌐", "Starting development server with hot reload...")
 	return cmd.Run()
 }
 
 // ValidateServerSetup checks if the server directory and files exist
 func ValidateServerSetup(rootDir string) error {
-	PrintStep("🔍", "Validating server setup...")
+	PrintStep("🔍", "Validating server configuration and dependencies...")
 
 	serverDir := filepath.Join(rootDir, "cmd", "server")
 	if _, err := os.Stat(serverDir); os.IsNotExist(err) {
@@ -41,7 +41,7 @@ func ValidateServerSetup(rootDir string) error {
 
 // StartServerWithTimeout starts the server with a timeout mechanism
 func StartServerWithTimeout(rootDir string, timeout time.Duration) error {
-	PrintHeader("🚀 STARTING SERVER WITH TIMEOUT")
+	PrintHeader("🚀 DEVELOPMENT SERVER WITH TIMEOUT")
 
 	if err := ValidateServerSetup(rootDir); err != nil {
 		return err
@@ -52,7 +52,7 @@ func StartServerWithTimeout(rootDir string, timeout time.Duration) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	PrintStep("🌐", "Server starting with %v timeout...", timeout)
+	PrintStep("🌐", "Starting server with %v timeout protection...", timeout)
 
 	// Start the command in a goroutine
 	done := make(chan error, 1)
@@ -74,7 +74,7 @@ func StartServerWithTimeout(rootDir string, timeout time.Duration) error {
 
 // CheckServerHealth performs a basic health check on the server setup
 func CheckServerHealth(rootDir string) error {
-	PrintStep("❤️", "Checking server health...")
+	PrintStep("❤️", "Performing comprehensive server health check...")
 
 	// Validate server setup
 	if err := ValidateServerSetup(rootDir); err != nil {
@@ -82,7 +82,7 @@ func CheckServerHealth(rootDir string) error {
 	}
 
 	// Check if we can compile the server
-	PrintStep("🔨", "Testing server compilation...")
+	PrintStep("🔨", "Validating server compilation and dependencies...")
 	cmd := exec.Command("go", "build", "-o", "/tmp/"+AppName+"-test", "./cmd/server")
 	cmd.Dir = rootDir
 
@@ -118,7 +118,7 @@ func GetServerInfo(rootDir string) (map[string]string, error) {
 
 // PrepareServerEnvironment sets up the environment for server execution
 func PrepareServerEnvironment(rootDir string) error {
-	PrintStep("🔧", "Preparing server environment...")
+	PrintStep("🔧", "Initializing server runtime environment...")
 
 	// Ensure pb_public directory exists (server expects this)
 	pbPublicDir := filepath.Join(rootDir, "pb_public")

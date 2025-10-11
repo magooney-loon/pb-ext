@@ -88,40 +88,64 @@ func prepareOutputDirectory(outputDir string) error {
 
 // printProductionSummary displays an enhanced summary of the production build
 func printProductionSummary(outputDir string, duration time.Duration) {
-	fmt.Printf("\n%s🎉 Production Build Complete%s\n", Bold+Green, Reset)
-	fmt.Printf("%s═══════════════════════════%s\n", Gray, Reset)
+	fmt.Println()
 
-	// Build metadata
-	fmt.Printf("\n%sBuild Info%s\n", Bold, Reset)
-	fmt.Printf("  %s•%s Duration: %s%v%s\n", Gray, Reset, Cyan, duration.Round(time.Millisecond), Reset)
-	fmt.Printf("  %s•%s Target: %s%s%s\n", Gray, Reset, Gray, runtime.GOOS+"/"+runtime.GOARCH, Reset)
-	fmt.Printf("  %s•%s Location: %s%s%s\n", Gray, Reset, Green, outputDir, Reset)
+	// Header with visual separation
+	fmt.Printf("%s┌─────────────────────────────────────────────────────────────┐%s\n", Gray, Reset)
+	fmt.Printf("%s│                                                             │%s\n", Gray, Reset)
+	fmt.Printf("%s│  %s🎉 Production Build Completed Successfully%s                │%s\n", Gray, Bold+Green, Reset, Gray)
+	fmt.Printf("%s│                                                             │%s\n", Gray, Reset)
+	fmt.Printf("%s└─────────────────────────────────────────────────────────────┘%s\n", Gray, Reset)
+	fmt.Println()
 
-	// List generated files
-	fmt.Printf("\n%sGenerated Files%s\n", Bold, Reset)
+	// Performance metrics in a clean table format
+	fmt.Printf("  %s📊 Build Metrics%s\n", Bold, Reset)
+	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
+	fmt.Printf("    %sDuration        %s%s%v%s\n", Gray, Reset, Cyan, duration.Round(time.Millisecond), Reset)
+	fmt.Printf("    %sTarget Platform %s%s%s%s\n", Gray, Reset, Gray, runtime.GOOS+"/"+runtime.GOARCH, Reset)
+	fmt.Printf("    %sOutput Location %s%s%s%s\n", Gray, Reset, Green, outputDir, Reset)
+	fmt.Println()
+
+	// Files with better spacing and organization
+	fmt.Printf("  %s📦 Generated Assets%s\n", Bold, Reset)
+	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
 	listProductionFiles(outputDir)
 
-	// Deployment info
-	fmt.Printf("\n%s🚀 Ready for Deployment%s\n", Bold+Cyan, Reset)
-	fmt.Printf("  %s•%s Optimized binary with static assets\n", Gray, Reset)
-	fmt.Printf("  %s•%s Test reports and coverage included\n", Gray, Reset)
-	fmt.Printf("  %s•%s Production archive created\n", Gray, Reset)
+	// Archive info if available
+	printArchiveInfo(outputDir)
 
-	// pb-deployer integration
-	fmt.Printf("\n%s💡 Next Steps%s\n", Bold+Yellow, Reset)
-	fmt.Printf("  %sAutomate deployment to VPS:%s\n", Gray, Reset)
-	fmt.Printf("    %sgit clone https://github.com/magooney-loon/pb-deployer%s\n", Cyan, Reset)
-	fmt.Printf("    %scd pb-deployer && go run cmd/scripts/main.go --install%s\n", Cyan, Reset)
-	fmt.Printf("    %s(Compatible with PocketBase v0.20+ apps)%s\n", Gray, Reset)
-
-	fmt.Printf("\n  %sOr deploy manually:%s\n", Gray, Reset)
-	fmt.Printf("    %s1.%s Upload the production archive to your server\n", Gray, Reset)
-	fmt.Printf("    %s2.%s Extract and configure your PocketBase app\n", Gray, Reset)
-	fmt.Printf("    %s3.%s Set up systemd service for auto-start\n", Gray, Reset)
-
-	fmt.Printf("\n%s📚 Learn more:%s %shttps://github.com/magooney-loon/pb-deployer%s\n",
-		Gray, Reset, Cyan, Reset)
+	// Deployment readiness
+	fmt.Printf("  %s🚀 Deployment Ready%s\n", Bold+Green, Reset)
+	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
+	fmt.Printf("    %s✓%s Production-optimized binary with embedded assets\n", Green, Reset)
+	fmt.Printf("    %s✓%s Comprehensive test coverage and reports included\n", Green, Reset)
+	fmt.Printf("    %s✓%s Compressed archive ready for distribution\n", Green, Reset)
 	fmt.Println()
+
+	// Next steps with better organization
+	fmt.Printf("  %s⚡ Quick Deploy%s\n", Bold+Cyan, Reset)
+	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
+	fmt.Printf("    %sAutomated VPS Deployment:%s\n", Bold, Reset)
+	fmt.Printf("      %s$%s git clone https://github.com/magooney-loon/pb-deployer\n", Green, Reset)
+	fmt.Printf("      %s$%s cd pb-deployer && go run cmd/scripts/main.go --install\n", Green, Reset)
+	fmt.Printf("      %s→ Compatible with PocketBase v0.20+ applications%s\n", Gray, Reset)
+	fmt.Println()
+
+	fmt.Printf("    %sManual Deployment:%s\n", Bold, Reset)
+	fmt.Printf("      %s1.%s Upload production archive to your server\n", Cyan, Reset)
+	fmt.Printf("      %s2.%s Extract and configure environment variables\n", Cyan, Reset)
+	fmt.Printf("      %s3.%s Setup systemd service for production runtime\n", Cyan, Reset)
+	fmt.Println()
+
+	// Footer with resources
+	fmt.Printf("  %s📚 Resources%s\n", Bold+Yellow, Reset)
+	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
+	fmt.Printf("    %sDeployment Guide: %shttps://github.com/magooney-loon/pb-deployer%s\n", Gray, Cyan, Reset)
+	fmt.Printf("    %sPocketBase Docs:  %shttps://pocketbase.io/docs/going-to-production/%s\n", Gray, Cyan, Reset)
+
+	fmt.Printf("\n%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n", Green, Reset)
+	fmt.Printf("%s🎯 Your application is ready for production deployment!%s\n", Bold+Green, Reset)
+	fmt.Printf("%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n\n", Green, Reset)
 }
 
 // listProductionFiles lists the files created in the production build
@@ -132,7 +156,7 @@ func listProductionFiles(outputDir string) {
 		binaryPath := filepath.Join(outputDir, binary)
 		if stat, err := os.Stat(binaryPath); err == nil {
 			size := float64(stat.Size()) / (1024 * 1024) // Convert to MB
-			fmt.Printf("  %s✓%s %s %s(%.1f MB)%s\n", Green, Reset, binary, Gray, size, Reset)
+			fmt.Printf("    %s▸ %s%-20s%s %s%.1f MB%s\n", Green, Bold, binary, Reset, Gray, size, Reset)
 			break
 		}
 	}
@@ -140,40 +164,91 @@ func listProductionFiles(outputDir string) {
 	// Check for frontend assets
 	pbPublicPath := filepath.Join(outputDir, "pb_public")
 	if _, err := os.Stat(pbPublicPath); err == nil {
-		fmt.Printf("  %s✓%s pb_public/ %s(frontend assets)%s\n", Green, Reset, Gray, Reset)
+		// Count files in pb_public
+		fileCount := countFilesInDir(pbPublicPath)
+		fmt.Printf("    %s▸ %s%-20s%s %s%d files%s\n", Green, Bold, "pb_public/", Reset, Gray, fileCount, Reset)
 	}
 
 	// Check for metadata files
 	metadataFiles := map[string]string{
 		"build-info.txt":        "build metadata",
-		"package-metadata.json": "deployment info",
+		"package-metadata.json": "deployment configuration",
 	}
 	for file, desc := range metadataFiles {
 		filePath := filepath.Join(outputDir, file)
 		if _, err := os.Stat(filePath); err == nil {
-			fmt.Printf("  %s✓%s %s %s(%s)%s\n", Green, Reset, file, Gray, desc, Reset)
+			fmt.Printf("    %s▸ %s%-20s%s %s%s%s\n", Green, Bold, file, Reset, Gray, desc, Reset)
 		}
 	}
 
 	// Check for test reports
 	reportsDir := filepath.Join(outputDir, "test-reports")
 	if stat, err := os.Stat(reportsDir); err == nil && stat.IsDir() {
-		fmt.Printf("  %s✓%s test-reports/ %s(test results & coverage)%s\n", Green, Reset, Gray, Reset)
+		reportCount := countFilesInDir(reportsDir)
+		fmt.Printf("    %s▸ %s%-20s%s %s%d test reports%s\n", Green, Bold, "test-reports/", Reset, Gray, reportCount, Reset)
+	}
+}
+
+// printArchiveInfo displays archive information in a dedicated section
+func printArchiveInfo(outputDir string) {
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return
 	}
 
-	// Check for archive
-	entries, err := os.ReadDir(outputDir)
-	if err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".zip") {
-				if stat, err := entry.Info(); err == nil {
-					size := float64(stat.Size()) / (1024 * 1024) // Convert to MB
-					fmt.Printf("  %s✓%s %s %s(%.1f MB archive)%s\n", Green, Reset, entry.Name(), Gray, size, Reset)
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".zip") {
+			if stat, err := entry.Info(); err == nil {
+				archiveSize := float64(stat.Size()) / (1024 * 1024) // Convert to MB
+
+				// Calculate original size for compression ratio
+				originalSize := calculateOriginalSize(outputDir, entry.Name())
+				compressionRatio := 0.0
+				if originalSize > 0 {
+					compressionRatio = (1.0 - archiveSize/originalSize) * 100
 				}
-				break
+
+				fmt.Printf("\n  %s📦 Production Archive%s\n", Bold+Cyan, Reset)
+				fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
+				fmt.Printf("    %sArchive Name    %s%s%s\n", Gray, Reset, Bold, entry.Name())
+				fmt.Printf("    %sArchive Size    %s%.1f MB%s\n", Gray, Reset, archiveSize, Reset)
+				if originalSize > 0 {
+					fmt.Printf("    %sOriginal Size   %s%.1f MB%s\n", Gray, Reset, originalSize, Reset)
+					fmt.Printf("    %sCompression     %s%.1f%%%s\n", Gray, Reset, compressionRatio, Reset)
+				}
+				fmt.Printf("    %sLocation        %s%s%s\n", Gray, Reset, filepath.Join(outputDir, entry.Name()), Reset)
 			}
+			break
 		}
 	}
+	fmt.Println()
+}
+
+// countFilesInDir counts files in a directory recursively
+func countFilesInDir(dir string) int {
+	count := 0
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			count++
+		}
+		return nil
+	})
+	return count
+}
+
+// calculateOriginalSize estimates original size before compression
+func calculateOriginalSize(outputDir, archiveName string) float64 {
+	totalSize := int64(0)
+
+	// Walk through all files except the archive itself
+	filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && info.Name() != archiveName {
+			totalSize += info.Size()
+		}
+		return nil
+	})
+
+	return float64(totalSize) / (1024 * 1024) // Convert to MB
 }
 
 // ValidateProductionBuild performs validation checks on the production build
