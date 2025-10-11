@@ -12,7 +12,8 @@ import (
 
 // CreateProjectArchive creates a production build archive
 func CreateProjectArchive(rootDir, outputDir string) error {
-	PrintStep("📦", "Creating production build archive with compression...")
+	PrintSection("Create Archive")
+	PrintBuildStep("Compressing build", "zip archive")
 
 	timestamp := time.Now().Format("20060102-150405")
 	archiveName := fmt.Sprintf("%s-production-%s.zip", AppName, timestamp)
@@ -91,22 +92,14 @@ func CreateProjectArchive(rootDir, outputDir string) error {
 		os.Remove(tempArchivePath)
 	}
 
-	// Get final archive size
+	// Get final archive size for concise output
 	archiveInfo, err := os.Stat(finalArchivePath)
 	if err != nil {
-		PrintWarning("Could not get archive size information")
+		PrintSubItem("✓", "Archive created")
 	} else {
-		archiveSize := archiveInfo.Size()
-		compressionRatio := float64(archiveSize) / float64(totalSize) * 100
-
-		fmt.Println()
-		PrintSuccess("Production archive created successfully")
-		fmt.Printf("  %s• Archive: %s%s%s\n", Gray, Reset, Bold, archiveName)
-		fmt.Printf("  %s• Location: %s%s%s\n", Gray, Reset, Green, finalArchivePath)
-		fmt.Printf("  %s• Files: %s%d%s\n", Gray, Reset, fileCount, Reset)
-		fmt.Printf("  %s• Original size: %s%.1f MB%s\n", Gray, Reset, float64(totalSize)/(1024*1024), Reset)
-		fmt.Printf("  %s• Archive size: %s%.1f MB%s\n", Gray, Reset, float64(archiveSize)/(1024*1024), Reset)
-		fmt.Printf("  %s• Compression: %s%.1f%%%s\n", Gray, Reset, 100.0-compressionRatio, Reset)
+		archiveSize := float64(archiveInfo.Size()) / (1024 * 1024)
+		compressionRatio := (1.0 - archiveSize/(float64(totalSize)/(1024*1024))) * 100
+		PrintSubItem("✓", fmt.Sprintf("Archive: %s (%.1f MB, %.0f%% compressed)", archiveName, archiveSize, compressionRatio))
 	}
 
 	return nil
@@ -114,7 +107,8 @@ func CreateProjectArchive(rootDir, outputDir string) error {
 
 // GeneratePackageMetadata creates metadata files for the package
 func GeneratePackageMetadata(rootDir, outputDir string) error {
-	PrintStep("📋", "Generating comprehensive package metadata and build info...")
+	PrintSection("Build Metadata")
+	PrintBuildStep("Generating metadata", "build info + deployment config")
 
 	goVersion := GetCommandOutput("go", "version")
 	nodeVersion := GetCommandOutput("node", "--version")
@@ -189,15 +183,13 @@ func GeneratePackageMetadata(rootDir, outputDir string) error {
 		return fmt.Errorf("failed to write metadata: %w", err)
 	}
 
-	PrintSuccess("Package metadata generated successfully")
-	fmt.Printf("    %s▸ %s%-20s%s %sbuild information%s\n", Green, Bold, "build-info.txt", Reset, Gray, Reset)
-	fmt.Printf("    %s▸ %s%-20s%s %sdeployment metadata%s\n", Green, Bold, "package-metadata.json", Reset, Gray, Reset)
+	PrintSubItem("✓", "Metadata files created")
 	return nil
 }
 
 // ValidateArchive performs basic validation on a created archive
 func ValidateArchive(archivePath string) error {
-	PrintStep("✅", "Performing comprehensive archive validation...")
+	PrintBuildStep("Validating archive", "integrity check")
 
 	// Check if archive exists
 	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
@@ -233,8 +225,7 @@ func ValidateArchive(archivePath string) error {
 		PrintWarning("Server binary not found in archive")
 	}
 
-	PrintSuccess("Archive validated successfully - ready for deployment")
-	fmt.Printf("    %s▸ %sTotal files in archive: %s%d%s\n", Green, Bold, Reset, fileCount, Reset)
+	PrintSubItem("✓", "Archive validated")
 	return nil
 }
 

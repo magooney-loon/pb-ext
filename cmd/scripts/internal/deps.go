@@ -26,7 +26,7 @@ func InstallDependencies(rootDir, frontendDir string) error {
 
 // InstallGoDependencies installs and tidies Go module dependencies
 func InstallGoDependencies(rootDir string) error {
-	PrintStep("🏗️", "Installing and tidying Go module dependencies...")
+	PrintStep("Installing Go deps")
 	cmd := exec.Command("go", "mod", "tidy")
 	cmd.Dir = rootDir
 	cmd.Stdout = os.Stdout
@@ -36,7 +36,7 @@ func InstallGoDependencies(rootDir string) error {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	PrintStep("📥", "Downloading Go dependencies and building module cache...")
+	PrintStep("Downloading Go modules")
 	cmd = exec.Command("go", "mod", "download")
 	cmd.Dir = rootDir
 	cmd.Stdout = os.Stdout
@@ -51,17 +51,17 @@ func InstallGoDependencies(rootDir string) error {
 
 // InstallNpmDependencies installs npm dependencies in the frontend directory
 func InstallNpmDependencies(frontendDir string) error {
-	PrintStep("📦", "Installing frontend dependencies with npm...")
+	PrintStep("Installing npm deps")
 
 	// Check if package-lock.json exists to decide between npm ci and npm install
 	packageLockPath := filepath.Join(frontendDir, "package-lock.json")
 	var cmd *exec.Cmd
 
 	if _, err := os.Stat(packageLockPath); err == nil {
-		PrintStep("🔒", "Using npm ci for reproducible builds (package-lock.json detected)")
+		PrintStep("Using npm ci")
 		cmd = exec.Command("npm", "ci")
 	} else {
-		PrintStep("🔧", "Using npm install for dependency resolution...")
+		PrintStep("Using npm install")
 		cmd = exec.Command("npm", "install")
 	}
 
@@ -78,7 +78,7 @@ func InstallNpmDependencies(frontendDir string) error {
 
 // ValidateDependencies checks if all required dependencies are properly installed
 func ValidateDependencies(rootDir, frontendDir string) error {
-	PrintStep("🔍", "Performing comprehensive dependency validation...")
+	PrintStep("Validating dependencies")
 
 	// Check Go module file
 	goModPath := filepath.Join(rootDir, "go.mod")
@@ -95,10 +95,10 @@ func ValidateDependencies(rootDir, frontendDir string) error {
 	// Check node_modules exists after npm install
 	nodeModulesPath := filepath.Join(frontendDir, "node_modules")
 	if _, err := os.Stat(nodeModulesPath); os.IsNotExist(err) {
-		PrintWarning("node_modules directory missing - npm dependencies may not be properly installed")
+		PrintWarning("node_modules missing")
 		return fmt.Errorf("node_modules directory not found at %s", nodeModulesPath)
 	}
 
-	PrintSuccess("All project dependencies validated and ready for use")
+	PrintSuccess("Dependencies validated")
 	return nil
 }

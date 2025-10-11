@@ -91,15 +91,17 @@ func BuildFrontend(rootDir string, installDeps bool) error {
 
 	switch frontendType {
 	case FrontendTypeNone:
-		PrintInfo("No frontend found, skipping build")
+		PrintSubItem("i", "No frontend found, skipping")
 		return nil
 
 	case FrontendTypeStatic:
-		PrintStep("📄", "Processing static frontend assets")
+		PrintSection("Build Assets")
+		PrintBuildStep("Copying static files", "frontend → pb_public")
 		return CopyStaticFiles(rootDir, frontendDir)
 
 	case FrontendTypeNpm:
-		PrintStep("⚙️", "Building frontend with npm")
+		PrintSection("Build Assets")
+		PrintBuildStep("Frontend build", "npm")
 
 		if err := ValidateFrontendSetup(frontendDir); err != nil {
 			return err
@@ -140,7 +142,7 @@ func BuildFrontendCore(frontendDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintSuccess("Frontend build completed in %v", duration.Round(time.Millisecond))
+	PrintSubItem("✓", fmt.Sprintf("Frontend built (%v)", duration.Round(time.Millisecond)))
 	return nil
 }
 
@@ -212,7 +214,7 @@ func CopyFrontendToDist(rootDir, outputDir string) error {
 
 // BuildServerBinary builds the server binary for production
 func BuildServerBinary(rootDir, outputDir string) error {
-	PrintStep("🏗️", "Building optimized server binary")
+	PrintSection("Build Binary")
 
 	binaryName := AppName
 	if runtime.GOOS == "windows" {
@@ -220,6 +222,8 @@ func BuildServerBinary(rootDir, outputDir string) error {
 	}
 
 	outputPath := filepath.Join(outputDir, binaryName)
+
+	PrintBuildStep("Compiling server", fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH))
 
 	start := time.Now()
 	cmd := exec.Command("go", "build",
@@ -235,7 +239,15 @@ func BuildServerBinary(rootDir, outputDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintSuccess("Server binary built in %v (optimized with -ldflags)", duration.Round(time.Millisecond))
+
+	// Get binary size
+	if stat, err := os.Stat(outputPath); err == nil {
+		size := float64(stat.Size()) / (1024 * 1024)
+		PrintSubItem("✓", fmt.Sprintf("Binary built: %s (%.1f MB, %v)", binaryName, size, duration.Round(time.Millisecond)))
+	} else {
+		PrintSubItem("✓", fmt.Sprintf("Binary built (%v)", duration.Round(time.Millisecond)))
+	}
+
 	return nil
 }
 
@@ -265,7 +277,7 @@ func FindBuildDirectory(frontendDir string) (string, error) {
 	}
 
 	if hasFiles {
-		PrintInfo("Using frontend directory directly")
+		PrintInfo("Using frontend dir directly")
 		return frontendDir, nil
 	}
 

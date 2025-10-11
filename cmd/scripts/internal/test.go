@@ -38,8 +38,6 @@ type TestSuite struct {
 func getTestPackages() []string {
 	var testPackages []string
 
-	fmt.Printf("  🔍 Scanning for tests\n")
-
 	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -91,34 +89,34 @@ func getTestPackages() []string {
 	})
 
 	if err != nil {
-		fmt.Printf("   %sError walking directory: %v%s\n", Red, err, Reset)
+		fmt.Printf("   ERROR: Error walking directory: %v\n", err)
 		return []string{}
 	}
 
 	// Sort packages for consistent output
 	sort.Strings(testPackages)
 
-	fmt.Printf("  %s•%s Found %d package(s)\n", Gray, Reset, len(testPackages))
-	fmt.Println()
-
 	return testPackages
 }
 
-// runTestSuite executes all test packages with formatted output
+// runTestSuite executes all test packages with structured output
 func runTestSuite(packages []string) TestSuite {
 	suite := TestSuite{
 		Results: make([]TestResult, 0, len(packages)),
 		Success: true,
 	}
 
-	start := time.Now()
+	PrintSection("Test Execution")
+	fmt.Printf("    %sPackages: %d%s\n", Gray, len(packages), Reset)
 
-	fmt.Printf("\n📦 %sRunning Tests%s\n", Bold, Reset)
-	fmt.Println()
+	start := time.Now()
 
 	for i, pkg := range packages {
 		result := runTestPackage(pkg, i+1, len(packages))
 		suite.Results = append(suite.Results, result)
+
+		// Show individual test result
+		PrintTestResult(pkg, result.Passed, result.Failed, result.Skipped, result.Duration, result.Success)
 
 		suite.TotalPassed += result.Passed
 		suite.TotalFailed += result.Failed
@@ -130,6 +128,17 @@ func runTestSuite(packages []string) TestSuite {
 	}
 
 	suite.Duration = time.Since(start)
+
+	// Show summary
+	PrintSection("Test Summary")
+	if suite.Success {
+		fmt.Printf("    %s[✓]%s All tests passed %s(%d/%d, %v)%s\n",
+			Green, Reset, Gray, suite.TotalPassed, suite.TotalTests, suite.Duration.Round(time.Millisecond), Reset)
+	} else {
+		fmt.Printf("    %s[✗]%s Tests failed %s(%d passed, %d failed, %v)%s\n",
+			Red, Reset, Gray, suite.TotalPassed, suite.TotalFailed, suite.Duration.Round(time.Millisecond), Reset)
+	}
+
 	return suite
 }
 
@@ -141,57 +150,16 @@ func runTestPackage(packagePath string, current, total int) TestResult {
 		FailedTests: []string{},
 	}
 
-	fmt.Printf("├─ %s[%d/%d]%s %s%s%s\n",
-		Dim, current, total, Reset,
-		Bold, packagePath, Reset)
-
 	start := time.Now()
 
 	cmd := exec.Command("go", "test", "-v", packagePath)
 	output, err := cmd.CombinedOutput()
-	result.Duration = time.Since(start)
 
-	if err != nil {
-		result.Success = false
-	} else {
-		result.Success = true
-	}
+	result.Duration = time.Since(start)
+	result.Success = err == nil
 
 	parseTestOutput(string(output), &result)
 
-	if result.Success {
-		fmt.Printf("│  %s✓%s %sPassed%s %s(%dms)%s\n",
-			Green, Reset, Green, Reset,
-			Gray, result.Duration.Milliseconds(), Reset)
-
-		if result.Passed > 0 {
-			fmt.Printf("│  %s%d test(s) passed%s\n",
-				Gray, result.Passed, Reset)
-		}
-	} else {
-		fmt.Printf("│  %s✗%s %sFailed%s %s(%dms)%s\n",
-			Red, Reset, Red, Reset,
-			Gray, result.Duration.Milliseconds(), Reset)
-
-		if result.Failed > 0 {
-			fmt.Printf("│  %s%d test(s) failed, %d passed%s\n",
-				Red, result.Failed, result.Passed, Reset)
-		}
-	}
-
-	if len(result.FailedTests) > 0 {
-		for _, failedTest := range result.FailedTests {
-			fmt.Printf("│  %s└─ %s%s\n", Red, failedTest, Reset)
-		}
-	}
-
-	// Show skipped tests if any
-	if result.Skipped > 0 {
-		fmt.Printf("│  %s%d test(s) skipped%s\n",
-			Yellow, result.Skipped, Reset)
-	}
-
-	fmt.Println("│")
 	return result
 }
 
@@ -224,67 +192,13 @@ func parseTestOutput(output string, result *TestResult) {
 }
 
 // printTestSummary prints the final test summary
+// printTestSummary displays a simple summary of the test results
 func printTestSummary(suite TestSuite) {
-	fmt.Println()
-
-	// Header with visual separation
-	if suite.Success {
-		fmt.Printf("  %s🧪 Test Suite Completed Successfully%s\n", Bold+Green, Reset)
-	} else {
-		fmt.Printf("  %s🚨 Test Suite Failed%s\n", Bold+Red, Reset)
-	}
-	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
-	fmt.Println()
-
-	// Test metrics in a clean table format
-	fmt.Printf("  %s📊 Test Results%s\n", Bold, Reset)
-	fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
-
-	// Calculate success rate
-	successRate := float64(suite.TotalPassed) / float64(suite.TotalTests) * 100
-	if suite.TotalTests == 0 {
-		successRate = 0
-	}
-
-	fmt.Printf("    %sTotal Tests     %s%d%s\n", Gray, Reset, suite.TotalTests, Reset)
-	fmt.Printf("    %sPassed          %s%s%d%s\n", Gray, Reset, Green, suite.TotalPassed, Reset)
-
-	if suite.TotalFailed > 0 {
-		fmt.Printf("    %sFailed          %s%s%d%s\n", Gray, Reset, Red, suite.TotalFailed, Reset)
-	}
-
-	fmt.Printf("    %sSuccess Rate    %s%.1f%%%s\n", Gray, Reset, successRate, Reset)
-	fmt.Printf("    %sDuration        %s%dms%s\n", Gray, Reset, suite.Duration.Milliseconds(), Reset)
-	fmt.Printf("    %sPackages        %s%d%s\n", Gray, Reset, len(suite.Results), Reset)
-
-	if !suite.Success {
-		fmt.Println()
-		fmt.Printf("  %s🚨 Failed Test Packages%s\n", Bold+Red, Reset)
-		fmt.Printf("  %s──────────────────────────────────────────────────────────────%s\n", Gray, Reset)
-		for _, result := range suite.Results {
-			if !result.Success {
-				fmt.Printf("    %s▸ %s%-30s%s %s%d failures%s\n",
-					Red, Bold, result.Package, Reset, Red, result.Failed, Reset)
-			}
-		}
-	}
-
-	// Success footer
-	if suite.Success {
-		fmt.Printf("\n%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n", Green, Reset)
-		fmt.Printf("%s✅ All tests passed! Your code is ready for deployment.%s\n", Bold+Green, Reset)
-		fmt.Printf("%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n\n", Green, Reset)
-	} else {
-		fmt.Printf("\n%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n", Red, Reset)
-		fmt.Printf("%s❌ Test failures detected. Please review and fix before deployment.%s\n", Bold+Red, Reset)
-		fmt.Printf("%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n\n", Red, Reset)
-	}
+	// This function is no longer used - summary is shown in runTestSuite
 }
 
 // RunTestSuiteAndGenerateReport runs the full test suite and generates reports
 func RunTestSuiteAndGenerateReport(rootDir, outputDir string) error {
-	PrintStep("🧪", "Initializing comprehensive test suite...")
-
 	reportsDir := filepath.Join(outputDir, "test-reports")
 	if err := os.MkdirAll(reportsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create test reports directory: %w", err)
@@ -293,89 +207,56 @@ func RunTestSuiteAndGenerateReport(rootDir, outputDir string) error {
 	// Get test packages using auto-discovery
 	packages := getTestPackages()
 	if len(packages) == 0 {
-		PrintWarning("No test packages discovered in project")
+		PrintWarning("No test packages found")
 		return nil
 	}
 
-	PrintStep("🔍", "Discovered %d test packages for execution", len(packages))
-
-	// Run test suite with formatted output
+	// Run test suite with structured output
 	suite := runTestSuite(packages)
 
-	// Print formatted summary
-	printTestSummary(suite)
-
-	// Generate reports
+	// Collect output for reports
+	var allOutput strings.Builder
+	var allErrors strings.Builder
 	testStatus := "PASSED"
 	var testErr error
+
 	if !suite.Success {
 		testStatus = "FAILED"
 		testErr = fmt.Errorf("test suite failed")
-		PrintInfo("Generating reports")
 	}
 
-	// Combine all output for reporting
-	var allOutput strings.Builder
-	var allErrors strings.Builder
 	for _, result := range suite.Results {
 		for _, line := range result.Output {
 			allOutput.WriteString(line + "\n")
 		}
+		for _, failedTest := range result.FailedTests {
+			allErrors.WriteString(failedTest + "\n")
+		}
 	}
 
-	// Generate all test reports
-	PrintStep("📊", "Generating reports")
+	// Generate test reports quietly
+	GenerateTestSummary(rootDir, reportsDir, suite.Duration, testStatus, testErr, allOutput.String(), allErrors.String())
+	GenerateTestReport(rootDir, reportsDir, testStatus, testErr, allOutput.String(), allErrors.String(), suite.Duration)
+	GenerateHTMLCoverageReport(rootDir, reportsDir, packages)
 
-	if err := GenerateTestSummary(rootDir, reportsDir, suite.Duration, testStatus, testErr, allOutput.String(), allErrors.String()); err != nil {
-		PrintWarning("Failed to generate test summary: %v", err)
-	}
-
-	if err := GenerateTestReport(rootDir, reportsDir, testStatus, testErr, allOutput.String(), allErrors.String(), suite.Duration); err != nil {
-		PrintWarning("Failed to generate detailed test report: %v", err)
-	}
-
-	if err := GenerateHTMLCoverageReport(rootDir, reportsDir, packages); err != nil {
-		PrintWarning("Failed to generate HTML coverage report: %v", err)
-	}
-
-	PrintSuccess("Reports: test-summary.txt, test-report.json, coverage.html")
+	PrintSubItem("i", "Reports: test-summary.txt, test-report.json, coverage.html")
 
 	if !suite.Success {
-		PrintError("Test suite failed in %v", suite.Duration.Round(time.Millisecond))
-		PrintInfo("Failed: %d, Passed: %d, Total: %d", suite.TotalFailed, suite.TotalPassed, suite.TotalTests)
-		PrintInfo("Reports generated in: %s", reportsDir)
 		return fmt.Errorf("test suite failed: %w", testErr)
-	} else {
-		PrintSuccess("Test suite completed successfully in %v", suite.Duration.Round(time.Millisecond))
-		return nil
 	}
+	return nil
 }
 
 // TestOnlyMode runs only the test suite without other operations
 func TestOnlyMode(rootDir, distDir string) error {
-	fmt.Println()
-	fmt.Printf("🧪 %sRunning Test Suite%s\n", Bold+Cyan, Reset)
-	fmt.Printf("   %s%s%s\n", Gray, time.Now().Format("15:04:05"), Reset)
-	fmt.Println()
-
 	outputDir := filepath.Join(rootDir, distDir)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Check prerequisites
-	fmt.Printf("🔍 %sChecking prerequisites...%s\n", Gray, Reset)
 	if err := checkGoTestAvailable(); err != nil {
-		PrintError("Prerequisites check failed: %v", err)
+		PrintError("Go toolchain not available: %v", err)
 		return err
-	}
-	fmt.Printf("✓  %sGo toolchain available%s\n", Green, Reset)
-	fmt.Println()
-
-	// Validate test environment first
-	if err := ValidateTestEnvironment(rootDir); err != nil {
-		PrintWarning("Test environment validation failed: %v", err)
-		// Still try to run tests in case they exist elsewhere
 	}
 
 	if err := RunTestSuiteAndGenerateReport(rootDir, outputDir); err != nil {
@@ -388,15 +269,9 @@ func TestOnlyMode(rootDir, distDir string) error {
 // checkGoTestAvailable checks if Go toolchain is available
 func checkGoTestAvailable() error {
 	cmd := exec.Command("go", "version")
-	output, err := cmd.CombinedOutput()
+	_, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("go command not available: %v", err)
-	}
-
-	// Extract go version for display
-	versionStr := strings.TrimSpace(string(output))
-	if parts := strings.Fields(versionStr); len(parts) >= 3 {
-		fmt.Printf("   %s%s%s\n", Gray, versionStr, Reset)
 	}
 
 	return nil
@@ -563,7 +438,7 @@ func AnalyzeTestResults(testOutput, testErrors string) map[string]interface{} {
 
 // ValidateTestEnvironment checks if the test environment is properly set up
 func ValidateTestEnvironment(rootDir string) error {
-	PrintStep("🔍", "Validating test environment...")
+	PrintStep("Validating test environment...")
 
 	// Check if tests directory exists
 	testsDir := filepath.Join(rootDir, "cmd", "tests")
@@ -673,7 +548,7 @@ func GenerateHTMLCoverageReport(rootDir, reportsDir string, packages []string) e
 
 // RunQuickTests runs a subset of tests for quick feedback
 func RunQuickTests(rootDir string) error {
-	PrintStep("⚡", "Running quick tests...")
+	PrintStep("Running quick tests...")
 
 	cmd := exec.Command("go", "test", "-short", "./...")
 	cmd.Dir = rootDir
@@ -686,6 +561,6 @@ func RunQuickTests(rootDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintSuccess("Quick tests completed in %v", duration.Round(time.Millisecond))
+	PrintSuccess(fmt.Sprintf("Quick tests completed in %v", duration.Round(time.Millisecond)))
 	return nil
 }

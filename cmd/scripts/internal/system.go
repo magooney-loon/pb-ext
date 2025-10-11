@@ -19,15 +19,25 @@ func CheckSystemRequirements() error {
 		{"Git", "git", []string{"--version"}},
 	}
 
-	PrintStep("🔍", "Validating system requirements and tool availability...")
+	PrintSection("System Requirements")
 
 	for _, req := range requirements {
 		if !CheckCommand(req.command, req.args...) {
-			PrintError("%s is not installed or not available in system PATH", req.name)
-			return fmt.Errorf("%s is required but not found - please install and ensure it's in your PATH", req.name)
+			PrintSubItem("✗", fmt.Sprintf("%s not found", req.name))
+			return fmt.Errorf("%s required", req.name)
 		}
 		version := GetCommandOutput(req.command, req.args...)
-		PrintSuccess("%s is available (%s)", req.name, version)
+		// Clean up version output
+		if req.name == "Go" && strings.Contains(version, "go version") {
+			parts := strings.Fields(version)
+			if len(parts) >= 3 {
+				version = parts[2] // Extract just the version number
+			}
+		}
+		if req.name == "Node.js" || req.name == "npm" {
+			version = strings.TrimPrefix(version, "v") // Remove 'v' prefix
+		}
+		PrintSubItem("✓", fmt.Sprintf("%s ready (%s)", req.name, version))
 	}
 
 	return nil
