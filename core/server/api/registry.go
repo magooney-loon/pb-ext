@@ -108,6 +108,7 @@ func (r *APIRegistry) GetDocs() *APIDocs {
 
 // GetDocsWithComponents returns documentation with generated component schemas
 func (r *APIRegistry) GetDocsWithComponents() *APIDocs {
+
 	docs := r.GetDocs()
 
 	if r.schemaGenerator != nil {
