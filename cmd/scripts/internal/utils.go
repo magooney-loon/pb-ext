@@ -2,6 +2,7 @@ package internal
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -10,135 +11,146 @@ import (
 // Application constants
 const (
 	AppName = "pb-cli"
+	Version = "1.0.0"
 )
 
-// Color constants for terminal output
+// Color constants (minimal set)
 const (
 	Reset  = "\033[0m"
 	Red    = "\033[31m"
 	Green  = "\033[32m"
 	Yellow = "\033[33m"
-	Blue   = "\033[34m"
-	Purple = "\033[35m"
 	Cyan   = "\033[36m"
-	Gray   = "\033[37m"
+	Gray   = "\033[90m"
 	Bold   = "\033[1m"
 )
 
-// PrintBanner displays the application banner with operation type
-func PrintBanner(operation string) {
-	fmt.Printf("\n%s▲ %s%s %sv1.0.0%s\n", Bold, AppName, Reset, Gray, Reset)
-	fmt.Printf("%s%s%s\n\n", Gray, strings.ToLower(operation), Reset)
+// PrintVersion displays application version with triangle logo
+func PrintVersion() {
+	fmt.Printf("%s▲ %s%s %sv%s%s %s(%s/%s)%s\n",
+		Cyan, Bold, AppName, Reset+Gray, Version, Reset, Gray, runtime.GOOS, runtime.GOARCH, Reset)
 }
 
-// PrintHeader displays a section header
-func PrintHeader(title string) {
-	fmt.Printf("\n%s%s%s\n", Bold, title, Reset)
+// PrintOperation displays the current operation
+func PrintOperation(operation string) {
+	fmt.Printf("%s[>]%s %s\n", Cyan, Reset, operation)
 }
 
-// PrintStep displays a step with emoji and message
-func PrintStep(emoji, format string, args ...any) {
-	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%s %s\n", emoji, message)
+// PrintStep displays a processing step
+func PrintStep(message string) {
+	fmt.Printf("%s[·]%s %s\n", Gray, Reset, message)
 }
 
-// PrintSuccess displays a success message
-func PrintSuccess(format string, args ...any) {
-	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%s✓%s %s\n", Green, Reset, message)
+// PrintSuccess displays success message
+func PrintSuccess(message string) {
+	fmt.Printf("%s[✓]%s %s\n", Green, Reset, message)
 }
 
-// PrintError displays an error message
-func PrintError(format string, args ...any) {
-	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%s✗ Error:%s %s\n", Red, Reset, message)
+// PrintError displays error message to stderr
+func PrintError(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "%s[✗]%s %s\n", Red, Reset, fmt.Sprintf(format, args...))
 }
 
-// PrintWarning displays a warning message
-func PrintWarning(format string, args ...any) {
-	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%s⚠ Warning:%s %s\n", Yellow, Reset, message)
+// PrintWarning displays warning message
+func PrintWarning(format string, args ...interface{}) {
+	fmt.Printf("%s[!]%s %s\n", Yellow, Reset, fmt.Sprintf(format, args...))
 }
 
-// PrintInfo displays an info message
-func PrintInfo(format string, args ...any) {
-	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%sℹ%s %s\n", Cyan, Reset, message)
+// PrintInfo displays info message
+func PrintInfo(format string, args ...interface{}) {
+	fmt.Printf("%s[i]%s %s\n", Gray, Reset, fmt.Sprintf(format, args...))
 }
 
-// PrintBuildSummary displays a summary of the build process
+// PrintSection displays a section header with structured formatting
+func PrintSection(title string) {
+	fmt.Printf("\n%s[>]%s %s%s%s\n", Cyan, Reset, Bold, title, Reset)
+}
+
+// PrintSubItem displays a sub-item with indentation
+func PrintSubItem(icon, message string) {
+	fmt.Printf("    %s[%s]%s %s\n", Gray, icon, Reset, message)
+}
+
+// PrintTestResult displays a structured test result
+func PrintTestResult(pkg string, passed, failed, skipped int, duration time.Duration, success bool) {
+	status := "✓"
+	color := Green
+	if !success {
+		status = "✗"
+		color = Red
+	}
+
+	fmt.Printf("    %s[%s]%s %s %s(%dms)%s\n",
+		color, status, Reset, pkg, Gray, duration.Milliseconds(), Reset)
+
+	if passed > 0 || failed > 0 || skipped > 0 {
+		var parts []string
+		if passed > 0 {
+			parts = append(parts, fmt.Sprintf("%s%d passed%s", Green, passed, Reset))
+		}
+		if failed > 0 {
+			parts = append(parts, fmt.Sprintf("%s%d failed%s", Red, failed, Reset))
+		}
+		if skipped > 0 {
+			parts = append(parts, fmt.Sprintf("%s%d skipped%s", Yellow, skipped, Reset))
+		}
+		fmt.Printf("      %s(%s)%s\n", Gray, fmt.Sprintf("%s", strings.Join(parts, ", ")), Reset)
+	}
+}
+
+// PrintBuildStep displays a build step with more detail
+func PrintBuildStep(step, detail string) {
+	fmt.Printf("%s[·]%s %s %s(%s)%s\n", Gray, Reset, step, Gray, detail, Reset)
+}
+
+// PrintBuildSummary displays build completion
 func PrintBuildSummary(duration time.Duration, isProduction bool) {
-	buildType := "Development"
+	buildType := "dev"
 	if isProduction {
-		buildType = "Production"
+		buildType = "prod"
 	}
 
-	fmt.Printf("\n%sBuild Complete%s\n", Bold, Reset)
-	fmt.Printf("%s%s%s\n", Gray, strings.Repeat("─", 14), Reset)
-
-	fmt.Printf("\n%sType:%s     %s%s%s\n", Gray, Reset, Green, buildType, Reset)
-	fmt.Printf("%sDuration:%s %s%s%s\n", Gray, Reset, Cyan, duration.Round(time.Millisecond), Reset)
-	fmt.Printf("%sTarget:%s   %s%s/%s%s\n", Gray, Reset, Purple, runtime.GOOS, runtime.GOARCH, Reset)
-
-	fmt.Printf("\n%sOutput:%s\n", Gray, Reset)
-	if isProduction {
-		fmt.Printf("  %sdist/%s production build\n", Green, Reset)
-	} else {
-		fmt.Printf("  %spb_public/%s development build\n", Green, Reset)
-	}
+	fmt.Printf("%s[✓]%s Build complete %s(%s, %v)%s\n",
+		Green, Reset, Gray, buildType, duration.Round(time.Millisecond), Reset)
 }
 
-// PrintTestSummary displays a summary of the test process
+// PrintTestSummary displays test completion
 func PrintTestSummary(duration time.Duration) {
-	fmt.Printf("\n%sTest Suite Complete%s\n", Bold, Reset)
-	fmt.Printf("%s%s%s\n", Gray, strings.Repeat("─", 19), Reset)
-
-	fmt.Printf("\n%sType:%s     %sTesting%s\n", Gray, Reset, Green, Reset)
-	fmt.Printf("%sDuration:%s %s%s%s\n", Gray, Reset, Cyan, duration.Round(time.Millisecond), Reset)
-	fmt.Printf("%sTarget:%s   %s%s/%s%s\n", Gray, Reset, Purple, runtime.GOOS, runtime.GOARCH, Reset)
-
-	fmt.Printf("\n%sOutput:%s\n", Gray, Reset)
-	fmt.Printf("  %stest-summary.txt%s report\n", Green, Reset)
-	fmt.Printf("  %stest-report.json%s detailed data\n", Green, Reset)
-	fmt.Printf("  %scoverage.html%s coverage report\n", Green, Reset)
+	fmt.Printf("%s[✓]%s Tests complete %s(%v)%s\n",
+		Green, Reset, Gray, duration.Round(time.Millisecond), Reset)
+	fmt.Printf("%s[i]%s Reports: test-summary.txt, test-report.json, coverage.html\n", Gray, Reset)
 }
 
-// ShowHelp displays the help information
+// ShowHelp displays usage information
 func ShowHelp() {
-	fmt.Printf("\n%s▲ %s%s %sv1.0.0%s\n", Bold, AppName, Reset, Gray, Reset)
-	fmt.Printf("%sModern deployment automation tool%s\n\n", Gray, Reset)
+	fmt.Printf("%s▲ %s%s%s %sv%s%s - PocketBase deployment automation\n\n",
+		Cyan, Bold, AppName, Reset, Gray, Version, Reset)
 
 	fmt.Printf("%sUSAGE:%s\n", Bold, Reset)
 	fmt.Printf("  go run ./cmd/scripts [options]\n\n")
 
 	fmt.Printf("%sOPTIONS:%s\n", Bold, Reset)
-	fmt.Printf("  %s--help%s          Show this help message\n", Green, Reset)
-	fmt.Printf("  %s--install%s       Install all project dependencies (Go + npm)\n", Green, Reset)
-	fmt.Printf("  %s--production%s    Create production build with all assets\n", Green, Reset)
-	fmt.Printf("  %s--build-only%s    Build frontend without running server\n", Green, Reset)
-	fmt.Printf("  %s--run-only%s      Run server without building frontend\n", Green, Reset)
-	fmt.Printf("  %s--test-only%s     Run test suite and generate reports\n", Green, Reset)
+	fmt.Printf("  --help          Show this help\n")
+	fmt.Printf("  --install       Install dependencies\n")
+	fmt.Printf("  --production    Production build\n")
+	fmt.Printf("  --build-only    Build assets only\n")
+	fmt.Printf("  --run-only      Start server only\n")
+	fmt.Printf("  --test-only     Run tests only\n")
+	fmt.Printf("  --dist DIR      Output directory\n\n")
 
-	fmt.Printf("  %s--dist DIR%s      Specify output directory (default: dist)\n", Green, Reset)
+	fmt.Printf("%sEXAMPLES:%s\n", Bold, Reset)
+	fmt.Printf("  go run ./cmd/scripts\n")
+	fmt.Printf("  go run ./cmd/scripts --production\n")
+	fmt.Printf("  go run ./cmd/scripts --test-only\n")
+}
 
-	fmt.Printf("\n%sEXAMPLES:%s\n", Bold, Reset)
-	fmt.Printf("  %s# Development mode (default)%s\n", Gray, Reset)
-	fmt.Printf("  go run ./cmd/scripts\n\n")
+// PrintBanner displays app info and operation
+func PrintBanner(operation string) {
+	PrintVersion()
+	PrintOperation(operation)
+}
 
-	fmt.Printf("  %s# Install dependencies and build%s\n", Gray, Reset)
-	fmt.Printf("  go run ./cmd/scripts --install\n\n")
-
-	fmt.Printf("  %s# Production build%s\n", Gray, Reset)
-	fmt.Printf("  go run ./cmd/scripts --production --install\n\n")
-
-	fmt.Printf("  %s# Build only (no server)%s\n", Gray, Reset)
-	fmt.Printf("  go run ./cmd/scripts --build-only\n\n")
-
-	fmt.Printf("  %s# Run tests only%s\n", Gray, Reset)
-	fmt.Printf("  go run ./cmd/scripts --test-only\n\n")
-
-	fmt.Printf("  %s# Custom dist directory%s\n", Gray, Reset)
-	fmt.Printf("  go run ./cmd/scripts --production --dist release\n\n")
-
-	fmt.Println()
+// PrintHeader displays section header
+func PrintHeader(title string) {
+	PrintOperation(title)
 }

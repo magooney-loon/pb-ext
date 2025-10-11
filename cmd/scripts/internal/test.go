@@ -3,88 +3,260 @@ package internal
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
 
+// TestResult represents the result of running tests for a package
+type TestResult struct {
+	Package     string
+	Passed      int
+	Failed      int
+	Skipped     int
+	Duration    time.Duration
+	Success     bool
+	Output      []string
+	FailedTests []string
+}
+
+// TestSuite represents the complete test suite results
+type TestSuite struct {
+	Results     []TestResult
+	TotalPassed int
+	TotalFailed int
+	TotalTests  int
+	Duration    time.Duration
+	Success     bool
+}
+
+// getTestPackages discovers test packages by walking the project directory
+func getTestPackages() []string {
+	var testPackages []string
+
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip hidden directories and files (but not the root directory ".")
+		if strings.HasPrefix(filepath.Base(path), ".") && path != "." {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip vendor, node_modules, and other non-source directories
+		if info.IsDir() {
+			name := filepath.Base(path)
+			if name == "vendor" || name == "node_modules" || name == "dist" ||
+				name == "pb_data" || name == "pb_public" || name == "frontend" {
+				return filepath.SkipDir
+			}
+
+		}
+
+		// Check if this is a Go test file
+		if strings.HasSuffix(path, "_test.go") && !info.IsDir() {
+			dir := filepath.Dir(path)
+
+			// Convert to relative path with ./ prefix for go test
+			if dir == "." {
+				dir = "."
+			} else if !strings.HasPrefix(dir, "./") {
+				dir = "./" + dir
+			}
+
+			// Add to list if not already present
+			found := false
+			for _, pkg := range testPackages {
+				if pkg == dir {
+					found = true
+					break
+				}
+			}
+			if !found {
+				testPackages = append(testPackages, dir)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Printf("   ERROR: Error walking directory: %v\n", err)
+		return []string{}
+	}
+
+	// Sort packages for consistent output
+	sort.Strings(testPackages)
+
+	return testPackages
+}
+
+// runTestSuite executes all test packages with structured output
+func runTestSuite(packages []string) TestSuite {
+	suite := TestSuite{
+		Results: make([]TestResult, 0, len(packages)),
+		Success: true,
+	}
+
+	PrintSection("Test Execution")
+	fmt.Printf("    %sPackages: %d%s\n", Gray, len(packages), Reset)
+
+	start := time.Now()
+
+	for i, pkg := range packages {
+		result := runTestPackage(pkg, i+1, len(packages))
+		suite.Results = append(suite.Results, result)
+
+		// Show individual test result
+		PrintTestResult(pkg, result.Passed, result.Failed, result.Skipped, result.Duration, result.Success)
+
+		suite.TotalPassed += result.Passed
+		suite.TotalFailed += result.Failed
+		suite.TotalTests += result.Passed + result.Failed + result.Skipped
+
+		if !result.Success {
+			suite.Success = false
+		}
+	}
+
+	suite.Duration = time.Since(start)
+
+	// Show summary
+	PrintSection("Test Summary")
+	if suite.Success {
+		fmt.Printf("    %s[✓]%s All tests passed %s(%d/%d, %v)%s\n",
+			Green, Reset, Gray, suite.TotalPassed, suite.TotalTests, suite.Duration.Round(time.Millisecond), Reset)
+	} else {
+		fmt.Printf("    %s[✗]%s Tests failed %s(%d passed, %d failed, %v)%s\n",
+			Red, Reset, Gray, suite.TotalPassed, suite.TotalFailed, suite.Duration.Round(time.Millisecond), Reset)
+	}
+
+	return suite
+}
+
+// runTestPackage executes tests for a specific package
+func runTestPackage(packagePath string, current, total int) TestResult {
+	result := TestResult{
+		Package:     packagePath,
+		Output:      []string{},
+		FailedTests: []string{},
+	}
+
+	start := time.Now()
+
+	cmd := exec.Command("go", "test", "-v", packagePath)
+	output, err := cmd.CombinedOutput()
+
+	result.Duration = time.Since(start)
+	result.Success = err == nil
+
+	parseTestOutput(string(output), &result)
+
+	return result
+}
+
+// parseTestOutput parses test output to extract results
+func parseTestOutput(output string, result *TestResult) {
+	lines := strings.Split(output, "\n")
+
+	testPassRegex := regexp.MustCompile(`^\s*--- PASS: (\w+)`)
+	testFailRegex := regexp.MustCompile(`^\s*--- FAIL: (\w+)`)
+	testSkipRegex := regexp.MustCompile(`^\s*--- SKIP: (\w+)`)
+
+	for _, line := range lines {
+		result.Output = append(result.Output, line)
+
+		if matches := testPassRegex.FindStringSubmatch(line); len(matches) > 1 {
+			result.Passed++
+		} else if matches := testFailRegex.FindStringSubmatch(line); len(matches) > 1 {
+			result.Failed++
+			result.FailedTests = append(result.FailedTests, matches[1])
+		} else if matches := testSkipRegex.FindStringSubmatch(line); len(matches) > 1 {
+			result.Skipped++
+		} else if strings.Contains(line, "FAIL") && strings.Contains(line, "exit status") {
+			result.Success = false
+		}
+	}
+
+	if result.Failed > 0 {
+		result.Success = false
+	}
+}
+
+// printTestSummary prints the final test summary
+// printTestSummary displays a simple summary of the test results
+func printTestSummary(suite TestSuite) {
+	// This function is no longer used - summary is shown in runTestSuite
+}
+
 // RunTestSuiteAndGenerateReport runs the full test suite and generates reports
 func RunTestSuiteAndGenerateReport(rootDir, outputDir string) error {
-	PrintStep("🧪", "Running test suite...")
-
 	reportsDir := filepath.Join(outputDir, "test-reports")
 	if err := os.MkdirAll(reportsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create test reports directory: %w", err)
 	}
 
-	start := time.Now()
-
-	// Try multiple test execution strategies
-	testOutput, testErrors, testErr, duration := executeTestsWithFallback(rootDir, start)
-
-	// Always generate reports regardless of test outcome
-	testStatus := "PASSED"
-	if testErr != nil {
-		testStatus = "FAILED"
-		PrintWarning("Test suite failed but generating reports anyway")
-	}
-
-	// Generate test summary with result information
-	if err := GenerateTestSummary(rootDir, reportsDir, duration, testStatus, testErr, testOutput, testErrors); err != nil {
-		PrintWarning("Failed to generate test summary: %v", err)
-	}
-
-	// Generate detailed test report with result information
-	if err := GenerateTestReport(rootDir, reportsDir, testStatus, testErr, testOutput, testErrors, duration); err != nil {
-		PrintWarning("Failed to generate detailed test report: %v", err)
-	}
-
-	// Generate Go's built-in HTML coverage report
-	if err := GenerateHTMLCoverageReport(rootDir, reportsDir); err != nil {
-		PrintWarning("Failed to generate HTML coverage report: %v", err)
-	}
-
-	// Print appropriate completion message with analysis
-	analysis := AnalyzeTestResults(testOutput, testErrors)
-
-	if testErr != nil {
-		PrintError("Test suite failed in %v", duration.Round(time.Millisecond))
-		if analysis["totalTests"].(int) > 0 {
-			PrintInfo("Failed: %d, Passed: %d, Total: %d",
-				analysis["failedTests"].(int),
-				analysis["passedTests"].(int),
-				analysis["totalTests"].(int))
-		}
-		PrintInfo("Reports generated in: %s", reportsDir)
-		return fmt.Errorf("test suite failed: %w", testErr)
-	} else {
-		PrintSuccess("Test suite completed successfully in %v", duration.Round(time.Millisecond))
-		if analysis["totalTests"].(int) > 0 {
-			PrintInfo("Passed: %d, Total: %d",
-				analysis["passedTests"].(int),
-				analysis["totalTests"].(int))
-		}
+	// Get test packages using auto-discovery
+	packages := getTestPackages()
+	if len(packages) == 0 {
+		PrintWarning("No test packages found")
 		return nil
 	}
+
+	// Run test suite with structured output
+	suite := runTestSuite(packages)
+
+	// Collect output for reports
+	var allOutput strings.Builder
+	var allErrors strings.Builder
+	testStatus := "PASSED"
+	var testErr error
+
+	if !suite.Success {
+		testStatus = "FAILED"
+		testErr = fmt.Errorf("test suite failed")
+	}
+
+	for _, result := range suite.Results {
+		for _, line := range result.Output {
+			allOutput.WriteString(line + "\n")
+		}
+		for _, failedTest := range result.FailedTests {
+			allErrors.WriteString(failedTest + "\n")
+		}
+	}
+
+	// Generate test reports quietly
+	GenerateTestSummary(rootDir, reportsDir, suite.Duration, testStatus, testErr, allOutput.String(), allErrors.String())
+	GenerateTestReport(rootDir, reportsDir, testStatus, testErr, allOutput.String(), allErrors.String(), suite.Duration)
+	GenerateHTMLCoverageReport(rootDir, reportsDir, packages)
+
+	PrintSubItem("i", "Reports: test-summary.txt, test-report.json, coverage.html")
+
+	if !suite.Success {
+		return fmt.Errorf("test suite failed: %w", testErr)
+	}
+	return nil
 }
 
 // TestOnlyMode runs only the test suite without other operations
 func TestOnlyMode(rootDir, distDir string) error {
-	fmt.Printf("\n🧪 %sRunning Tests%s\n", Bold+Cyan, Reset)
-	fmt.Println()
-
 	outputDir := filepath.Join(rootDir, distDir)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Validate test environment first
-	if err := ValidateTestEnvironment(rootDir); err != nil {
-		PrintWarning("Test environment validation failed: %v", err)
-		// Still try to run tests in case they exist elsewhere
+	if err := checkGoTestAvailable(); err != nil {
+		PrintError("Go toolchain not available: %v", err)
+		return err
 	}
 
 	if err := RunTestSuiteAndGenerateReport(rootDir, outputDir); err != nil {
@@ -94,9 +266,19 @@ func TestOnlyMode(rootDir, distDir string) error {
 	return nil
 }
 
+// checkGoTestAvailable checks if Go toolchain is available
+func checkGoTestAvailable() error {
+	cmd := exec.Command("go", "version")
+	_, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("go command not available: %v", err)
+	}
+
+	return nil
+}
+
 // GenerateTestSummary creates a human-readable test summary file
 func GenerateTestSummary(rootDir, reportsDir string, duration time.Duration, status string, testErr error, testOutput, testErrors string) error {
-	PrintStep("📊", "Generating test summary...")
 
 	summaryPath := filepath.Join(reportsDir, "test-summary.txt")
 	summaryFile, err := os.Create(summaryPath)
@@ -115,7 +297,7 @@ func GenerateTestSummary(rootDir, reportsDir string, duration time.Duration, sta
 	// Add Go version and system info
 	goVersion := GetCommandOutput("go", "version")
 	fmt.Fprintf(summaryFile, "Go Version: %s\n", goVersion)
-	fmt.Fprintf(summaryFile, "Test Command: go run ./cmd/tests\n\n")
+	fmt.Fprintf(summaryFile, "Test Command: go run ./cmd/scripts/main.go --test-only\n\n")
 
 	fmt.Fprintf(summaryFile, "Status: %s\n", status)
 	if testErr != nil {
@@ -138,13 +320,11 @@ func GenerateTestSummary(rootDir, reportsDir string, duration time.Duration, sta
 		fmt.Fprintf(summaryFile, "%s\n", strings.Repeat("-", 40))
 	}
 
-	PrintSuccess("Test summary saved to: %s", summaryPath)
 	return nil
 }
 
 // GenerateTestReport creates a detailed JSON test report
 func GenerateTestReport(rootDir, reportsDir string, status string, testErr error, testOutput, testErrors string, duration time.Duration) error {
-	PrintStep("📋", "Generating detailed test report...")
 
 	reportPath := filepath.Join(reportsDir, "test-report.json")
 	reportFile, err := os.Create(reportPath)
@@ -173,7 +353,7 @@ func GenerateTestReport(rootDir, reportsDir string, status string, testErr error
     "npmVersion": "%s"
   },
   "testSuite": {
-    "command": "go run ./cmd/tests",
+    "command": "go run ./cmd/scripts/main.go --test-only",
     "status": "%s",
     "error": "%s",
     "output": "%s",
@@ -196,7 +376,6 @@ func GenerateTestReport(rootDir, reportsDir string, status string, testErr error
 		return fmt.Errorf("failed to write test report: %w", err)
 	}
 
-	PrintSuccess("Detailed test report saved to: %s", reportPath)
 	return nil
 }
 
@@ -258,73 +437,8 @@ func AnalyzeTestResults(testOutput, testErrors string) map[string]interface{} {
 }
 
 // ValidateTestEnvironment checks if the test environment is properly set up
-// executeTestsWithFallback tries multiple strategies to execute tests
-func executeTestsWithFallback(rootDir string, start time.Time) (string, string, error, time.Duration) {
-	strategies := []struct {
-		name string
-		cmd  func() *exec.Cmd
-	}{
-		{
-			name: "go test ./... with coverage",
-			cmd:  func() *exec.Cmd { return exec.Command("go", "test", "-coverprofile=coverage.out", "./...") },
-		},
-		{
-			name: "go test ./... with coverage (verbose)",
-			cmd:  func() *exec.Cmd { return exec.Command("go", "test", "-v", "-coverprofile=coverage.out", "./...") },
-		},
-		{
-			name: "go run ./cmd/tests",
-			cmd:  func() *exec.Cmd { return exec.Command("go", "run", "./cmd/tests") },
-		},
-		{
-			name: "go test ./...",
-			cmd:  func() *exec.Cmd { return exec.Command("go", "test", "./...") },
-		},
-		{
-			name: "go test .",
-			cmd:  func() *exec.Cmd { return exec.Command("go", "test", ".") },
-		},
-	}
-
-	for i, strategy := range strategies {
-		PrintStep("🔄", "Trying strategy %d: %s", i+1, strategy.name)
-
-		var stdout, stderr bytes.Buffer
-		cmd := strategy.cmd()
-		cmd.Dir = rootDir
-
-		// Use MultiWriter to write to both buffer and console simultaneously
-		cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
-		cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
-
-		testErr := cmd.Run()
-		duration := time.Since(start)
-
-		testOutput := stdout.String()
-		testErrors := stderr.String()
-
-		// If command executed (even if tests failed), use this result
-		if testErr == nil || testOutput != "" || testErrors != "" {
-			if testErr != nil {
-				PrintInfo("Tests executed but some failed")
-			} else {
-				PrintInfo("Tests executed successfully")
-			}
-			return testOutput, testErrors, testErr, duration
-		}
-
-		PrintWarning("Strategy failed: %s", strategy.name)
-	}
-
-	// All strategies failed - return error with duration
-	duration := time.Since(start)
-	return "", "No test execution strategy succeeded",
-		fmt.Errorf("all test execution strategies failed"), duration
-}
-
-// ValidateTestEnvironment checks if the test environment is properly set up
 func ValidateTestEnvironment(rootDir string) error {
-	PrintStep("🔍", "Validating test environment...")
+	PrintStep("Validating test environment...")
 
 	// Check if tests directory exists
 	testsDir := filepath.Join(rootDir, "cmd", "tests")
@@ -367,26 +481,30 @@ func hasGoTestFiles(rootDir string) bool {
 }
 
 // GenerateHTMLCoverageReport generates Go's built-in HTML coverage report
-func GenerateHTMLCoverageReport(rootDir, reportsDir string) error {
-	PrintStep("🌐", "Generating HTML coverage report...")
+func GenerateHTMLCoverageReport(rootDir, reportsDir string, packages []string) error {
 
 	// Check if coverage.out exists
 	coverageFile := filepath.Join(rootDir, "coverage.out")
 	if _, err := os.Stat(coverageFile); os.IsNotExist(err) {
-		PrintWarning("No coverage.out file found, attempting to generate coverage...")
+		if len(packages) == 0 {
+			PrintInfo("No test packages found, skipping coverage")
+			return nil
+		}
 
-		// Try to generate coverage if it doesn't exist
-		cmd := exec.Command("go", "test", "-coverprofile=coverage.out", "./...")
+		// Try to generate coverage for the discovered packages only
+		args := append([]string{"test", "-coverprofile=coverage.out"}, packages...)
+		cmd := exec.Command("go", args...)
 		cmd.Dir = rootDir
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 
 		if err := cmd.Run(); err != nil {
-			PrintWarning("Failed to generate coverage data: %v", err)
+			// Clean up any partially created coverage file
+			os.Remove(coverageFile)
+			PrintWarning("Coverage generation failed, skipping HTML report")
 			return nil
 		}
-		PrintInfo("Generated coverage data")
 	}
 
 	// Generate HTML coverage report
@@ -398,10 +516,11 @@ func GenerateHTMLCoverageReport(rootDir, reportsDir string) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to generate HTML coverage report: %w, stderr: %s", err, stderr.String())
+		// Clean up coverage file if HTML generation fails
+		os.Remove(coverageFile)
+		PrintWarning("HTML coverage report generation failed")
+		return nil
 	}
-
-	PrintSuccess("HTML coverage report saved to: %s", htmlReportPath)
 
 	// Generate coverage summary
 	summaryCmd := exec.Command("go", "tool", "cover", "-func=coverage.out")
@@ -412,22 +531,16 @@ func GenerateHTMLCoverageReport(rootDir, reportsDir string) error {
 		if summaryFile, err := os.Create(summaryPath); err == nil {
 			summaryFile.Write(summaryOutput)
 			summaryFile.Close()
-			PrintInfo("Coverage summary saved to: %s", summaryPath)
 		}
 	}
 
-	// Copy the coverage.out file to reports directory for reference
+	// Move the coverage.out file to reports directory for reference
 	reportsCoverageFile := filepath.Join(reportsDir, "coverage.out")
 	if err := os.Rename(coverageFile, reportsCoverageFile); err != nil {
 		// If rename fails, try copying instead
-		if err := copyFile(coverageFile, reportsCoverageFile); err != nil {
-			PrintWarning("Failed to copy coverage.out to reports directory: %v", err)
-		} else {
-			PrintInfo("Coverage data copied to: %s", reportsCoverageFile)
+		if err := copyFile(coverageFile, reportsCoverageFile); err == nil {
 			os.Remove(coverageFile) // Clean up original
 		}
-	} else {
-		PrintInfo("Coverage data saved to: %s", reportsCoverageFile)
 	}
 
 	return nil
@@ -435,7 +548,7 @@ func GenerateHTMLCoverageReport(rootDir, reportsDir string) error {
 
 // RunQuickTests runs a subset of tests for quick feedback
 func RunQuickTests(rootDir string) error {
-	PrintStep("⚡", "Running quick tests...")
+	PrintStep("Running quick tests...")
 
 	cmd := exec.Command("go", "test", "-short", "./...")
 	cmd.Dir = rootDir
@@ -448,6 +561,6 @@ func RunQuickTests(rootDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintSuccess("Quick tests completed in %v", duration.Round(time.Millisecond))
+	PrintSuccess(fmt.Sprintf("Quick tests completed in %v", duration.Round(time.Millisecond)))
 	return nil
 }

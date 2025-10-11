@@ -4,14 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
 // ProductionBuild orchestrates the entire production build process
 func ProductionBuild(rootDir string, installDeps bool, distDir string) error {
-	PrintHeader("🚀 PRODUCTION BUILD")
-
 	outputDir := filepath.Join(rootDir, distDir)
 	start := time.Now()
 
@@ -64,15 +61,21 @@ func ProductionBuild(rootDir string, installDeps bool, distDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintBuildSummary(duration, true)
-	printProductionSummary(outputDir, duration)
+
+	PrintSection("Build Complete")
+	PrintSubItem("✓", fmt.Sprintf("Production build finished (%v)", duration.Round(time.Millisecond)))
+	PrintSubItem("i", fmt.Sprintf("Output: %s", outputDir))
+
+	// Show deployment integration info
+	printDeploymentIntegration()
 
 	return nil
 }
 
 // prepareOutputDirectory cleans and creates the output directory
 func prepareOutputDirectory(outputDir string) error {
-	PrintStep("🧹", "Cleaning output directory...")
+	PrintSection("Prepare Build")
+	PrintBuildStep("Cleaning output directory", outputDir)
 
 	if err := os.RemoveAll(outputDir); err != nil {
 		return fmt.Errorf("failed to clean dist directory: %w", err)
@@ -82,74 +85,66 @@ func prepareOutputDirectory(outputDir string) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	PrintSuccess("Output directory prepared: %s", outputDir)
+	PrintSubItem("✓", "Output directory ready")
 	return nil
 }
 
-// printProductionSummary displays a detailed summary of the production build
+// printDeploymentIntegration displays VPS deployment automation info
+func printDeploymentIntegration() {
+	fmt.Printf("\n%s[>]%s %sDEPLOYMENT INTEGRATION%s\n\n", Cyan, Reset, Bold, Reset)
+
+	fmt.Printf("%s```%s\n", Gray, Reset)
+	fmt.Printf("$ git clone https://github.com/magooney-loon/pb-deployer\n")
+	fmt.Printf("$ cd pb-deployer && go run cmd/scripts/main.go --install\n")
+	fmt.Printf("%s```%s\n", Gray, Reset)
+}
+
+// printProductionSummary displays a summary of the production build
 func printProductionSummary(outputDir string, duration time.Duration) {
-	fmt.Printf("\n%sProduction Build Summary%s\n", Bold, Reset)
-	fmt.Printf("%s%s%s\n", Gray, strings.Repeat("─", 24), Reset)
+	fmt.Printf("=> Production build completed in %v\n", duration.Round(time.Millisecond))
+	fmt.Printf("   Output: %s\n", outputDir)
+}
 
-	// List generated files
-	fmt.Printf("\n%sGenerated Files:%s\n", Gray, Reset)
+// listProductionFiles lists the files created in the production build
+func listProductionFiles(outputDir string) {
+	// This function is now unused - info is shown during build process
+}
 
-	// Check for server binary
-	binaryPaths := []string{AppName, AppName + ".exe"}
-	for _, binary := range binaryPaths {
-		binaryPath := filepath.Join(outputDir, binary)
-		if _, err := os.Stat(binaryPath); err == nil {
-			fmt.Printf("  %s✓%s %s\n", Green, Reset, binary)
-			break
+// printArchiveInfo displays archive information
+func printArchiveInfo(outputDir string) {
+	// This function is now unused - info is shown when archive is created
+}
+
+// countFilesInDir counts files in a directory recursively
+func countFilesInDir(dir string) int {
+	count := 0
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			count++
 		}
-	}
+		return nil
+	})
+	return count
+}
 
-	// Check for frontend assets
-	pbPublicPath := filepath.Join(outputDir, "pb_public")
-	if _, err := os.Stat(pbPublicPath); err == nil {
-		fmt.Printf("  %s✓%s pb_public/ (frontend assets)\n", Green, Reset)
-	}
+// calculateOriginalSize estimates original size before compression
+func calculateOriginalSize(outputDir, archiveName string) float64 {
+	totalSize := int64(0)
 
-	// Check for metadata files
-	metadataFiles := []string{
-		"build-info.txt",
-		"package-metadata.json",
-	}
-	for _, file := range metadataFiles {
-		filePath := filepath.Join(outputDir, file)
-		if _, err := os.Stat(filePath); err == nil {
-			fmt.Printf("  %s✓%s %s\n", Green, Reset, file)
+	// Walk through all files except the archive itself
+	filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && info.Name() != archiveName {
+			totalSize += info.Size()
 		}
-	}
+		return nil
+	})
 
-	// Check for test reports
-	reportsDir := filepath.Join(outputDir, "test-reports")
-	if _, err := os.Stat(reportsDir); err == nil {
-		fmt.Printf("  %s✓%s test-reports/ (test results)\n", Green, Reset)
-	}
-
-	// Check for archive
-	entries, err := os.ReadDir(outputDir)
-	if err == nil {
-		for _, entry := range entries {
-			if strings.HasSuffix(entry.Name(), ".zip") {
-				fmt.Printf("  %s✓%s %s\n", Green, Reset, entry.Name())
-				break
-			}
-		}
-	}
-
-	fmt.Printf("\n%sDeployment Ready:%s %s%s%s\n",
-		Gray, Reset, Green, outputDir, Reset)
-	fmt.Printf("%sTotal Time:%s %s%v%s\n",
-		Gray, Reset, Cyan, duration.Round(time.Millisecond), Reset)
-
-	fmt.Println()
+	return float64(totalSize) / (1024 * 1024) // Convert to MB
 }
 
 // ValidateProductionBuild performs validation checks on the production build
 func ValidateProductionBuild(outputDir string) error {
-	PrintStep("✅", "Validating production build...")
+	PrintStep("Validating production build...")
 
 	// Check if output directory exists
 	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
@@ -163,7 +158,7 @@ func ValidateProductionBuild(outputDir string) error {
 		binaryPath := filepath.Join(outputDir, binary)
 		if _, err := os.Stat(binaryPath); err == nil {
 			binaryFound = true
-			PrintSuccess("Server binary found: %s", binary)
+			PrintSuccess(fmt.Sprintf("Server binary found: %s", binary))
 			break
 		}
 	}
@@ -188,7 +183,7 @@ func ValidateProductionBuild(outputDir string) error {
 	for _, file := range essentialFiles {
 		filePath := filepath.Join(outputDir, file)
 		if _, err := os.Stat(filePath); err == nil {
-			PrintSuccess("Metadata file found: %s", file)
+			PrintSuccess(fmt.Sprintf("Metadata file found: %s", file))
 		} else {
 			PrintWarning("Optional file missing: %s", file)
 		}
@@ -200,7 +195,7 @@ func ValidateProductionBuild(outputDir string) error {
 
 // CleanProductionBuild removes old production build artifacts
 func CleanProductionBuild(rootDir, distDir string) error {
-	PrintStep("🧹", "Cleaning previous production builds...")
+	PrintStep("Cleaning previous production builds...")
 
 	outputDir := filepath.Join(rootDir, distDir)
 

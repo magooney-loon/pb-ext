@@ -28,11 +28,11 @@ func main() {
 	}
 
 	// Determine operation type for banner
-	operation := "DEVELOPMENT"
+	operation := "dev"
 	if *production {
-		operation = "PRODUCTION"
+		operation = "prod"
 	} else if *testOnly {
-		operation = "TESTING"
+		operation = "test"
 	}
 	internal.PrintBanner(operation)
 
@@ -65,11 +65,9 @@ func main() {
 	}
 
 	// Print completion summary for non-server modes
-	if !*runOnly && !isServerMode() {
+	if !*runOnly && !isServerMode() && !*production {
 		duration := time.Since(start)
-		if *production {
-			internal.PrintBuildSummary(duration, true)
-		} else if *testOnly {
+		if *testOnly {
 			internal.PrintTestSummary(duration)
 		} else {
 			internal.PrintBuildSummary(duration, false)
@@ -79,7 +77,7 @@ func main() {
 
 // handleTestOnlyMode runs only the test suite
 func handleTestOnlyMode(rootDir, distDir string) error {
-	internal.PrintHeader("🧪 TEST MODE")
+	internal.PrintHeader("test")
 
 	if err := internal.CheckSystemRequirements(); err != nil {
 		return fmt.Errorf("system requirements not met: %w", err)
@@ -90,14 +88,14 @@ func handleTestOnlyMode(rootDir, distDir string) error {
 
 // handleProductionMode creates a complete production build
 func handleProductionMode(rootDir string, installDeps bool, distDir string) error {
-	internal.PrintHeader("🚀 PRODUCTION MODE")
+	internal.PrintHeader("production")
 
 	return internal.ProductionBuild(rootDir, installDeps, distDir)
 }
 
 // handleBuildOnlyMode builds the frontend without starting the server
 func handleBuildOnlyMode(rootDir string, installDeps bool) error {
-	internal.PrintHeader("🔨 BUILD MODE")
+	internal.PrintHeader("build")
 
 	if err := internal.CheckSystemRequirements(); err != nil {
 		return fmt.Errorf("system requirements not met: %w", err)
@@ -108,7 +106,7 @@ func handleBuildOnlyMode(rootDir string, installDeps bool) error {
 
 // handleRunOnlyMode starts the server without building
 func handleRunOnlyMode(rootDir string) error {
-	internal.PrintHeader("🚀 RUN MODE")
+	internal.PrintHeader("server")
 
 	if err := internal.CheckSystemRequirements(); err != nil {
 		return fmt.Errorf("system requirements not met: %w", err)
@@ -127,7 +125,7 @@ func handleRunOnlyMode(rootDir string) error {
 
 // handleDevelopmentMode is the default mode - build frontend and start server
 func handleDevelopmentMode(rootDir string, installDeps bool) error {
-	internal.PrintHeader("🛠️ DEVELOPMENT MODE")
+	internal.PrintHeader("development")
 
 	if err := internal.CheckSystemRequirements(); err != nil {
 		return fmt.Errorf("system requirements not met: %w", err)
@@ -147,8 +145,7 @@ func handleDevelopmentMode(rootDir string, installDeps bool) error {
 		return fmt.Errorf("server environment preparation failed: %w", err)
 	}
 
-	internal.PrintSuccess("Build completed successfully")
-	internal.PrintInfo("Starting development server...")
+	internal.PrintSuccess("Build complete, starting server...")
 
 	return internal.RunServer(rootDir)
 }

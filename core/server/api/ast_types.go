@@ -19,6 +19,7 @@ type ASTParser struct {
 	handlers           map[string]*ASTHandlerInfo
 	pocketbasePatterns *PocketBasePatterns
 	logger             Logger
+	parseErrors        []ParseError
 }
 
 // FileParseResult stores parsing results with metadata

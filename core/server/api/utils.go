@@ -127,7 +127,7 @@ func ExtractHandlerBaseName(handlerName string, stripSuffixes bool) string {
 	if stripSuffixes {
 		suffixes := []string{"Handler", "Func", "API", "Endpoint"}
 		for _, suffix := range suffixes {
-			if strings.HasSuffix(handlerName, suffix) {
+			if strings.HasSuffix(handlerName, suffix) && len(handlerName) > len(suffix) {
 				handlerName = strings.TrimSuffix(handlerName, suffix)
 				break
 			}
@@ -398,21 +398,23 @@ func ValidateEndpoint(endpoint *APIEndpoint) []string {
 		errors = append(errors, "path is required")
 	}
 
-	// Validate HTTP method
-	validMethods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
-	methodValid := false
-	for _, validMethod := range validMethods {
-		if strings.ToUpper(endpoint.Method) == validMethod {
-			methodValid = true
-			break
+	// Validate HTTP method (only if method is provided)
+	if endpoint.Method != "" {
+		validMethods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+		methodValid := false
+		for _, validMethod := range validMethods {
+			if strings.ToUpper(endpoint.Method) == validMethod {
+				methodValid = true
+				break
+			}
+		}
+		if !methodValid {
+			errors = append(errors, fmt.Sprintf("invalid HTTP method: %s", endpoint.Method))
 		}
 	}
-	if !methodValid {
-		errors = append(errors, fmt.Sprintf("invalid HTTP method: %s", endpoint.Method))
-	}
 
-	// Validate path format
-	if !strings.HasPrefix(endpoint.Path, "/") {
+	// Validate path format (only if path is provided)
+	if endpoint.Path != "" && !strings.HasPrefix(endpoint.Path, "/") {
 		errors = append(errors, "path must start with /")
 	}
 
