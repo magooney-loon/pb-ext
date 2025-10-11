@@ -23,6 +23,7 @@ const (
 	Cyan   = "\033[36m"
 	Gray   = "\033[37m"
 	Bold   = "\033[1m"
+	Dim    = "\033[2m"
 )
 
 // PrintBanner displays the application banner with operation type
@@ -39,31 +40,31 @@ func PrintHeader(title string) {
 // PrintStep displays a step with emoji and message
 func PrintStep(emoji, format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%s %s\n", emoji, message)
+	fmt.Printf("  %s %s\n", emoji, message)
 }
 
 // PrintSuccess displays a success message
 func PrintSuccess(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%s✓%s %s\n", Green, Reset, message)
+	fmt.Printf("  %s✓%s %s\n", Green, Reset, message)
 }
 
 // PrintError displays an error message
 func PrintError(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%s✗ Error:%s %s\n", Red, Reset, message)
+	fmt.Printf("  %s✗%s %s\n", Red, Reset, message)
 }
 
 // PrintWarning displays a warning message
 func PrintWarning(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%s⚠ Warning:%s %s\n", Yellow, Reset, message)
+	fmt.Printf("  %s⚠%s %s\n", Yellow, Reset, message)
 }
 
 // PrintInfo displays an info message
 func PrintInfo(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
-	fmt.Printf("%sℹ%s %s\n", Cyan, Reset, message)
+	fmt.Printf("  %s•%s %s\n", Gray, Reset, message)
 }
 
 // PrintBuildSummary displays a summary of the build process
@@ -139,6 +140,17 @@ func ShowHelp() {
 
 	fmt.Printf("  %s# Custom dist directory%s\n", Gray, Reset)
 	fmt.Printf("  go run ./cmd/scripts --production --dist release\n\n")
+
+	fmt.Printf("%sDEPLOYMENT:%s\n", Bold, Reset)
+	fmt.Printf("  %sAfter creating a production build, automate VPS deployment:%s\n", Gray, Reset)
+	fmt.Printf("  git clone https://github.com/magooney-loon/pb-deployer\n")
+	fmt.Printf("  cd pb-deployer && go run cmd/scripts/main.go --install\n\n")
+
+	fmt.Printf("  %spb-deployer features:%s\n", Gray, Reset)
+	fmt.Printf("  • Automated server setup and security lockdown\n")
+	fmt.Printf("  • Zero-downtime deployments with rollback support\n")
+	fmt.Printf("  • Systemd service management\n")
+	fmt.Printf("  • Compatible with PocketBase v0.20+ apps\n\n")
 
 	fmt.Println()
 }

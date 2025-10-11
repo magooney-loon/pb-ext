@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -64,7 +65,6 @@ func ProductionBuild(rootDir string, installDeps bool, distDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintBuildSummary(duration, true)
 	printProductionSummary(outputDir, duration)
 
 	return nil
@@ -86,20 +86,53 @@ func prepareOutputDirectory(outputDir string) error {
 	return nil
 }
 
-// printProductionSummary displays a detailed summary of the production build
+// printProductionSummary displays an enhanced summary of the production build
 func printProductionSummary(outputDir string, duration time.Duration) {
-	fmt.Printf("\n%sProduction Build Summary%s\n", Bold, Reset)
-	fmt.Printf("%s%s%s\n", Gray, strings.Repeat("─", 24), Reset)
+	fmt.Printf("\n%s🎉 Production Build Complete%s\n", Bold+Green, Reset)
+	fmt.Printf("%s═══════════════════════════%s\n", Gray, Reset)
+
+	// Build metadata
+	fmt.Printf("\n%sBuild Info%s\n", Bold, Reset)
+	fmt.Printf("  %s•%s Duration: %s%v%s\n", Gray, Reset, Cyan, duration.Round(time.Millisecond), Reset)
+	fmt.Printf("  %s•%s Target: %s%s%s\n", Gray, Reset, Gray, runtime.GOOS+"/"+runtime.GOARCH, Reset)
+	fmt.Printf("  %s•%s Location: %s%s%s\n", Gray, Reset, Green, outputDir, Reset)
 
 	// List generated files
-	fmt.Printf("\n%sGenerated Files:%s\n", Gray, Reset)
+	fmt.Printf("\n%sGenerated Files%s\n", Bold, Reset)
+	listProductionFiles(outputDir)
 
+	// Deployment info
+	fmt.Printf("\n%s🚀 Ready for Deployment%s\n", Bold+Cyan, Reset)
+	fmt.Printf("  %s•%s Optimized binary with static assets\n", Gray, Reset)
+	fmt.Printf("  %s•%s Test reports and coverage included\n", Gray, Reset)
+	fmt.Printf("  %s•%s Production archive created\n", Gray, Reset)
+
+	// pb-deployer integration
+	fmt.Printf("\n%s💡 Next Steps%s\n", Bold+Yellow, Reset)
+	fmt.Printf("  %sAutomate deployment to VPS:%s\n", Gray, Reset)
+	fmt.Printf("    %sgit clone https://github.com/magooney-loon/pb-deployer%s\n", Cyan, Reset)
+	fmt.Printf("    %scd pb-deployer && go run cmd/scripts/main.go --install%s\n", Cyan, Reset)
+	fmt.Printf("    %s(Compatible with PocketBase v0.20+ apps)%s\n", Gray, Reset)
+
+	fmt.Printf("\n  %sOr deploy manually:%s\n", Gray, Reset)
+	fmt.Printf("    %s1.%s Upload the production archive to your server\n", Gray, Reset)
+	fmt.Printf("    %s2.%s Extract and configure your PocketBase app\n", Gray, Reset)
+	fmt.Printf("    %s3.%s Set up systemd service for auto-start\n", Gray, Reset)
+
+	fmt.Printf("\n%s📚 Learn more:%s %shttps://github.com/magooney-loon/pb-deployer%s\n",
+		Gray, Reset, Cyan, Reset)
+	fmt.Println()
+}
+
+// listProductionFiles lists the files created in the production build
+func listProductionFiles(outputDir string) {
 	// Check for server binary
 	binaryPaths := []string{AppName, AppName + ".exe"}
 	for _, binary := range binaryPaths {
 		binaryPath := filepath.Join(outputDir, binary)
-		if _, err := os.Stat(binaryPath); err == nil {
-			fmt.Printf("  %s✓%s %s\n", Green, Reset, binary)
+		if stat, err := os.Stat(binaryPath); err == nil {
+			size := float64(stat.Size()) / (1024 * 1024) // Convert to MB
+			fmt.Printf("  %s✓%s %s %s(%.1f MB)%s\n", Green, Reset, binary, Gray, size, Reset)
 			break
 		}
 	}
@@ -107,44 +140,40 @@ func printProductionSummary(outputDir string, duration time.Duration) {
 	// Check for frontend assets
 	pbPublicPath := filepath.Join(outputDir, "pb_public")
 	if _, err := os.Stat(pbPublicPath); err == nil {
-		fmt.Printf("  %s✓%s pb_public/ (frontend assets)\n", Green, Reset)
+		fmt.Printf("  %s✓%s pb_public/ %s(frontend assets)%s\n", Green, Reset, Gray, Reset)
 	}
 
 	// Check for metadata files
-	metadataFiles := []string{
-		"build-info.txt",
-		"package-metadata.json",
+	metadataFiles := map[string]string{
+		"build-info.txt":        "build metadata",
+		"package-metadata.json": "deployment info",
 	}
-	for _, file := range metadataFiles {
+	for file, desc := range metadataFiles {
 		filePath := filepath.Join(outputDir, file)
 		if _, err := os.Stat(filePath); err == nil {
-			fmt.Printf("  %s✓%s %s\n", Green, Reset, file)
+			fmt.Printf("  %s✓%s %s %s(%s)%s\n", Green, Reset, file, Gray, desc, Reset)
 		}
 	}
 
 	// Check for test reports
 	reportsDir := filepath.Join(outputDir, "test-reports")
-	if _, err := os.Stat(reportsDir); err == nil {
-		fmt.Printf("  %s✓%s test-reports/ (test results)\n", Green, Reset)
+	if stat, err := os.Stat(reportsDir); err == nil && stat.IsDir() {
+		fmt.Printf("  %s✓%s test-reports/ %s(test results & coverage)%s\n", Green, Reset, Gray, Reset)
 	}
 
 	// Check for archive
 	entries, err := os.ReadDir(outputDir)
 	if err == nil {
 		for _, entry := range entries {
-			if strings.HasSuffix(entry.Name(), ".zip") {
-				fmt.Printf("  %s✓%s %s\n", Green, Reset, entry.Name())
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".zip") {
+				if stat, err := entry.Info(); err == nil {
+					size := float64(stat.Size()) / (1024 * 1024) // Convert to MB
+					fmt.Printf("  %s✓%s %s %s(%.1f MB archive)%s\n", Green, Reset, entry.Name(), Gray, size, Reset)
+				}
 				break
 			}
 		}
 	}
-
-	fmt.Printf("\n%sDeployment Ready:%s %s%s%s\n",
-		Gray, Reset, Green, outputDir, Reset)
-	fmt.Printf("%sTotal Time:%s %s%v%s\n",
-		Gray, Reset, Cyan, duration.Round(time.Millisecond), Reset)
-
-	fmt.Println()
 }
 
 // ValidateProductionBuild performs validation checks on the production build

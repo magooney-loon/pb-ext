@@ -2,7 +2,6 @@ package internal
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,10 +9,34 @@ import (
 	"time"
 )
 
+// FrontendType represents the type of frontend setup
+type FrontendType int
+
+const (
+	FrontendTypeNone FrontendType = iota
+	FrontendTypeStatic
+	FrontendTypeNpm
+)
+
+// DetectFrontendType determines what kind of frontend setup exists
+func DetectFrontendType(frontendDir string) FrontendType {
+	// Check if frontend directory exists
+	if _, err := os.Stat(frontendDir); os.IsNotExist(err) {
+		return FrontendTypeNone
+	}
+
+	// Check if package.json exists (npm-based frontend)
+	packageJSON := filepath.Join(frontendDir, "package.json")
+	if _, err := os.Stat(packageJSON); err == nil {
+		return FrontendTypeNpm
+	}
+
+	// Frontend directory exists but no package.json (static files)
+	return FrontendTypeStatic
+}
+
 // ValidateFrontendSetup checks if the frontend directory and package.json exist
 func ValidateFrontendSetup(frontendDir string) error {
-	PrintStep("🔍", "Validating frontend setup...")
-
 	if _, err := os.Stat(frontendDir); os.IsNotExist(err) {
 		return fmt.Errorf("frontend directory not found at %s", frontendDir)
 	}
@@ -23,42 +46,89 @@ func ValidateFrontendSetup(frontendDir string) error {
 		return fmt.Errorf("package.json not found at %s", packageJSON)
 	}
 
-	PrintSuccess("Frontend setup validated")
+	return nil
+}
+
+// CopyStaticFiles copies static files from frontend directory to pb_public
+func CopyStaticFiles(rootDir, frontendDir string) error {
+	pbPublicDir := filepath.Join(rootDir, "pb_public")
+	if err := os.MkdirAll(pbPublicDir, 0755); err != nil {
+		return fmt.Errorf("failed to create pb_public directory: %w", err)
+	}
+
+	// Copy all files from frontend to pb_public
+	err := filepath.Walk(frontendDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Calculate relative path
+		relPath, err := filepath.Rel(frontendDir, path)
+		if err != nil {
+			return err
+		}
+
+		destPath := filepath.Join(pbPublicDir, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(destPath, info.Mode())
+		}
+
+		return copyFile(path, destPath)
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to copy static files: %w", err)
+	}
+
 	return nil
 }
 
 // BuildFrontend builds the frontend for development
 func BuildFrontend(rootDir string, installDeps bool) error {
-
 	frontendDir := filepath.Join(rootDir, "frontend")
+	frontendType := DetectFrontendType(frontendDir)
 
-	if err := ValidateFrontendSetup(frontendDir); err != nil {
-		return err
-	}
+	switch frontendType {
+	case FrontendTypeNone:
+		PrintInfo("No frontend found, skipping build")
+		return nil
 
-	if installDeps {
-		if err := InstallDependencies(rootDir, frontendDir); err != nil {
+	case FrontendTypeStatic:
+		PrintStep("📄", "Static frontend")
+		return CopyStaticFiles(rootDir, frontendDir)
+
+	case FrontendTypeNpm:
+		PrintStep("⚙️", "Building frontend")
+
+		if err := ValidateFrontendSetup(frontendDir); err != nil {
 			return err
 		}
-	}
 
-	if err := BuildFrontendCore(frontendDir); err != nil {
-		return err
-	}
+		if installDeps {
+			if err := InstallDependencies(rootDir, frontendDir); err != nil {
+				return err
+			}
+		}
 
-	return CopyFrontendToPbPublic(rootDir, frontendDir)
+		if err := BuildFrontendCore(frontendDir); err != nil {
+			return err
+		}
+
+		return CopyFrontendToPbPublic(rootDir, frontendDir)
+
+	default:
+		return fmt.Errorf("unknown frontend type")
+	}
 }
 
 // BuildFrontendProduction builds the frontend for production
 func BuildFrontendProduction(rootDir string, installDeps bool) error {
-	PrintStep("🏗️", "Building frontend for production...")
 	return BuildFrontend(rootDir, installDeps)
 }
 
 // BuildFrontendCore runs the actual npm build process
 func BuildFrontendCore(frontendDir string) error {
-	PrintStep("⚙️", "Building frontend...")
-
 	cmd := exec.Command("npm", "run", "build")
 	cmd.Dir = frontendDir
 	cmd.Stdout = os.Stdout
@@ -70,14 +140,12 @@ func BuildFrontendCore(frontendDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintSuccess("Frontend built successfully in %v", duration.Round(time.Millisecond))
+	PrintSuccess("Built in %v", duration.Round(time.Millisecond))
 	return nil
 }
 
 // CopyFrontendToPbPublic copies the built frontend to the pb_public directory
 func CopyFrontendToPbPublic(rootDir, frontendDir string) error {
-	PrintStep("📂", "Copying frontend build to pb_public...")
-
 	pbPublicDir := filepath.Join(rootDir, "pb_public")
 
 	if err := os.RemoveAll(pbPublicDir); err != nil {
@@ -88,38 +156,63 @@ func CopyFrontendToPbPublic(rootDir, frontendDir string) error {
 		return fmt.Errorf("failed to create pb_public: %w", err)
 	}
 
-	buildDir := FindBuildDirectory(frontendDir)
+	buildDir, err := FindBuildDirectory(frontendDir)
+	if err != nil {
+		return fmt.Errorf("failed to find frontend build: %w", err)
+	}
+
 	if err := copyDir(buildDir, pbPublicDir); err != nil {
 		return fmt.Errorf("failed to copy frontend build: %w", err)
 	}
 
-	PrintSuccess("Frontend copied to pb_public successfully")
 	return nil
 }
 
 // CopyFrontendToDist copies the built frontend to the dist directory for production
 func CopyFrontendToDist(rootDir, outputDir string) error {
-	PrintStep("📁", "Copying frontend to dist...")
+	frontendDir := filepath.Join(rootDir, "frontend")
+	frontendType := DetectFrontendType(frontendDir)
 
 	pbPublicDir := filepath.Join(outputDir, "pb_public")
 	if err := os.MkdirAll(pbPublicDir, 0755); err != nil {
 		return fmt.Errorf("failed to create dist pb_public: %w", err)
 	}
 
-	frontendDir := filepath.Join(rootDir, "frontend")
-	buildDir := FindBuildDirectory(frontendDir)
+	switch frontendType {
+	case FrontendTypeNone:
+		// Create an empty pb_public directory or copy from existing pb_public if it exists
+		existingPbPublic := filepath.Join(rootDir, "pb_public")
+		if _, err := os.Stat(existingPbPublic); err == nil {
+			if err := copyDir(existingPbPublic, pbPublicDir); err != nil {
+				return fmt.Errorf("failed to copy existing pb_public to dist: %w", err)
+			}
+		}
+		return nil
 
-	if err := copyDir(buildDir, pbPublicDir); err != nil {
-		return fmt.Errorf("failed to copy frontend to dist: %w", err)
+	case FrontendTypeStatic:
+		if err := copyDir(frontendDir, pbPublicDir); err != nil {
+			return fmt.Errorf("failed to copy static frontend to dist: %w", err)
+		}
+		return nil
+
+	case FrontendTypeNpm:
+		buildDir, err := FindBuildDirectory(frontendDir)
+		if err != nil {
+			return fmt.Errorf("failed to find frontend build for dist: %w", err)
+		}
+		if err := copyDir(buildDir, pbPublicDir); err != nil {
+			return fmt.Errorf("failed to copy frontend build to dist: %w", err)
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unknown frontend type")
 	}
-
-	PrintSuccess("Frontend copied to dist successfully")
-	return nil
 }
 
 // BuildServerBinary builds the server binary for production
 func BuildServerBinary(rootDir, outputDir string) error {
-	PrintStep("🏗️", "Building server binary...")
+	PrintStep("🏗️", "Building server")
 
 	binaryName := AppName
 	if runtime.GOOS == "windows" {
@@ -132,7 +225,7 @@ func BuildServerBinary(rootDir, outputDir string) error {
 	cmd := exec.Command("go", "build",
 		"-ldflags", "-s -w",
 		"-o", outputPath,
-		filepath.Join(rootDir, "cmd/server/main.go"))
+		"./cmd/server")
 	cmd.Dir = rootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -142,24 +235,41 @@ func BuildServerBinary(rootDir, outputDir string) error {
 	}
 
 	duration := time.Since(start)
-	PrintSuccess("Server binary built successfully in %v", duration.Round(time.Millisecond))
-	PrintInfo("Binary location: %s", outputPath)
+	PrintSuccess("Built in %v", duration.Round(time.Millisecond))
 	return nil
 }
 
 // FindBuildDirectory finds the frontend build output directory
-func FindBuildDirectory(frontendDir string) string {
+func FindBuildDirectory(frontendDir string) (string, error) {
 	possibleDirs := []string{"build", "dist", "static"}
 
 	for _, dir := range possibleDirs {
 		buildDir := filepath.Join(frontendDir, dir)
 		if _, err := os.Stat(buildDir); err == nil {
-			return buildDir
+			return buildDir, nil
 		}
 	}
 
-	log.Fatalf("Could not find frontend build directory in: %v", possibleDirs)
-	return ""
+	// Check if frontend directory has any files to copy
+	entries, err := os.ReadDir(frontendDir)
+	if err != nil {
+		return "", fmt.Errorf("could not read frontend directory: %w", err)
+	}
+
+	hasFiles := false
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			hasFiles = true
+			break
+		}
+	}
+
+	if hasFiles {
+		PrintInfo("Using frontend directory directly")
+		return frontendDir, nil
+	}
+
+	return "", fmt.Errorf("no build directory found in %v and no files to copy in frontend directory", possibleDirs)
 }
 
 // copyDir recursively copies a directory from src to dst

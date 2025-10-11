@@ -7,27 +7,26 @@ import (
 	"path/filepath"
 )
 
-// InstallDependencies installs both Go and npm dependencies
+// InstallDependencies installs Go dependencies and npm dependencies if needed
 func InstallDependencies(rootDir, frontendDir string) error {
-	PrintStep("📦", "Installing dependencies...")
-
 	if err := InstallGoDependencies(rootDir); err != nil {
 		return err
 	}
 
-	if err := InstallNpmDependencies(frontendDir); err != nil {
-		return err
+	// Check frontend type and only install npm dependencies if needed
+	frontendType := DetectFrontendType(frontendDir)
+	if frontendType == FrontendTypeNpm {
+		if err := InstallNpmDependencies(frontendDir); err != nil {
+			return err
+		}
 	}
 
-	PrintSuccess("All dependencies installed successfully")
 	return nil
 }
 
 // InstallGoDependencies installs and tidies Go module dependencies
 func InstallGoDependencies(rootDir string) error {
-	PrintStep("🏗️", "Installing Go dependencies...")
-
-	PrintStep("🧹", "Tidying Go modules...")
+	PrintStep("🏗️", "Installing dependencies")
 	cmd := exec.Command("go", "mod", "tidy")
 	cmd.Dir = rootDir
 	cmd.Stdout = os.Stdout
@@ -44,16 +43,15 @@ func InstallGoDependencies(rootDir string) error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("go mod download failed: %w", err)
+		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	PrintSuccess("Go dependencies installed")
 	return nil
 }
 
 // InstallNpmDependencies installs npm dependencies in the frontend directory
 func InstallNpmDependencies(frontendDir string) error {
-	PrintStep("📦", "Installing npm dependencies...")
+	PrintStep("📦", "Installing npm packages")
 
 	// Check if package-lock.json exists to decide between npm ci and npm install
 	packageLockPath := filepath.Join(frontendDir, "package-lock.json")
@@ -72,10 +70,9 @@ func InstallNpmDependencies(frontendDir string) error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("npm dependency installation failed: %w", err)
+		return fmt.Errorf("npm install failed: %w", err)
 	}
 
-	PrintSuccess("npm dependencies installed")
 	return nil
 }
 

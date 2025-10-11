@@ -65,11 +65,9 @@ func main() {
 	}
 
 	// Print completion summary for non-server modes
-	if !*runOnly && !isServerMode() {
+	if !*runOnly && !isServerMode() && !*production {
 		duration := time.Since(start)
-		if *production {
-			internal.PrintBuildSummary(duration, true)
-		} else if *testOnly {
+		if *testOnly {
 			internal.PrintTestSummary(duration)
 		} else {
 			internal.PrintBuildSummary(duration, false)
