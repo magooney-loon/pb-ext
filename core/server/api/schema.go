@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"regexp"
 )
 
@@ -32,6 +33,10 @@ func NewSchemaGenerator(astParser ASTParserInterface) *SchemaGenerator {
 
 // AnalyzeRequestSchema analyzes and generates request schema for an endpoint
 func (sg *SchemaGenerator) AnalyzeRequestSchema(endpoint *APIEndpoint) (*OpenAPISchema, error) {
+	if endpoint == nil {
+		return nil, fmt.Errorf("endpoint cannot be nil")
+	}
+
 	sg.mu.RLock()
 	defer sg.mu.RUnlock()
 
@@ -55,11 +60,28 @@ func (sg *SchemaGenerator) AnalyzeRequestSchema(endpoint *APIEndpoint) (*OpenAPI
 		}
 	}
 
+	// Generate basic schema for methods that typically have request bodies
+	if endpoint.Method == "POST" || endpoint.Method == "PUT" || endpoint.Method == "PATCH" {
+		return &OpenAPISchema{
+			Type: "object",
+			Properties: map[string]*OpenAPISchema{
+				"data": {
+					Type:        "object",
+					Description: "Request data",
+				},
+			},
+		}, nil
+	}
+
 	return nil, nil // No request schema needed (e.g., GET requests)
 }
 
 // AnalyzeResponseSchema analyzes and generates response schema for an endpoint
 func (sg *SchemaGenerator) AnalyzeResponseSchema(endpoint *APIEndpoint) (*OpenAPISchema, error) {
+	if endpoint == nil {
+		return nil, fmt.Errorf("endpoint cannot be nil")
+	}
+
 	sg.mu.RLock()
 	defer sg.mu.RUnlock()
 
@@ -83,8 +105,20 @@ func (sg *SchemaGenerator) AnalyzeResponseSchema(endpoint *APIEndpoint) (*OpenAP
 		}
 	}
 
-	// Default success response
-	return sg.generateSuccessResponseSchema(), nil
+	// Generate basic response schema for all methods
+	return &OpenAPISchema{
+		Type: "object",
+		Properties: map[string]*OpenAPISchema{
+			"data": {
+				Type:        "object",
+				Description: "Response data",
+			},
+			"message": {
+				Type:        "string",
+				Description: "Response message",
+			},
+		},
+	}, nil
 }
 
 // AnalyzeSchemaFromPath analyzes schemas for a given method and path
@@ -156,6 +190,23 @@ func (sg *SchemaGenerator) GetOpenAPIEndpointSchema(endpoint *APIEndpoint) (*Ope
 		operation.OperationId = generateOperationId(endpoint.Handler)
 	}
 
+	// Extract path parameters
+	pathParams := extractPathParameters(endpoint.Path)
+	if len(pathParams) > 0 {
+		operation.Parameters = make([]*OpenAPIParameter, len(pathParams))
+		for i, param := range pathParams {
+			operation.Parameters[i] = &OpenAPIParameter{
+				Name:        param,
+				In:          "path",
+				Required:    boolPtr(true),
+				Description: "Path parameter",
+				Schema: &OpenAPISchema{
+					Type: "string",
+				},
+			}
+		}
+	}
+
 	// Analyze request schema
 	if requestSchema, err := sg.AnalyzeRequestSchema(endpoint); err == nil && requestSchema != nil {
 		operation.RequestBody = &OpenAPIRequestBody{
@@ -196,9 +247,11 @@ func (sg *SchemaGenerator) GetOpenAPIEndpointSchema(endpoint *APIEndpoint) (*Ope
 	}
 
 	return &OpenAPIEndpointSchema{
-		Operation: operation,
-		Responses: operation.Responses,
-		Security:  operation.Security,
+		Operation:   operation,
+		Parameters:  operation.Parameters,
+		RequestBody: operation.RequestBody,
+		Responses:   operation.Responses,
+		Security:    operation.Security,
 	}, nil
 }
 
@@ -209,7 +262,16 @@ func (sg *SchemaGenerator) GetOpenAPIEndpointSchema(endpoint *APIEndpoint) (*Ope
 // generateRequestSchemaFromAST generates request schema from AST analysis
 func (sg *SchemaGenerator) generateRequestSchemaFromAST(endpoint *APIEndpoint) *OpenAPISchema {
 	if sg.astParser == nil {
-		return nil
+		// Return basic schema
+		return &OpenAPISchema{
+			Type: "object",
+			Properties: map[string]*OpenAPISchema{
+				"data": {
+					Type:        "object",
+					Description: "Schema data",
+				},
+			},
+		}
 	}
 
 	handlerName := ExtractHandlerBaseName(endpoint.Handler, false)
@@ -459,6 +521,23 @@ func (sg *SchemaGenerator) getSchemaPatterns() []*SchemaPattern {
 			},
 		},
 	}
+}
+
+// extractPathParameters extracts parameter names from a path
+func extractPathParameters(path string) []string {
+	var params []string
+
+	// Match {param} style parameters
+	re := regexp.MustCompile(`\{([^}]+)\}`)
+	matches := re.FindAllStringSubmatch(path, -1)
+
+	for _, match := range matches {
+		if len(match) > 1 {
+			params = append(params, match[1])
+		}
+	}
+
+	return params
 }
 
 // =============================================================================

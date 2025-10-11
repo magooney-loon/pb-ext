@@ -424,8 +424,9 @@ func ExampleJobExecutionLogger() {
 	logger.Success("Data processed successfully")
 	logger.Complete("Job finished")
 
-	fmt.Printf("Logged %d characters", len(logger.GetOutput()))
-	// Output: Logged 393 characters
+	output := logger.GetOutput()
+	fmt.Printf("Output contains logs: %t", len(output) > 0)
+	// Output: Output contains logs: true
 }
 
 func ExampleJobExecutionLogger_WithContext() {

@@ -22,6 +22,7 @@ func NewASTParser() *ASTParser {
 		handlers:           make(map[string]*ASTHandlerInfo),
 		pocketbasePatterns: NewPocketBasePatterns(),
 		logger:             &DefaultLogger{},
+		parseErrors:        make([]ParseError, 0),
 	}
 
 	// Auto-discover source files
@@ -57,9 +58,26 @@ func (p *ASTParser) ParseFile(filename string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// First, try to parse the file to validate syntax
 	file, err := parser.ParseFile(p.fileSet, filename, nil, parser.ParseComments)
 	if err != nil {
+		p.parseErrors = append(p.parseErrors, ParseError{
+			Type:    "syntax",
+			Message: err.Error(),
+			File:    filename,
+		})
 		return err
+	}
+
+	// Check if file contains API_SOURCE directive
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+
+	if !strings.Contains(string(content), "// API_SOURCE") {
+		// File doesn't have API_SOURCE directive, skip processing
+		return nil
 	}
 
 	// Extract structs (for request/response types)
@@ -503,28 +521,37 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	handlerName := ExtractHandlerBaseName(endpoint.Handler, true)
-	if handlerInfo, exists := p.handlers[handlerName]; exists {
-		// Set authentication info
-		if handlerInfo.RequiresAuth {
-			endpoint.Auth = &AuthInfo{
-				Required:    true,
-				Type:        handlerInfo.AuthType,
-				Description: p.getAuthDescription(handlerInfo.AuthType),
+	// Try multiple handler name variations for better matching
+	handlerNames := []string{
+		endpoint.Handler, // Full name
+		ExtractHandlerBaseName(endpoint.Handler, false), // Without package, keep suffixes
+		ExtractHandlerBaseName(endpoint.Handler, true),  // Without package and suffixes
+	}
+
+	for _, handlerName := range handlerNames {
+		if handlerInfo, exists := p.handlers[handlerName]; exists {
+			// Set authentication info
+			if handlerInfo.RequiresAuth {
+				endpoint.Auth = &AuthInfo{
+					Required:    true,
+					Type:        handlerInfo.AuthType,
+					Description: p.getAuthDescription(handlerInfo.AuthType),
+				}
 			}
-		}
 
-		// Set description and tags
-		if handlerInfo.APIDescription != "" {
-			endpoint.Description = handlerInfo.APIDescription
-		}
-		if len(handlerInfo.APITags) > 0 {
-			endpoint.Tags = handlerInfo.APITags
-		}
+			// Set description and tags
+			if handlerInfo.APIDescription != "" {
+				endpoint.Description = handlerInfo.APIDescription
+			}
+			if len(handlerInfo.APITags) > 0 {
+				endpoint.Tags = handlerInfo.APITags
+			}
 
-		// Store enhanced data in handler info for later use
-		// Note: APIEndpoint doesn't have Data field, so we store in handler info
-		handlerInfo.Variables["enhanced"] = "true"
+			// Store enhanced data in handler info for later use
+			// Note: APIEndpoint doesn't have Data field, so we store in handler info
+			handlerInfo.Variables["enhanced"] = "true"
+			return nil
+		}
 	}
 
 	return nil
@@ -615,8 +642,9 @@ func (p *ASTParser) GetHandlerByName(name string) (*ASTHandlerInfo, bool) {
 
 // GetParseErrors returns parse errors (interface compatibility)
 func (p *ASTParser) GetParseErrors() []ParseError {
-	// Simplified implementation - no complex error tracking
-	return []ParseError{}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.parseErrors
 }
 
 // ClearCache clears all cached data (interface compatibility)
