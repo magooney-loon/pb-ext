@@ -3,10 +3,6 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"io"
-	"log"
-	"os"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -17,20 +13,21 @@ import (
 // JobManager provides unified job management with automatic logging and execution tracking
 type JobManager struct {
 	app         core.App
-	jobLogger   *JobLogger
+	JobLogger   *JobLogger // Made public so factory can access it
 	jobRegistry map[string]*JobMetadata
 	registryMux sync.RWMutex
 }
 
 // JobMetadata represents comprehensive job information
 type JobMetadata struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Expression  string    `json:"expression"`
-	IsSystemJob bool      `json:"is_system_job"`
-	CreatedAt   time.Time `json:"created_at"`
-	IsActive    bool      `json:"is_active"`
+	ID          string                    `json:"id"`
+	Name        string                    `json:"name"`
+	Description string                    `json:"description"`
+	Expression  string                    `json:"expression"`
+	IsSystemJob bool                      `json:"is_system_job"`
+	CreatedAt   time.Time                 `json:"created_at"`
+	IsActive    bool                      `json:"is_active"`
+	Function    func(*JobExecutionLogger) `json:"-"` // Store original function, exclude from JSON
 }
 
 // JobExecutionResult represents the result of job execution
@@ -63,13 +60,13 @@ var SystemJobIDs = []string{
 func NewJobManager(app core.App, jobLogger *JobLogger) *JobManager {
 	return &JobManager{
 		app:         app,
-		jobLogger:   jobLogger,
+		JobLogger:   jobLogger,
 		jobRegistry: make(map[string]*JobMetadata),
 	}
 }
 
 // RegisterJob registers a new cron job with automatic logging and metadata tracking
-func (jm *JobManager) RegisterJob(jobID, jobName, description, expression string, jobFunc func()) error {
+func (jm *JobManager) RegisterJob(jobID, jobName, description, expression string, jobFunc func(*JobExecutionLogger)) error {
 	if jobName == "" {
 		jobName = jobID
 	}
@@ -83,6 +80,7 @@ func (jm *JobManager) RegisterJob(jobID, jobName, description, expression string
 		IsSystemJob: jm.isSystemJob(jobID),
 		CreatedAt:   time.Now(),
 		IsActive:    true,
+		Function:    jobFunc, // Store the original function
 	}
 
 	// Register in our metadata registry
@@ -166,17 +164,36 @@ func (jm *JobManager) ExecuteJobManually(jobID, triggerBy string) (*JobExecution
 	jm.registryMux.RUnlock()
 
 	// Log job start directly for manual execution
-	if jm.jobLogger != nil {
-		jm.jobLogger.LogJobStartWithDescription(jobID, jobName, jobDescription, jobExpression, "manual", triggerBy)
+	if jm.JobLogger != nil {
+		jm.JobLogger.LogJobStartWithDescription(jobID, jobName, jobDescription, jobExpression, "manual", triggerBy)
 	}
 
-	// Execute job with comprehensive output capture and error handling
-	capturedOutput, errorMsg := jm.executeJobWithCapture(jobID, jobName, func() {
-		// We need to call the original job function without triggering wrapper logging
-		// Since we can't easily extract it, we'll call targetJob.Run() but the wrapper
-		// will see this is already being logged and skip its own logging
-		targetJob.Run()
-	})
+	// Create job-specific logger for this execution
+	jobLoggerFactory := NewJobLoggerFactory(jm.JobLogger)
+	jobExecutionLogger := jobLoggerFactory.CreateLogger(jobID)
+
+	// Execute job with error handling
+	var errorMsg string
+	capturedOutput := ""
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errorMsg = fmt.Sprintf("Job panic: %v", r)
+				jobExecutionLogger.Fail(fmt.Errorf("%s", errorMsg))
+			}
+		}()
+
+		// Get the original job function from metadata and execute it with the logger
+		if metadata, exists := jm.jobRegistry[jobID]; exists && metadata.Function != nil {
+			metadata.Function(jobExecutionLogger)
+		} else {
+			// Fallback to running the wrapped job if original function not available
+			targetJob.Run()
+		}
+
+		// Get the captured output from the job execution logger
+		capturedOutput = jobExecutionLogger.GetOutput()
+	}()
 
 	// Calculate execution time
 	result.Duration = time.Since(startTime)
@@ -185,11 +202,11 @@ func (jm *JobManager) ExecuteJobManually(jobID, triggerBy string) (*JobExecution
 	result.Success = errorMsg == ""
 
 	// Log job completion directly for manual execution
-	if jm.jobLogger != nil {
+	if jm.JobLogger != nil {
 		if result.Success {
-			jm.jobLogger.LogJobComplete(jobID, capturedOutput, "")
+			jm.JobLogger.LogJobComplete(jobID, capturedOutput, "")
 		} else {
-			jm.jobLogger.LogJobError(jobID, errorMsg)
+			jm.JobLogger.LogJobError(jobID, errorMsg)
 		}
 	}
 
@@ -351,31 +368,49 @@ func (jm *JobManager) UpdateTimezone(timezoneStr string) error {
 // Private methods
 
 // wrapJobFunction wraps a job function with comprehensive logging and execution tracking
-func (jm *JobManager) wrapJobFunction(jobID, jobName, description, expression string, originalFunc func()) func() {
+func (jm *JobManager) wrapJobFunction(jobID, jobName, description, expression string, originalFunc func(*JobExecutionLogger)) func() {
 	return func() {
 		startTime := time.Now()
 
 		// Check if this job is already being logged (e.g., manual execution)
 		// by checking if there's already an active job log entry
-		jm.jobLogger.activeJobsMux.Lock()
-		_, alreadyLogged := jm.jobLogger.activeJobs[jobID]
-		jm.jobLogger.activeJobsMux.Unlock()
+		jm.JobLogger.activeJobsMux.Lock()
+		_, alreadyLogged := jm.JobLogger.activeJobs[jobID]
+		jm.JobLogger.activeJobsMux.Unlock()
 
 		// Only log if this is a scheduled execution (not already being logged)
-		if !alreadyLogged && jm.jobLogger != nil {
-			jm.jobLogger.LogJobStartWithDescription(jobID, jobName, description, expression, "scheduled", "")
+		if !alreadyLogged && jm.JobLogger != nil {
+			jm.JobLogger.LogJobStartWithDescription(jobID, jobName, description, expression, "scheduled", "")
 		}
 
-		// Execute job with comprehensive output capture
-		capturedOutput, errorMsg := jm.executeJobWithCapture(jobID, jobName, originalFunc)
+		// Create job-specific logger for this execution
+		jobLoggerFactory := NewJobLoggerFactory(jm.JobLogger)
+		jobExecutionLogger := jobLoggerFactory.CreateLogger(jobID)
+
+		// Execute job with error handling
+		var errorMsg string
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errorMsg = fmt.Sprintf("Job panic: %v", r)
+					jobExecutionLogger.Fail(fmt.Errorf("%s", errorMsg))
+				}
+			}()
+
+			// Execute the original job function with the job-specific logger
+			originalFunc(jobExecutionLogger)
+		}()
+
+		// Get the captured output from the job execution logger
+		capturedOutput := jobExecutionLogger.GetOutput()
 		duration := time.Since(startTime)
 
 		// Only complete logging if we started it (scheduled execution)
-		if !alreadyLogged && jm.jobLogger != nil {
+		if !alreadyLogged && jm.JobLogger != nil {
 			if errorMsg != "" {
-				jm.jobLogger.LogJobError(jobID, errorMsg)
+				jm.JobLogger.LogJobError(jobID, errorMsg)
 			} else {
-				jm.jobLogger.LogJobComplete(jobID, capturedOutput, "")
+				jm.JobLogger.LogJobComplete(jobID, capturedOutput, "")
 			}
 		}
 
@@ -398,92 +433,29 @@ func (jm *JobManager) wrapJobFunction(jobID, jobName, description, expression st
 	}
 }
 
-// executeJobWithCapture executes a job function with comprehensive output capture
+// executeJobWithCapture is simplified since we use job-specific loggers
 func (jm *JobManager) executeJobWithCapture(jobID, jobName string, jobFunc func()) (output string, errorMsg string) {
-	var outputBuffer bytes.Buffer
-	startTime := time.Now()
+	// Create job-specific logger for this execution
+	jobLoggerFactory := NewJobLoggerFactory(jm.JobLogger)
+	jobExecutionLogger := jobLoggerFactory.CreateLogger(jobID)
 
-	// Execute job with panic recovery and comprehensive output capture
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				errorMsg = fmt.Sprintf("Job panic: %v\nStack trace:\n%s", r, debug.Stack())
-			}
-		}()
-
-		// Capture stdout and stderr during job execution
-		originalStdout := os.Stdout
-		originalStderr := os.Stderr
-
-		// Create pipes for capturing output
-		stdoutReader, stdoutWriter, _ := os.Pipe()
-		stderrReader, stderrWriter, _ := os.Pipe()
-
-		// Redirect stdout and stderr
-		os.Stdout = stdoutWriter
-		os.Stderr = stderrWriter
-
-		// Create a custom log output capture
-		logCapture := &LogCapture{buffer: &outputBuffer}
-		originalLogOutput := log.Writer()
-		log.SetOutput(logCapture)
-
-		// Channel to collect output
-		outputDone := make(chan struct{})
-		var wg sync.WaitGroup
-
-		// Start goroutines to read from pipes
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			io.Copy(&outputBuffer, stdoutReader)
-		}()
-		go func() {
-			defer wg.Done()
-			io.Copy(&outputBuffer, stderrReader)
-		}()
-
-		// Log job start to our buffer
-		outputBuffer.WriteString(fmt.Sprintf("[%s] Job execution started: %s (%s)\n",
-			startTime.Format("2006-01-02 15:04:05"), jobName, jobID))
-
-		// Execute the original job function
-		jobFunc()
-
-		// Restore original outputs
-		os.Stdout = originalStdout
-		os.Stderr = originalStderr
-		log.SetOutput(originalLogOutput)
-
-		// Close writers to signal readers to finish
-		stdoutWriter.Close()
-		stderrWriter.Close()
-
-		// Wait for all output to be captured
-		go func() {
-			wg.Wait()
-			close(outputDone)
-		}()
-
-		// Wait for output capture to complete (with timeout)
-		select {
-		case <-outputDone:
-		case <-time.After(1 * time.Second):
-			outputBuffer.WriteString("\n[WARNING] Output capture timed out\n")
-		}
-
-		// Close readers
-		stdoutReader.Close()
-		stderrReader.Close()
-
-		// Add completion message
-		if errorMsg == "" {
-			outputBuffer.WriteString(fmt.Sprintf("[%s] Job execution completed successfully\n",
-				time.Now().Format("2006-01-02 15:04:05")))
+	defer func() {
+		if r := recover(); r != nil {
+			errorMsg = fmt.Sprintf("Job panic: %v", r)
+			jobExecutionLogger.Fail(fmt.Errorf("%s", errorMsg))
 		}
 	}()
 
-	return outputBuffer.String(), errorMsg
+	// Execute the job function
+	jobFunc()
+
+	// Get the output from the job execution logger
+	output = jobExecutionLogger.GetOutput()
+	if output == "" {
+		output = fmt.Sprintf("Job %s executed successfully", jobName)
+	}
+
+	return output, errorMsg
 }
 
 // isSystemJob checks if a job ID belongs to PocketBase system jobs
@@ -496,7 +468,7 @@ func (jm *JobManager) isSystemJob(jobID string) bool {
 	return false
 }
 
-// LogCapture captures log output to a buffer (reused from job_wrapper.go)
+// LogCapture is kept for compatibility but simplified
 type LogCapture struct {
 	buffer *bytes.Buffer
 	mutex  sync.Mutex
