@@ -547,17 +547,18 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 				endpoint.Tags = handlerInfo.APITags
 			}
 
-		// Set request and response schemas
-		if handlerInfo.RequestSchema != nil {
-			endpoint.Request = handlerInfo.RequestSchema
-		}
-		if handlerInfo.ResponseSchema != nil {
-			endpoint.Response = handlerInfo.ResponseSchema
-		}
+			// Set request and response schemas
+			if handlerInfo.RequestSchema != nil {
+				endpoint.Request = handlerInfo.RequestSchema
+			}
+			if handlerInfo.ResponseSchema != nil {
+				endpoint.Response = handlerInfo.ResponseSchema
+			}
 
-		// Store enhanced data in handler info for later use
-		// Note: APIEndpoint doesn't have Data field, so we store in handler info
-		handlerInfo.Variables["enhanced"] = "true"
+			// Store enhanced data in handler info for later use
+			// Note: APIEndpoint doesn't have Data field, so we store in handler info
+			handlerInfo.Variables["enhanced"] = "true"
+		}
 	}
 
 	return nil
