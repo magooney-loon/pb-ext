@@ -1,8 +1,8 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -54,6 +54,7 @@ var SystemJobIDs = []string{
 	"__pbOTPCleanup__",
 	"__pbMFACleanup__",
 	"__pbDBOptimize__",
+	"__pbExtLogClean__",
 }
 
 // NewJobManager creates a new job manager instance
@@ -365,6 +366,86 @@ func (jm *JobManager) UpdateTimezone(timezoneStr string) error {
 	return nil
 }
 
+// RegisterInternalSystemJobs registers all internal system jobs
+func (jm *JobManager) RegisterInternalSystemJobs() error {
+	// Register log cleanup job
+	if err := jm.RegisterJob("__pbExtLogClean__", "__pbExtLogClean__",
+		"Clean up pb-ext job logs older than 72 hours",
+		"0 0 * * *", func(jobLogger *JobExecutionLogger) {
+			jobLogger.Start("Log Cleanup Job")
+			jobLogger.Info("Log cleanup job started at: %s", time.Now().Format("2006-01-02 15:04:05"))
+
+			jm.app.Logger().Info("Running log cleanup job", "time", time.Now())
+
+			// Clean up job logs older than 72 hours
+			cutoffDate := time.Now().Add(-72 * time.Hour)
+			jobLogger.Info("Cleaning up job logs older than: %s", cutoffDate.Format("2006-01-02 15:04:05"))
+
+			collection, err := jm.app.FindCollectionByNameOrId("_job_logs")
+			if err != nil {
+				jobLogger.Error("Failed to find job logs collection: %v", err)
+				jm.app.Logger().Error("Failed to find job logs collection", "error", err)
+				jobLogger.Fail(err)
+				return
+			}
+
+			jobLogger.Success("Found job logs collection, proceeding with cleanup...")
+
+			// Find old job log records
+			filter := "created < {:cutoff}"
+			records, err := jm.app.FindRecordsByFilter(collection, filter, "-created", 10000, 0, map[string]any{
+				"cutoff": cutoffDate.Format("2006-01-02 15:04:05.000Z"),
+			})
+
+			if err != nil {
+				jobLogger.Error("Failed to find old job log records: %v", err)
+				jm.app.Logger().Error("Failed to find old job log records for cleanup", "error", err)
+				jobLogger.Fail(err)
+				return
+			}
+
+			jobLogger.Info("Found %d old job log records to clean up", len(records))
+
+			deletedCount := 0
+			failedCount := 0
+			for _, record := range records {
+				if err := jm.app.Delete(record); err != nil {
+					jobLogger.Error("Failed to delete job log record %s: %v", record.Id, err)
+					jm.app.Logger().Error("Failed to delete old job log record", "id", record.Id, "error", err)
+					failedCount++
+				} else {
+					deletedCount++
+				}
+			}
+
+			jobLogger.Statistics(map[string]interface{}{
+				"total_found":  len(records),
+				"deleted":      deletedCount,
+				"failed":       failedCount,
+				"cutoff_hours": 72,
+				"cutoff_date":  cutoffDate.Format("2006-01-02 15:04:05"),
+			})
+
+			if failedCount > 0 {
+				jobLogger.Warn("Cleanup completed with some failures: deleted %d/%d records", deletedCount, len(records))
+			} else {
+				jobLogger.Success("Cleanup completed successfully: deleted %d records", deletedCount)
+			}
+
+			jobLogger.Complete(fmt.Sprintf("Log cleanup finished - deleted %d/%d records", deletedCount, len(records)))
+			jm.app.Logger().Info("Log cleanup completed",
+				"deleted_records", deletedCount,
+				"failed_deletions", failedCount,
+				"total_processed", len(records),
+			)
+		}); err != nil {
+		return fmt.Errorf("failed to register log cleanup job: %w", err)
+	}
+
+	jm.app.Logger().Info("✅ Internal system jobs registered")
+	return nil
+}
+
 // Private methods
 
 // wrapJobFunction wraps a job function with comprehensive logging and execution tracking
@@ -433,52 +514,9 @@ func (jm *JobManager) wrapJobFunction(jobID, jobName, description, expression st
 	}
 }
 
-// executeJobWithCapture is simplified since we use job-specific loggers
-func (jm *JobManager) executeJobWithCapture(jobID, jobName string, jobFunc func()) (output string, errorMsg string) {
-	// Create job-specific logger for this execution
-	jobLoggerFactory := NewJobLoggerFactory(jm.JobLogger)
-	jobExecutionLogger := jobLoggerFactory.CreateLogger(jobID)
-
-	defer func() {
-		if r := recover(); r != nil {
-			errorMsg = fmt.Sprintf("Job panic: %v", r)
-			jobExecutionLogger.Fail(fmt.Errorf("%s", errorMsg))
-		}
-	}()
-
-	// Execute the job function
-	jobFunc()
-
-	// Get the output from the job execution logger
-	output = jobExecutionLogger.GetOutput()
-	if output == "" {
-		output = fmt.Sprintf("Job %s executed successfully", jobName)
-	}
-
-	return output, errorMsg
-}
-
 // isSystemJob checks if a job ID belongs to PocketBase system jobs
 func (jm *JobManager) isSystemJob(jobID string) bool {
-	for _, sysJob := range SystemJobIDs {
-		if jobID == sysJob {
-			return true
-		}
-	}
-	return false
-}
-
-// LogCapture is kept for compatibility but simplified
-type LogCapture struct {
-	buffer *bytes.Buffer
-	mutex  sync.Mutex
-}
-
-// Write implements io.Writer interface for log capture
-func (lc *LogCapture) Write(p []byte) (n int, err error) {
-	lc.mutex.Lock()
-	defer lc.mutex.Unlock()
-	return lc.buffer.Write(p)
+	return slices.Contains(SystemJobIDs, jobID)
 }
 
 // Global job manager instance

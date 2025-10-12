@@ -177,6 +177,7 @@ func TestSystemJobIDsConstant(t *testing.T) {
 		"__pbOTPCleanup__",
 		"__pbMFACleanup__",
 		"__pbDBOptimize__",
+		"__pbExtLogClean__",
 	}
 
 	if len(SystemJobIDs) != len(expectedSystemJobs) {
@@ -204,6 +205,7 @@ func TestIsSystemJobLogic(t *testing.T) {
 		"__pbOTPCleanup__",
 		"__pbMFACleanup__",
 		"__pbDBOptimize__",
+		"__pbExtLogClean__",
 	}
 
 	for _, jobID := range systemJobs {
@@ -397,7 +399,7 @@ func TestJobMetadataTimeFields(t *testing.T) {
 // Benchmark tests
 func BenchmarkIsSystemJob(b *testing.B) {
 	jm := &JobManager{}
-	jobIDs := []string{"user-job", "__pbLogsCleanup__", "another-user-job", "__pbOTPCleanup__"}
+	jobIDs := []string{"user-job", "__pbLogsCleanup__", "another-user-job", "__pbOTPCleanup__", "__pbExtLogClean__"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

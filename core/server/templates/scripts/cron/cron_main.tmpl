@@ -85,7 +85,7 @@ if (!window.cronSystemInitialized) {
             }
         }
 
-        async getJobs(showSystemJobs = true) {
+        async getJobs(showSystemJobs = false) {
             const params = new URLSearchParams();
             if (!showSystemJobs) {
                 params.append('show_system', 'false');
@@ -244,13 +244,13 @@ if (!window.cronSystemInitialized) {
             return `
                 <tr class="row-handle">
                     <td class="col-type-text">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                            <div class="cron-job-name">${this.escapeHtml(job.name || job.id)}</div>
-                            <span class="cron-job-type ${job.is_system_job ? 'system' : 'user'}">
-                                ${job.is_system_job ? '🔧 System' : '👤 User'}
-                            </span>
-                        </div>
+                        <div class="cron-job-name" style="margin-bottom: 4px;">${this.escapeHtml(job.name || job.id)}</div>
                         ${truncatedDescription ? `<div class="cron-job-description" title="${this.escapeHtml(job.description)}">${this.escapeHtml(truncatedDescription)}</div>` : ''}
+                    </td>
+                    <td class="col-type-text">
+                        <span class="cron-job-type ${job.is_system_job ? 'system' : 'user'}">
+                            ${job.is_system_job ? '🔧 System' : '👤 User'}
+                        </span>
                     </td>
                     <td class="col-type-text nowrap">
                         <div style="display: flex; flex-direction: column; gap: 2px;">
@@ -741,7 +741,7 @@ if (!window.cronSystemInitialized) {
                 config: {},
                 isInitialized: false,
                 pollingInterval: null,
-                showSystemJobs: true
+                showSystemJobs: false
             };
 
             this.config = {
@@ -782,7 +782,7 @@ if (!window.cronSystemInitialized) {
             this.ui.showLoading();
 
             try {
-                const showSystemJobs = this.state.showSystemJobs !== false; // default to true
+                const showSystemJobs = this.state.showSystemJobs === true; // default to false
                 const jobs = await this.api.getJobs(showSystemJobs);
                 this.state.jobs = Array.isArray(jobs) ? jobs : [];
 

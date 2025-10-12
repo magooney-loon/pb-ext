@@ -100,6 +100,11 @@ func (s *Server) Start() error {
 			InitializeJobManager(app, jobLogger)
 			s.jobManager = GetJobManager()
 
+			// Register internal system jobs
+			if err := s.jobManager.RegisterInternalSystemJobs(); err != nil {
+				app.Logger().Error("Failed to register internal system jobs", "error", err)
+			}
+
 			// Initialize job handlers for API endpoints
 			s.jobHandlers = NewJobHandlers(s.jobManager, jobLogger)
 
