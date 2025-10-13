@@ -144,9 +144,6 @@ func SetupLogging(srv *server.Server) {
 
 			start := time.Now()
 
-			srv.Stats().ActiveConnections.Add(1)
-			defer srv.Stats().ActiveConnections.Add(-1)
-
 			err := c.Next()
 
 			duration := time.Since(start)
