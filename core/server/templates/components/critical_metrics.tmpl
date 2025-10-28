@@ -34,6 +34,7 @@
                     </div>
                     <div class="column flex-fill">
                         <div class="txt-hint">Temp</div>
+                        {{ if (isset .SystemStats.CPUInfo 0) }}
                         <div>
                             {{if gt (index .SystemStats.CPUInfo 0).Temperature 0.0}}
                                 {{printf "%.1f°C" (index .SystemStats.CPUInfo 0).Temperature}}
@@ -41,6 +42,9 @@
                                 {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
                             {{end}}
                         </div>
+                        {{ else }}
+                        <div> N/C </div>
+                        {{ end }}
                     </div>
                 </div>
             </div>

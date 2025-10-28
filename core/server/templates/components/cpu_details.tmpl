@@ -9,6 +9,7 @@
 
     <div class="card">
         <div class="card-body">
+            {{ if isset .SystemStats.CPUInfo 0 }}
             {{$firstCPU := index .SystemStats.CPUInfo 0}}
             <div class="flex flex-gap-20 m-b-10">
                 <div class="flex-fill">
@@ -80,8 +81,9 @@
                     </div>
                 </div>
             </div>
-
-
+            {{ else }}
+            <div class="flex flex-gap-20 m-b-10">No data</div>
+            {{ end }}
         </div>
     </div>
 </div>
