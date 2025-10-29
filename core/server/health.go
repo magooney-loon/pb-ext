@@ -233,6 +233,13 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 	// Collect system stats with context
 	sysStats, err := monitoring.CollectSystemStats(ctx, s.stats.StartTime)
 	if err != nil {
+		if errs, ok := err.(interface{ Unwrap() []error }); ok {
+			for _, k := range errs.Unwrap() {
+				s.App().Logger().Warn("Failed to collect system stats", "error", k)
+			}
+		}
+	}
+	if sysStats == nil {
 		return nil, err
 	}
 

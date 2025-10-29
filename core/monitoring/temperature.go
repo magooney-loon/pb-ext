@@ -18,6 +18,8 @@ type TemperatureInfo struct {
 
 // CollectTemperatureInfoWithContext gathers temperature data with context
 func CollectTemperatureInfoWithContext(ctx context.Context) (TemperatureInfo, error) {
+	const op = "CollectTemperatureInfo"
+
 	select {
 	case <-ctx.Done():
 		return TemperatureInfo{}, ctx.Err()
@@ -28,7 +30,7 @@ func CollectTemperatureInfoWithContext(ctx context.Context) (TemperatureInfo, er
 
 	temps, err := host.SensorsTemperaturesWithContext(ctx)
 	if err != nil {
-		return result, err
+		return result, NewSensorError(op, "failed to get sensors temperatures", err)
 	}
 
 	if len(temps) > 0 {

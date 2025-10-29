@@ -29,16 +29,15 @@ func CollectDiskInfoWithContext(ctx context.Context) (DiskInfo, error) {
 		Path: "/",
 	}
 
-	if diskInfo, err := disk.UsageWithContext(ctx, "/"); err == nil {
+	diskInfo, err := disk.UsageWithContext(ctx, "/")
+	if err == nil {
 		result.Total = diskInfo.Total
 		result.Used = diskInfo.Used
 		result.Free = diskInfo.Free
 		result.Usage = diskInfo.UsedPercent
-	} else {
-		return result, err
 	}
 
-	return result, nil
+	return result, err
 }
 
 // CollectDiskInfo uses background context
