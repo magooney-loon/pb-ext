@@ -22,16 +22,28 @@
                         <div class="txt-center">
                             <div class="txt-hint txt-sm">Temperature</div>
                             <div class="txt-lg">
-                                {{if gt $firstCPU.Temperature 0.0}}
+                                {{if isset $firstCPU "Temperature"}}
+                                    {{if gt $firstCPU.Temperature 0.0}}
                                     {{printf "%.1f°C" $firstCPU.Temperature}}
+                                    {{else}}
+                                        {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
+                                    {{end}}
                                 {{else}}
-                                    {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
+                                    N/C
                                 {{end}}
                             </div>
                         </div>
                         <div class="txt-center">
                             <div class="txt-hint txt-sm">System Temp</div>
-                            <div class="txt-lg">{{printf "%.1f°C" (getSystemTemp .SystemStats)}}</div>
+                            <div class="txt-lg">
+                                {{ with $systemTemp := getSystemTemp .SystemStats }}
+                                   {{ if gt $systemTemp 0.0 }}
+                                      {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
+                                   {{else}}
+                                       N/C
+                                   {{end}}
+                                {{end}}
+                            </div>
                         </div>
                     </div>
 

@@ -54,6 +54,7 @@
                 </div>
 
                 <div class="grid grid-sm-1 gap-base">
+                    {{ if  isset .SystemStats.NetworkInterfaces 0 }}
                     {{range .SystemStats.NetworkInterfaces}}
                     <div class="card view-card">
                         <div class="card-body">
@@ -81,6 +82,13 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    {{end}}
+                    {{else}}
+                    <div class="card view-card">
+                        <div class="card-body txt-center">
+                    No data available
                         </div>
                     </div>
                     {{end}}
