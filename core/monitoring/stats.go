@@ -2,6 +2,7 @@ package monitoring
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -45,6 +46,8 @@ var collector = &statsCollector{}
 
 // CollectSystemStats gathers system statistics with context support
 func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats, error) {
+	var multiError []error
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -81,17 +84,21 @@ func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats,
 		stats.Platform = hostInfo.Platform
 		stats.OS = hostInfo.OS
 		stats.KernelVersion = hostInfo.KernelVersion
+	} else {
+		multiError = append(multiError, err)
 	}
 
 	cpuInfo, err := CollectCPUInfoWithContext(ctx)
-	if err == nil {
-		stats.CPUInfo = cpuInfo
+	if err != nil {
+		multiError = append(multiError, err)
 	}
+	stats.CPUInfo = cpuInfo
 
 	memInfo, err := CollectMemoryInfoWithContext(ctx)
-	if err == nil {
-		stats.MemoryInfo = memInfo
+	if err != nil {
+		multiError = append(multiError, err)
 	}
+	stats.MemoryInfo = memInfo
 
 	select {
 	case <-ctx.Done():
@@ -100,21 +107,24 @@ func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats,
 	}
 
 	diskInfo, err := CollectDiskInfoWithContext(ctx)
-	if err == nil {
-		stats.DiskTotal = diskInfo.Total
-		stats.DiskUsed = diskInfo.Used
-		stats.DiskFree = diskInfo.Free
+	if err != nil {
+		multiError = append(multiError, err)
 	}
+	stats.DiskTotal = diskInfo.Total
+	stats.DiskUsed = diskInfo.Used
+	stats.DiskFree = diskInfo.Free
 
 	tempInfo, err := CollectTemperatureInfoWithContext(ctx)
-	if err == nil {
-		stats.HasTempData = tempInfo.HasTempData
+	if err != nil {
+		multiError = append(multiError, err)
 	}
+	stats.HasTempData = tempInfo.HasTempData
 
 	procInfo, err := CollectProcessInfoWithContext(ctx)
-	if err == nil {
-		stats.ProcessStats = procInfo
+	if err != nil {
+		multiError = append(multiError, err)
 	}
+	stats.ProcessStats = procInfo
 
 	stats.RuntimeStats = CollectRuntimeStats()
 
@@ -125,17 +135,23 @@ func CollectSystemStats(ctx context.Context, startTime time.Time) (*SystemStats,
 	}
 
 	netInfo, err := CollectNetworkInfoWithContext(ctx)
-	if err == nil {
-		stats.NetworkInterfaces = netInfo.Interfaces
-		stats.NetworkConnections = netInfo.ConnectionCount
-		stats.NetworkBytesSent = netInfo.TotalBytesSent
-		stats.NetworkBytesRecv = netInfo.TotalBytesRecv
+	if err != nil {
+		multiError = append(multiError, err)
 	}
+	stats.NetworkInterfaces = netInfo.Interfaces
+	stats.NetworkConnections = netInfo.ConnectionCount
+	stats.NetworkBytesSent = netInfo.TotalBytesSent
+	stats.NetworkBytesRecv = netInfo.TotalBytesRecv
 
 	collector.cachedStats = stats
 	collector.lastCollected = time.Now()
 
-	return stats, nil
+	err = nil
+	if len(multiError) >= 1 {
+		err = errors.Join(multiError...)
+	}
+
+	return stats, err
 }
 
 // CollectSystemStatsWithoutContext uses a background context

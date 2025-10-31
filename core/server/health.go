@@ -8,11 +8,13 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/magooney-loon/pb-ext/core/monitoring"
+	"github.com/spf13/cast"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/shirou/gopsutil/v3/host"
@@ -194,6 +196,32 @@ var templateFuncs = template.FuncMap{
 	"inc": func(i int) int {
 		return i + 1
 	},
+	"isset": func(c interface{}, key interface{}) (bool, error) {
+		// This code taken from:
+		//   https://github.com/gohugoio/hugo/blob/e9bda21ce9d1ab80377044d8de1d7884142bfa14/tpl/collections/collections.go#L332
+		// Thanks GoHugo
+		av := reflect.ValueOf(c)
+		kv := reflect.ValueOf(key)
+
+		switch av.Kind() {
+		case reflect.Array, reflect.Chan, reflect.Slice:
+			k, err := cast.ToIntE(key)
+			if err != nil {
+				return false, fmt.Errorf("isset unable to use key of type %T as index", key)
+			}
+			if av.Len() > k {
+				return true, nil
+			}
+		case reflect.Map:
+			if kv.Type() == av.Type().Key() {
+				return av.MapIndex(kv).IsValid(), nil
+			}
+		default:
+			//ns.deps.Log.Warnf("calling IsSet with unsupported type %q (%T) will always return false.\n", av.Kind(), c)
+		}
+
+		return false, nil
+	},
 }
 
 // prepareTemplateData prepares the template data for the health dashboard
@@ -205,6 +233,13 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 	// Collect system stats with context
 	sysStats, err := monitoring.CollectSystemStats(ctx, s.stats.StartTime)
 	if err != nil {
+		if errs, ok := err.(interface{ Unwrap() []error }); ok {
+			for _, k := range errs.Unwrap() {
+				s.App().Logger().Warn("Failed to collect system stats", "error", k)
+			}
+		}
+	}
+	if sysStats == nil {
 		return nil, err
 	}
 

@@ -43,7 +43,7 @@ func CollectCPUInfoWithContext(ctx context.Context) ([]CPUInfo, error) {
 
 	select {
 	case <-ctx.Done():
-		return nil, NewTimeoutError(op, "context deadline exceeded during CPU usage collection")
+		return result, NewTimeoutError(op, "context deadline exceeded during CPU usage collection")
 	default:
 	}
 
@@ -60,7 +60,7 @@ func CollectCPUInfoWithContext(ctx context.Context) ([]CPUInfo, error) {
 
 	select {
 	case <-ctx.Done():
-		return nil, NewTimeoutError(op, "context deadline exceeded during temperature collection")
+		return result, NewTimeoutError(op, "context deadline exceeded during temperature collection")
 	default:
 	}
 
