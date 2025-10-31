@@ -661,14 +661,22 @@ func shouldExcludeFromAnalytics(path string) bool {
 		path == "/service-worker.js" ||
 		path == "/manifest.json" ||
 		strings.HasSuffix(path, ".css") ||
+		strings.HasSuffix(path, ".js") ||
+		strings.HasSuffix(path, ".json") ||
+		strings.HasSuffix(path, ".md") ||
 		strings.HasSuffix(path, ".png") ||
 		strings.HasSuffix(path, ".jpg") ||
 		strings.HasSuffix(path, ".jpeg") ||
 		strings.HasSuffix(path, ".gif") ||
 		strings.HasSuffix(path, ".svg") ||
+		strings.HasSuffix(path, ".ico") ||
+		strings.HasSuffix(path, ".webp") ||
+		strings.HasSuffix(path, ".pdf") ||
+		strings.HasSuffix(path, ".zip") ||
 		strings.HasSuffix(path, ".woff") ||
 		strings.HasSuffix(path, ".woff2") ||
-		strings.HasSuffix(path, ".ttf")
+		strings.HasSuffix(path, ".ttf") ||
+		strings.HasSuffix(path, ".eot")
 }
 
 // isBotUserAgent returns true if the user agent appears to be a bot
