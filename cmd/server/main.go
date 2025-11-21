@@ -57,8 +57,8 @@ func initApp(devMode bool) {
 // You can restructure Your project as You wish,
 // just keep this main.go in cmd/server/main.go
 //
-// Consider using the cmd/scripts commands for
-// streamlined fullstack dx with +Svelte5kit+
+// Need a pre-built Svelte5Kit starter template?
+// https://github.com/magooney-loon/svelte-gui
 //
 // Ready for a production build deployment?
 // https://github.com/magooney-loon/pb-deployer
