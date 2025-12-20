@@ -779,6 +779,337 @@ func handlerWithMalformedComments(c *core.RequestEvent) error {
 }
 
 // =============================================================================
+// Edge Cases: Order, Circular References, Self-References
+// =============================================================================
+
+func TestStructOrderIndependence(t *testing.T) {
+	// Test that structs can reference types declared later in the file
+	content := `package main
+
+// API_SOURCE
+type User struct {
+	ID       string ` + "`json:\"id\"`" + `
+	Settings *UserSettings ` + "`json:\"settings,omitempty\"`" + `
+}
+
+type UserSettings struct {
+	Theme         string ` + "`json:\"theme\"`" + `
+	Notifications bool   ` + "`json:\"notifications\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Verify both structs are parsed
+	userStruct, exists := parser.GetStructByName("User")
+	if !exists || userStruct == nil {
+		t.Fatal("Expected User struct to be found")
+	}
+
+	settingsStruct, exists := parser.GetStructByName("UserSettings")
+	if !exists || settingsStruct == nil {
+		t.Fatal("Expected UserSettings struct to be found")
+	}
+
+	// Verify JSONSchema is generated for both
+	if userStruct.JSONSchema == nil {
+		t.Error("Expected User JSONSchema to be generated")
+	}
+
+	if settingsStruct.JSONSchema == nil {
+		t.Error("Expected UserSettings JSONSchema to be generated")
+	}
+
+	// Verify User schema references UserSettings correctly
+	if userStruct.JSONSchema.Properties == nil {
+		t.Fatal("Expected User schema to have properties")
+	}
+
+	settingsFieldSchema, ok := userStruct.JSONSchema.Properties["settings"]
+	if !ok {
+		t.Error("Expected User schema to have 'settings' property")
+	} else {
+		// Should use $ref for nested types (2nd level)
+		if settingsFieldSchema.Ref == "" {
+			t.Error("Expected settings field to use $ref for nested type, but got inline schema")
+		}
+		if settingsFieldSchema.Ref != "#/components/schemas/UserSettings" {
+			t.Errorf("Expected $ref to be '#/components/schemas/UserSettings', got '%s'", settingsFieldSchema.Ref)
+		}
+	}
+
+	// Verify that if we generate a schema for User at endpoint level (inline=true), it's inline
+	endpointSchema := parser.generateSchemaFromType("User", true)
+	if endpointSchema == nil {
+		t.Fatal("Expected endpoint schema to be generated")
+	}
+	// Endpoint-level schema should be inline (not $ref)
+	if endpointSchema.Ref != "" {
+		t.Error("Expected endpoint-level schema to be inline, not $ref")
+	}
+	if endpointSchema.Type != "object" {
+		t.Errorf("Expected endpoint schema type to be 'object', got '%s'", endpointSchema.Type)
+	}
+	if endpointSchema.Properties == nil {
+		t.Fatal("Expected endpoint schema to have properties")
+	}
+}
+
+func TestCircularReferences(t *testing.T) {
+	// Test circular references: A references B, B references A
+	content := `package main
+
+// API_SOURCE
+type NodeA struct {
+	ID    string ` + "`json:\"id\"`" + `
+	Child *NodeB ` + "`json:\"child,omitempty\"`" + `
+}
+
+type NodeB struct {
+	ID    string ` + "`json:\"id\"`" + `
+	Child *NodeA ` + "`json:\"child,omitempty\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Verify both structs are parsed
+	nodeA, exists := parser.GetStructByName("NodeA")
+	if !exists || nodeA == nil {
+		t.Fatal("Expected NodeA struct to be found")
+	}
+
+	nodeB, exists := parser.GetStructByName("NodeB")
+	if !exists || nodeB == nil {
+		t.Fatal("Expected NodeB struct to be found")
+	}
+
+	// Verify JSONSchema is generated for both
+	if nodeA.JSONSchema == nil {
+		t.Error("Expected NodeA JSONSchema to be generated")
+	}
+
+	if nodeB.JSONSchema == nil {
+		t.Error("Expected NodeB JSONSchema to be generated")
+	}
+
+	// Verify circular references use $ref
+	if nodeA.JSONSchema.Properties == nil {
+		t.Fatal("Expected NodeA schema to have properties")
+	}
+
+	childFieldSchema, ok := nodeA.JSONSchema.Properties["child"]
+	if !ok {
+		t.Error("Expected NodeA schema to have 'child' property")
+	} else {
+		if childFieldSchema.Ref == "" {
+			t.Error("Expected child field to use $ref for circular reference")
+		}
+		if childFieldSchema.Ref != "#/components/schemas/NodeB" {
+			t.Errorf("Expected $ref to be '#/components/schemas/NodeB', got '%s'", childFieldSchema.Ref)
+		}
+	}
+}
+
+func TestSelfReference(t *testing.T) {
+	// Test self-referencing structures (recursive types)
+	content := `package main
+
+// API_SOURCE
+type TreeNode struct {
+	Value    string     ` + "`json:\"value\"`" + `
+	Children []TreeNode ` + "`json:\"children,omitempty\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Verify struct is parsed
+	treeNode, exists := parser.GetStructByName("TreeNode")
+	if !exists || treeNode == nil {
+		t.Fatal("Expected TreeNode struct to be found")
+	}
+
+	// Verify JSONSchema is generated
+	if treeNode.JSONSchema == nil {
+		t.Error("Expected TreeNode JSONSchema to be generated")
+	}
+
+	// Verify self-reference in array
+	if treeNode.JSONSchema.Properties == nil {
+		t.Fatal("Expected TreeNode schema to have properties")
+	}
+
+	childrenFieldSchema, ok := treeNode.JSONSchema.Properties["children"]
+	if !ok {
+		t.Error("Expected TreeNode schema to have 'children' property")
+	} else {
+		if childrenFieldSchema.Type != "array" {
+			t.Errorf("Expected children field to be array, got '%s'", childrenFieldSchema.Type)
+		}
+		if childrenFieldSchema.Items == nil {
+			t.Error("Expected children array to have items schema")
+		} else {
+			// Should use $ref for self-reference
+			if childrenFieldSchema.Items.Ref == "" {
+				t.Error("Expected children items to use $ref for self-reference")
+			}
+			if childrenFieldSchema.Items.Ref != "#/components/schemas/TreeNode" {
+				t.Errorf("Expected $ref to be '#/components/schemas/TreeNode', got '%s'", childrenFieldSchema.Items.Ref)
+			}
+		}
+	}
+}
+
+func TestSchemaGenerationWithNilCheck(t *testing.T) {
+	// Test that nil JSONSchema is handled gracefully
+	content := `package main
+
+// API_SOURCE
+type SimpleStruct struct {
+	Name string ` + "`json:\"name\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Manually set JSONSchema to nil to test nil check
+	simpleStruct, exists := parser.GetStructByName("SimpleStruct")
+	if !exists || simpleStruct == nil {
+		t.Fatal("Expected SimpleStruct to be found")
+	}
+
+	// Temporarily set to nil to test fallback
+	originalSchema := simpleStruct.JSONSchema
+	simpleStruct.JSONSchema = nil
+
+	// Generate schema for a field that references this struct (inline=false, should use $ref)
+	schema := parser.generateSchemaFromType("SimpleStruct", false)
+	if schema == nil {
+		t.Fatal("Expected schema to be generated even when struct JSONSchema is nil")
+	}
+
+	// Should return $ref as fallback
+	if schema.Ref == "" {
+		t.Error("Expected $ref fallback when JSONSchema is nil")
+	}
+	if schema.Ref != "#/components/schemas/SimpleStruct" {
+		t.Errorf("Expected $ref to be '#/components/schemas/SimpleStruct', got '%s'", schema.Ref)
+	}
+
+	// Test inline=true (should also return $ref when JSONSchema is nil)
+	inlineSchema := parser.generateSchemaFromType("SimpleStruct", true)
+	if inlineSchema == nil {
+		t.Fatal("Expected inline schema to be generated even when struct JSONSchema is nil")
+	}
+	if inlineSchema.Ref == "" {
+		t.Error("Expected $ref fallback for inline schema when JSONSchema is nil")
+	}
+
+	// Restore original schema
+	simpleStruct.JSONSchema = originalSchema
+}
+
+func TestInlineSchemaForEndpoints(t *testing.T) {
+	// Test that endpoint request/response schemas are inline, not $ref
+	content := `package main
+
+// API_SOURCE
+type SearchRequest struct {
+	Query string ` + "`json:\"query\"`" + `
+	Limit int    ` + "`json:\"limit\"`" + `
+}
+
+type ExportData struct {
+	ID   string ` + "`json:\"id\"`" + `
+	Name string ` + "`json:\"name\"`" + `
+}
+
+type SearchResponse struct {
+	Products []ExportData ` + "`json:\"products\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Test that endpoint-level schema (inline=true) returns full schema
+	requestSchema := parser.generateSchemaFromType("SearchRequest", true)
+	if requestSchema == nil {
+		t.Fatal("Expected request schema to be generated")
+	}
+
+	// Should be inline (not $ref)
+	if requestSchema.Ref != "" {
+		t.Error("Expected endpoint request schema to be inline, not $ref")
+	}
+	if requestSchema.Type != "object" {
+		t.Errorf("Expected request schema type to be 'object', got '%s'", requestSchema.Type)
+	}
+	if requestSchema.Properties == nil {
+		t.Fatal("Expected request schema to have properties")
+	}
+
+	// Test that nested field schema (inline=false) uses $ref
+	responseSchema := parser.generateSchemaFromType("SearchResponse", true)
+	if responseSchema == nil {
+		t.Fatal("Expected response schema to be generated")
+	}
+
+	// Response schema itself should be inline
+	if responseSchema.Ref != "" {
+		t.Error("Expected endpoint response schema to be inline, not $ref")
+	}
+	if responseSchema.Properties == nil {
+		t.Fatal("Expected response schema to have properties")
+	}
+
+	// But nested field (ExportData) should use $ref
+	productsField := responseSchema.Properties["products"]
+	if productsField == nil {
+		t.Fatal("Expected response schema to have 'products' property")
+	}
+	if productsField.Type != "array" {
+		t.Errorf("Expected products field to be array, got '%s'", productsField.Type)
+	}
+	if productsField.Items == nil {
+		t.Fatal("Expected products array to have items")
+	}
+
+	// Items should use $ref for nested type (2nd level)
+	if productsField.Items.Ref == "" {
+		t.Error("Expected nested type (ExportData) to use $ref at 2nd level")
+	}
+	if productsField.Items.Ref != "#/components/schemas/ExportData" {
+		t.Errorf("Expected $ref to be '#/components/schemas/ExportData', got '%s'", productsField.Items.Ref)
+	}
+}
+
+// =============================================================================
 // Examples
 // =============================================================================
 
