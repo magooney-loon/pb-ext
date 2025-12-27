@@ -27,7 +27,7 @@ type TodoPatchRequest struct {
 }
 
 // API_DESC Get current server time in multiple formats
-// API_TAGS public,utility,time
+// API_TAGS Utility
 func timeHandler(c *core.RequestEvent) error {
 	now := time.Now()
 	return c.JSON(http.StatusOK, map[string]any{
@@ -43,7 +43,7 @@ func timeHandler(c *core.RequestEvent) error {
 }
 
 // API_DESC Create a new todo item
-// API_TAGS todos,create
+// API_TAGS Todos
 func createTodoHandler(c *core.RequestEvent) error {
 	// Check authentication - required for creation
 	if c.Auth == nil {
@@ -113,7 +113,7 @@ func createTodoHandler(c *core.RequestEvent) error {
 }
 
 // API_DESC Get all todos with optional filtering
-// API_TAGS todos,list,read
+// API_TAGS Todos
 func getTodosHandler(c *core.RequestEvent) error {
 	collection, err := c.App.FindCollectionByNameOrId("todos")
 	if err != nil {
@@ -186,7 +186,7 @@ func getTodosHandler(c *core.RequestEvent) error {
 }
 
 // API_DESC Get a specific todo by ID
-// API_TAGS todos,read,single
+// API_TAGS Todos
 func getTodoHandler(c *core.RequestEvent) error {
 	todoID := c.Request.PathValue("id")
 
@@ -223,7 +223,7 @@ func getTodoHandler(c *core.RequestEvent) error {
 }
 
 // API_DESC Update a todo item (partial update)
-// API_TAGS todos,update,patch
+// API_TAGS Todos
 func updateTodoHandler(c *core.RequestEvent) error {
 	// Check authentication - required for updates
 	if c.Auth == nil {
@@ -298,7 +298,7 @@ func updateTodoHandler(c *core.RequestEvent) error {
 }
 
 // API_DESC Delete a todo item
-// API_TAGS todos,delete
+// API_TAGS Todos
 func deleteTodoHandler(c *core.RequestEvent) error {
 	// Check authentication - required for deletion
 	if c.Auth == nil {
