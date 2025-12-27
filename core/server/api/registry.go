@@ -29,12 +29,24 @@ func NewAPIRegistry(config *APIDocsConfig, astParser ASTParserInterface, schemaG
 	registry := &APIRegistry{
 		config: config,
 		docs: &APIDocs{
-			Title:       config.Title,
-			Version:     config.Version,
-			Description: config.Description,
-			BaseURL:     config.BaseURL,
-			Endpoints:   []APIEndpoint{},
-			Generated:   time.Now().Format(time.RFC3339),
+			OpenAPI: "3.0.3",
+			Info: &OpenAPIInfo{
+				Title:       config.Title,
+				Version:     config.Version,
+				Description: config.Description,
+				Contact: &OpenAPIContact{
+					Name: "API Support",
+				},
+			},
+			Servers: []*OpenAPIServer{
+				{
+					URL:         config.BaseURL,
+					Description: "API Server",
+				},
+			},
+			Paths:     make(map[string]*OpenAPIPathItem),
+			endpoints: []APIEndpoint{},
+			generated: time.Now().Format(time.RFC3339),
 			Components: &OpenAPIComponents{
 				Schemas:         make(map[string]*OpenAPISchema),
 				Responses:       make(map[string]*OpenAPIResponse),
@@ -92,18 +104,26 @@ func (r *APIRegistry) GetDocs() *APIDocs {
 
 	// Create a copy to avoid race conditions
 	docsCopy := &APIDocs{
-		Title:       r.docs.Title,
-		Version:     r.docs.Version,
-		Description: r.docs.Description,
-		BaseURL:     r.docs.BaseURL,
-		Generated:   r.docs.Generated,
-		Endpoints:   make([]APIEndpoint, len(r.docs.Endpoints)),
-		Components:  r.docs.Components,
+		OpenAPI:    r.docs.OpenAPI,
+		Info:       r.docs.Info,
+		Servers:    r.docs.Servers,
+		Paths:      r.docs.Paths,
+		Components: r.docs.Components,
+		Tags:       r.docs.Tags,
+		endpoints:  make([]APIEndpoint, len(r.docs.endpoints)),
+		generated:  r.docs.generated,
 	}
 
-	copy(docsCopy.Endpoints, r.docs.Endpoints)
+	copy(docsCopy.endpoints, r.docs.endpoints)
 
 	return docsCopy
+}
+
+// GetEndpointsInternal returns the internal endpoints list (for backwards compatibility)
+func (r *APIRegistry) GetEndpointsInternal() []APIEndpoint {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.docs.endpoints
 }
 
 // GetDocsWithComponents returns documentation with generated component schemas
@@ -162,10 +182,20 @@ func (r *APIRegistry) UpdateConfig(config *APIDocsConfig) {
 	defer r.mu.Unlock()
 
 	r.config = config
-	r.docs.Title = config.Title
-	r.docs.Version = config.Version
-	r.docs.Description = config.Description
-	r.docs.BaseURL = config.BaseURL
+	r.docs.Info = &OpenAPIInfo{
+		Title:       config.Title,
+		Version:     config.Version,
+		Description: config.Description,
+		Contact: &OpenAPIContact{
+			Name: "API Support",
+		},
+	}
+	r.docs.Servers = []*OpenAPIServer{
+		{
+			URL:         config.BaseURL,
+			Description: "API Server",
+		},
+	}
 }
 
 // ClearEndpoints removes all registered endpoints
@@ -174,7 +204,8 @@ func (r *APIRegistry) ClearEndpoints() {
 	defer r.mu.Unlock()
 
 	r.endpoints = make(map[string]APIEndpoint)
-	r.docs.Endpoints = []APIEndpoint{}
+	r.docs.endpoints = []APIEndpoint{}
+	r.docs.Paths = make(map[string]*OpenAPIPathItem)
 }
 
 // =============================================================================
@@ -319,7 +350,7 @@ func (r *APIRegistry) endpointKey(method, path string) string {
 	return fmt.Sprintf("%s:%s", strings.ToUpper(method), path)
 }
 
-// rebuildEndpointsList rebuilds the endpoints slice from the map (should be called with lock held)
+// rebuildEndpointsList rebuilds the endpoints slice and paths from the map (should be called with lock held)
 func (r *APIRegistry) rebuildEndpointsList() {
 	endpoints := make([]APIEndpoint, 0, len(r.endpoints))
 	for _, endpoint := range r.endpoints {
@@ -334,8 +365,177 @@ func (r *APIRegistry) rebuildEndpointsList() {
 		return endpoints[i].Path < endpoints[j].Path
 	})
 
-	r.docs.Endpoints = endpoints
-	r.docs.Generated = time.Now().Format(time.RFC3339)
+	r.docs.endpoints = endpoints
+	r.docs.generated = time.Now().Format(time.RFC3339)
+
+	// Build OpenAPI paths from endpoints
+	r.docs.Paths = r.buildPaths(endpoints)
+
+	// Collect unique tags
+	r.docs.Tags = r.buildTags(endpoints)
+}
+
+// buildPaths converts internal endpoints to OpenAPI paths format
+func (r *APIRegistry) buildPaths(endpoints []APIEndpoint) map[string]*OpenAPIPathItem {
+	paths := make(map[string]*OpenAPIPathItem)
+
+	for _, endpoint := range endpoints {
+		// Get or create path item
+		pathItem, exists := paths[endpoint.Path]
+		if !exists {
+			pathItem = &OpenAPIPathItem{}
+			paths[endpoint.Path] = pathItem
+		}
+
+		// Create operation
+		operation := r.endpointToOperation(endpoint)
+
+		// Assign to correct HTTP method
+		switch strings.ToUpper(endpoint.Method) {
+		case "GET":
+			pathItem.Get = operation
+		case "POST":
+			pathItem.Post = operation
+		case "PUT":
+			pathItem.Put = operation
+		case "DELETE":
+			pathItem.Delete = operation
+		case "PATCH":
+			pathItem.Patch = operation
+		case "OPTIONS":
+			pathItem.Options = operation
+		case "HEAD":
+			pathItem.Head = operation
+		}
+	}
+
+	return paths
+}
+
+// endpointToOperation converts an APIEndpoint to an OpenAPIOperation
+func (r *APIRegistry) endpointToOperation(endpoint APIEndpoint) *OpenAPIOperation {
+	operation := &OpenAPIOperation{
+		Summary:     endpoint.Description,
+		Description: endpoint.Description,
+		Tags:        endpoint.Tags,
+		OperationId: r.generateOperationId(endpoint),
+		Responses:   make(map[string]*OpenAPIResponse),
+	}
+
+	// Extract path parameters
+	operation.Parameters = r.extractPathParameters(endpoint.Path)
+
+	// Add request body if present
+	if endpoint.Request != nil {
+		operation.RequestBody = &OpenAPIRequestBody{
+			Description: "Request body",
+			Required:    boolPtr(true),
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: endpoint.Request,
+				},
+			},
+		}
+	}
+
+	// Add response
+	if endpoint.Response != nil {
+		operation.Responses["200"] = &OpenAPIResponse{
+			Description: "Successful response",
+			Content: map[string]*OpenAPIMediaType{
+				"application/json": {
+					Schema: endpoint.Response,
+				},
+			},
+		}
+	} else {
+		operation.Responses["200"] = &OpenAPIResponse{
+			Description: "Successful response",
+		}
+	}
+
+	// Add security requirement if auth is required
+	if endpoint.Auth != nil && endpoint.Auth.Required {
+		operation.Security = []map[string][]string{
+			{"bearerAuth": {}},
+		}
+	}
+
+	return operation
+}
+
+// extractPathParameters extracts path parameters from a path like /api/v1/todos/{id}
+func (r *APIRegistry) extractPathParameters(path string) []*OpenAPIParameter {
+	var params []*OpenAPIParameter
+
+	// Find all {param} patterns
+	parts := strings.Split(path, "/")
+	for _, part := range parts {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			paramName := strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}")
+			params = append(params, &OpenAPIParameter{
+				Name:        paramName,
+				In:          "path",
+				Required:    boolPtr(true),
+				Description: fmt.Sprintf("The %s parameter", paramName),
+				Schema: &OpenAPISchema{
+					Type: "string",
+				},
+			})
+		}
+	}
+
+	return params
+}
+
+// generateOperationId generates a unique operation ID for an endpoint
+func (r *APIRegistry) generateOperationId(endpoint APIEndpoint) string {
+	// Convert path to camelCase operation ID
+	// e.g., GET /api/v1/todos/{id} -> getTodosById
+	path := strings.ReplaceAll(endpoint.Path, "{", "")
+	path = strings.ReplaceAll(path, "}", "")
+	parts := strings.Split(path, "/")
+
+	var result strings.Builder
+	result.WriteString(strings.ToLower(endpoint.Method))
+
+	for _, part := range parts {
+		if part != "" && part != "api" {
+			// Capitalize first letter
+			if len(part) > 0 {
+				result.WriteString(strings.ToUpper(part[:1]))
+				if len(part) > 1 {
+					result.WriteString(part[1:])
+				}
+			}
+		}
+	}
+
+	return result.String()
+}
+
+// buildTags collects unique tags from endpoints
+func (r *APIRegistry) buildTags(endpoints []APIEndpoint) []*OpenAPITag {
+	tagMap := make(map[string]bool)
+	for _, endpoint := range endpoints {
+		for _, tag := range endpoint.Tags {
+			tagMap[tag] = true
+		}
+	}
+
+	var tags []*OpenAPITag
+	for tag := range tagMap {
+		tags = append(tags, &OpenAPITag{
+			Name: tag,
+		})
+	}
+
+	// Sort tags alphabetically
+	sort.Slice(tags, func(i, j int) bool {
+		return tags[i].Name < tags[j].Name
+	})
+
+	return tags
 }
 
 // getASTAuthDescription returns user-friendly auth description for AST-detected auth

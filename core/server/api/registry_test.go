@@ -192,12 +192,12 @@ func TestNewAPIRegistry(t *testing.T) {
 		t.Error("Expected config to be set")
 	}
 
-	if registry.docs.Title != config.Title {
-		t.Errorf("Expected title %s, got %s", config.Title, registry.docs.Title)
+	if registry.docs.Info.Title != config.Title {
+		t.Errorf("Expected title %s, got %s", config.Title, registry.docs.Info.Title)
 	}
 
-	if registry.docs.Version != config.Version {
-		t.Errorf("Expected version %s, got %s", config.Version, registry.docs.Version)
+	if registry.docs.Info.Version != config.Version {
+		t.Errorf("Expected version %s, got %s", config.Version, registry.docs.Info.Version)
 	}
 
 	if registry.astParser == nil {
@@ -212,7 +212,7 @@ func TestNewAPIRegistry(t *testing.T) {
 		t.Error("Expected empty endpoints map")
 	}
 
-	if len(registry.docs.Endpoints) != 0 {
+	if len(registry.docs.endpoints) != 0 {
 		t.Error("Expected empty endpoints slice")
 	}
 }
@@ -229,7 +229,7 @@ func TestNewAPIRegistryWithNilConfig(t *testing.T) {
 	}
 
 	// Should use default config values
-	if registry.docs.Title != "pb-ext API" {
+	if registry.docs.Info.Title != "pb-ext API" {
 		t.Error("Expected default title")
 	}
 }
@@ -274,8 +274,8 @@ func TestRegisterEndpoint(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(registry.endpoints))
 	}
 
-	if len(registry.docs.Endpoints) != 1 {
-		t.Errorf("Expected 1 endpoint in docs, got %d", len(registry.docs.Endpoints))
+	if len(registry.docs.endpoints) != 1 {
+		t.Errorf("Expected 1 endpoint in docs, got %d", len(registry.docs.endpoints))
 	}
 
 	key := registry.endpointKey("GET", "/api/test")
@@ -330,15 +330,15 @@ func TestRegisterMultipleEndpoints(t *testing.T) {
 		t.Errorf("Expected %d endpoints, got %d", len(endpoints), len(registry.endpoints))
 	}
 
-	if len(registry.docs.Endpoints) != len(endpoints) {
-		t.Errorf("Expected %d endpoints in docs, got %d", len(endpoints), len(registry.docs.Endpoints))
+	if len(registry.docs.endpoints) != len(endpoints) {
+		t.Errorf("Expected %d endpoints in docs, got %d", len(endpoints), len(registry.docs.endpoints))
 	}
 
 	// Verify endpoints are sorted by path then method
 	docs := registry.GetDocs()
-	for i := 1; i < len(docs.Endpoints); i++ {
-		prev := docs.Endpoints[i-1]
-		curr := docs.Endpoints[i]
+	for i := 1; i < len(docs.endpoints); i++ {
+		prev := docs.endpoints[i-1]
+		curr := docs.endpoints[i]
 
 		if prev.Path > curr.Path {
 			t.Error("Endpoints should be sorted by path")
@@ -694,12 +694,12 @@ func TestUpdateConfig(t *testing.T) {
 	}
 
 	docs := registry.GetDocs()
-	if docs.Title != newConfig.Title {
-		t.Errorf("Expected title %s, got %s", newConfig.Title, docs.Title)
+	if docs.Info.Title != newConfig.Title {
+		t.Errorf("Expected title %s, got %s", newConfig.Title, docs.Info.Title)
 	}
 
-	if docs.Version != newConfig.Version {
-		t.Errorf("Expected version %s, got %s", newConfig.Version, docs.Version)
+	if docs.Info.Version != newConfig.Version {
+		t.Errorf("Expected version %s, got %s", newConfig.Version, docs.Info.Version)
 	}
 }
 
@@ -742,7 +742,7 @@ func TestClearEndpoints(t *testing.T) {
 		t.Error("Expected endpoints to be cleared")
 	}
 
-	if len(registry.docs.Endpoints) != 0 {
+	if len(registry.docs.endpoints) != 0 {
 		t.Error("Expected docs endpoints to be cleared")
 	}
 }
@@ -806,7 +806,7 @@ func TestConcurrentReadWrite(t *testing.T) {
 
 			for j := 0; j < 100; j++ {
 				docs := registry.GetDocs()
-				_ = docs.Endpoints // Access the data
+				_ = docs.Paths // Access the data
 
 				registry.GetEndpointCount()
 
@@ -1145,7 +1145,7 @@ func ExampleAPIRegistry_withAST() {
 
 	// The endpoint should be enhanced with AST data
 	docs := registry.GetDocs()
-	fmt.Printf("Enhanced endpoint description: %s\n", docs.Endpoints[0].Description)
+	fmt.Printf("Enhanced endpoint description: %s\n", docs.endpoints[0].Description)
 
 	// Output: Enhanced endpoint description: Enhanced by AST
 }

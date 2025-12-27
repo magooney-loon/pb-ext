@@ -454,7 +454,7 @@ func (vm *APIVersionManager) GetVersionInfo(version string) (*VersionInfo, error
 
 	// Get endpoints from version-specific registry
 	docs := registry.GetDocs()
-	endpoints := docs.Endpoints
+	endpoints := registry.GetEndpointsInternal()
 
 	// Use configured status or default to "stable"
 	status := config.Status
@@ -469,7 +469,7 @@ func (vm *APIVersionManager) GetVersionInfo(version string) (*VersionInfo, error
 		UpdatedAt: vm.lastModified,
 		Config:    config,
 		Stats:     calculateVersionStats(endpoints),
-		Endpoints: len(endpoints),
+		Endpoints: len(docs.Paths),
 	}, nil
 }
 

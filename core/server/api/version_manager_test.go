@@ -614,16 +614,16 @@ func TestGetVersionOpenAPI(t *testing.T) {
 		t.Fatal("Expected non-nil documentation")
 	}
 
-	if docs.Title != config.Title {
-		t.Errorf("Expected title %s, got %s", config.Title, docs.Title)
+	if docs.Info.Title != config.Title {
+		t.Errorf("Expected title %s, got %s", config.Title, docs.Info.Title)
 	}
 
-	if docs.Version != config.Version {
-		t.Errorf("Expected version %s, got %s", config.Version, docs.Version)
+	if docs.Info.Version != config.Version {
+		t.Errorf("Expected version %s, got %s", config.Version, docs.Info.Version)
 	}
 
-	if len(docs.Endpoints) != 1 {
-		t.Errorf("Expected 1 endpoint, got %d", len(docs.Endpoints))
+	if len(docs.endpoints) != 1 {
+		t.Errorf("Expected 1 endpoint, got %d", len(docs.endpoints))
 	}
 }
 
@@ -1232,11 +1232,11 @@ func TestFullWorkflowIntegration(t *testing.T) {
 	}
 
 	// Verify specs have correct version info
-	if v1Docs.Version != "1.0.0" {
+	if v1Docs.Info.Version != "1.0.0" {
 		t.Error("v1 docs should have correct version")
 	}
 
-	if v2Docs.Version != "2.0.0" {
+	if v2Docs.Info.Version != "2.0.0" {
 		t.Error("v2 docs should have correct version")
 	}
 

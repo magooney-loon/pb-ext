@@ -167,14 +167,16 @@
 
                 const openApiSpec = await response.json();
 
-
-                if (!openApiSpec || !openApiSpec.endpoints) {
+                if (!openApiSpec || !openApiSpec.paths) {
                     console.error('Invalid OpenAPI specification:', openApiSpec);
                     throw new Error('Invalid OpenAPI specification received');
                 }
 
+                // Convert OpenAPI paths to flat endpoints array for UI consumption
+                const endpoints = this._pathsToEndpoints(openApiSpec.paths);
+
                 // Process and validate endpoints
-                const processedEndpoints = this._processEndpoints(openApiSpec.endpoints);
+                const processedEndpoints = this._processEndpoints(endpoints);
                 const stats = this._calculateStats(processedEndpoints, openApiSpec);
 
                 // Update state
@@ -630,6 +632,64 @@
                     this.loadEndpoints();
                 }
             });
+        },
+
+        // Convert OpenAPI paths object to flat endpoints array
+        _pathsToEndpoints(paths) {
+            const endpoints = [];
+            const methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head'];
+
+            for (const [path, pathItem] of Object.entries(paths)) {
+                for (const method of methods) {
+                    const operation = pathItem[method];
+                    if (operation) {
+                        // Extract request schema from requestBody
+                        let request = null;
+                        if (operation.requestBody?.content?.['application/json']?.schema) {
+                            request = operation.requestBody.content['application/json'].schema;
+                        }
+
+                        // Extract response schema from responses.200
+                        let response = null;
+                        if (operation.responses?.['200']?.content?.['application/json']?.schema) {
+                            response = operation.responses['200'].content['application/json'].schema;
+                        }
+
+                        // Build auth info from security
+                        let auth = null;
+                        if (operation.security && operation.security.length > 0) {
+                            auth = {
+                                required: true,
+                                type: 'bearer',
+                                description: 'Authentication required',
+                                icon: '🔒'
+                            };
+                        }
+
+                        endpoints.push({
+                            method: method.toUpperCase(),
+                            path: path,
+                            description: operation.summary || operation.description || '',
+                            tags: operation.tags || [],
+                            request: request,
+                            response: response,
+                            auth: auth,
+                            parameters: operation.parameters || [],
+                            operationId: operation.operationId || ''
+                        });
+                    }
+                }
+            }
+
+            // Sort by path then method
+            endpoints.sort((a, b) => {
+                if (a.path === b.path) {
+                    return a.method.localeCompare(b.method);
+                }
+                return a.path.localeCompare(b.path);
+            });
+
+            return endpoints;
         },
 
         // Process raw endpoints data

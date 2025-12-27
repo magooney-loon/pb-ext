@@ -26,15 +26,50 @@ type AuthInfo struct {
 	Icon        string   `json:"icon"`
 }
 
-// APIDocs holds all API documentation
+// OpenAPIContact represents contact information in OpenAPI 3.0 spec
+type OpenAPIContact struct {
+	Name  string `json:"name,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Email string `json:"email,omitempty"`
+}
+
+// OpenAPILicense represents license information in OpenAPI 3.0 spec
+type OpenAPILicense struct {
+	Name string `json:"name"`
+	URL  string `json:"url,omitempty"`
+}
+
+// OpenAPIInfo represents the info object in OpenAPI 3.0 spec
+type OpenAPIInfo struct {
+	Title          string          `json:"title"`
+	Version        string          `json:"version"`
+	Description    string          `json:"description,omitempty"`
+	TermsOfService string          `json:"termsOfService,omitempty"`
+	Contact        *OpenAPIContact `json:"contact,omitempty"`
+	License        *OpenAPILicense `json:"license,omitempty"`
+}
+
+// APIDocs holds all API documentation in OpenAPI 3.0 format
 type APIDocs struct {
-	Title       string             `json:"title"`
-	Version     string             `json:"version"`
-	Description string             `json:"description"`
-	BaseURL     string             `json:"base_url"`
-	Endpoints   []APIEndpoint      `json:"endpoints"`
-	Generated   string             `json:"generated_at"`
-	Components  *OpenAPIComponents `json:"components,omitempty"`
+	OpenAPI      string                      `json:"openapi"`
+	Info         *OpenAPIInfo                `json:"info"`
+	Servers      []*OpenAPIServer            `json:"servers,omitempty"`
+	Paths        map[string]*OpenAPIPathItem `json:"paths"`
+	Components   *OpenAPIComponents          `json:"components,omitempty"`
+	Security     []map[string][]string       `json:"security,omitempty"`
+	Tags         []*OpenAPITag               `json:"tags,omitempty"`
+	ExternalDocs *OpenAPIExternalDocs        `json:"externalDocs,omitempty"`
+
+	// Internal fields (not serialized to JSON)
+	endpoints []APIEndpoint `json:"-"`
+	generated string        `json:"-"`
+}
+
+// OpenAPITag represents a tag in OpenAPI 3.0 spec
+type OpenAPITag struct {
+	Name         string               `json:"name"`
+	Description  string               `json:"description,omitempty"`
+	ExternalDocs *OpenAPIExternalDocs `json:"externalDocs,omitempty"`
 }
 
 // =============================================================================
