@@ -58,7 +58,17 @@ type LogContext struct {
 
 // shouldExcludeFromLogging returns true if the path should be excluded from logging
 func shouldExcludeFromLogging(path string) bool {
-	return path == "/service-worker.js" || path == "/favicon.ico" || path == "/manifest.json"
+	// Exclude common browser auto-requests
+	if path == "/service-worker.js" || path == "/favicon.ico" || path == "/manifest.json" || path == "/robots.txt" {
+		return true
+	}
+	// Exclude common static file extensions that may 404
+	for _, ext := range []string{".map", ".ico", ".webmanifest"} {
+		if len(path) > len(ext) && path[len(path)-len(ext):] == ext {
+			return true
+		}
+	}
+	return false
 }
 
 // InfoWithContext logs an info message with context data using PocketBase's logger

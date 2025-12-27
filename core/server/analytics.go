@@ -653,30 +653,49 @@ func extractUTMParams(reqURL *url.URL) (source, medium, campaign string) {
 
 // shouldExcludeFromAnalytics returns true if the path should not be tracked
 func shouldExcludeFromAnalytics(path string) bool {
-	return strings.HasPrefix(path, "/api/") ||
+	// Exclude API and system paths
+	if strings.HasPrefix(path, "/api/") ||
 		strings.HasPrefix(path, "/_/") ||
 		strings.HasPrefix(path, "/_app/immutable/") ||
-		strings.HasPrefix(path, "/.well-known/") ||
-		path == "/favicon.ico" ||
-		path == "/service-worker.js" ||
-		path == "/manifest.json" ||
-		strings.HasSuffix(path, ".css") ||
-		strings.HasSuffix(path, ".js") ||
-		strings.HasSuffix(path, ".json") ||
-		strings.HasSuffix(path, ".md") ||
-		strings.HasSuffix(path, ".png") ||
-		strings.HasSuffix(path, ".jpg") ||
-		strings.HasSuffix(path, ".jpeg") ||
-		strings.HasSuffix(path, ".gif") ||
-		strings.HasSuffix(path, ".svg") ||
-		strings.HasSuffix(path, ".ico") ||
-		strings.HasSuffix(path, ".webp") ||
-		strings.HasSuffix(path, ".pdf") ||
-		strings.HasSuffix(path, ".zip") ||
-		strings.HasSuffix(path, ".woff") ||
-		strings.HasSuffix(path, ".woff2") ||
-		strings.HasSuffix(path, ".ttf") ||
-		strings.HasSuffix(path, ".eot")
+		strings.HasPrefix(path, "/.well-known/") {
+		return true
+	}
+
+	// Exclude specific files
+	if path == "/favicon.ico" || path == "/service-worker.js" || path == "/manifest.json" || path == "/robots.txt" {
+		return true
+	}
+
+	// Normalize path to lowercase for extension matching
+	lowerPath := strings.ToLower(path)
+
+	// Static file extensions to exclude
+	excludedExtensions := []string{
+		// Web assets
+		".css", ".js", ".json", ".map", ".webmanifest",
+		// Images
+		".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".bmp", ".tiff", ".tif", ".heic", ".heif", ".avif",
+		// Video
+		".mp4", ".webm", ".ogg", ".ogv", ".mov", ".avi", ".wmv", ".flv", ".mkv", ".m4v", ".3gp",
+		// Audio
+		".mp3", ".wav", ".flac", ".aac", ".m4a", ".wma", ".opus",
+		// Documents
+		".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".rtf", ".csv", ".md",
+		// Archives
+		".zip", ".rar", ".7z", ".tar", ".gz", ".bz2",
+		// Fonts
+		".woff", ".woff2", ".ttf", ".eot", ".otf",
+		// Source maps
+		".map",
+	}
+
+	for _, ext := range excludedExtensions {
+		if strings.HasSuffix(lowerPath, ext) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // isBotUserAgent returns true if the user agent appears to be a bot

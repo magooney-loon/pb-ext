@@ -266,7 +266,7 @@ func TestShouldExcludeFromAnalytics(t *testing.T) {
 		{"/api/_/analytics", true, "analytics endpoint"},
 		{"/api/_/docs", true, "docs endpoint"},
 		{"/favicon.ico", true, "favicon"},
-		{"/robots.txt", false, "robots.txt"},
+		{"/robots.txt", true, "robots.txt"},
 		{"/static/css/app.css", true, "static CSS"},
 		{"/static/js/app.js", true, "static JS"},
 		{"/static/data/config.json", true, "static JSON"},

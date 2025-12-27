@@ -96,19 +96,12 @@ func SetupErrorHandler(app core.App, e *core.ServeEvent) {
 			strings.Contains(strings.ToLower(userAgent), "safari") ||
 			strings.Contains(strings.ToLower(userAgent), "firefox")
 
-		app.Logger().Debug("Error response details",
-			"accept", accept,
-			"user_agent", userAgent,
-			"is_browser", isBrowser,
-		)
-
 		// Return HTML for browsers or when explicitly requested
 		if isBrowser || strings.Contains(strings.ToLower(accept), "text/html") {
 			// Return HTML error page
 			if tmpl != nil {
 				var buf bytes.Buffer
 				if err := tmpl.Execute(&buf, response); err == nil {
-					app.Logger().Debug("Serving HTML error page")
 					return c.HTML(statusCode, buf.String())
 				} else {
 					app.Logger().Error("Failed to execute error template", "error", err)
@@ -119,7 +112,6 @@ func SetupErrorHandler(app core.App, e *core.ServeEvent) {
 		}
 
 		// Return JSON response
-		app.Logger().Debug("Serving JSON error response")
 		return c.JSON(statusCode, response)
 	})
 }
@@ -187,19 +179,12 @@ func RecoverFromPanic(app core.App, c *core.RequestEvent) {
 			strings.Contains(strings.ToLower(userAgent), "safari") ||
 			strings.Contains(strings.ToLower(userAgent), "firefox")
 
-		app.Logger().Debug("Panic response details",
-			"accept", accept,
-			"user_agent", userAgent,
-			"is_browser", isBrowser,
-		)
-
 		// Return HTML for browsers or when explicitly requested
 		if isBrowser || strings.Contains(strings.ToLower(accept), "text/html") {
 			// Return HTML error page
 			if tmpl, err := template.ParseFS(server.TemplateFS, "templates/error.tmpl"); err == nil {
 				var buf bytes.Buffer
 				if err := tmpl.Execute(&buf, response); err == nil {
-					app.Logger().Debug("Serving HTML error page for panic")
 					_ = c.HTML(http.StatusInternalServerError, buf.String())
 					return
 				} else {
@@ -211,7 +196,6 @@ func RecoverFromPanic(app core.App, c *core.RequestEvent) {
 		}
 
 		// Return JSON response
-		app.Logger().Debug("Serving JSON error response for panic")
 		_ = c.JSON(http.StatusInternalServerError, response)
 	}
 }

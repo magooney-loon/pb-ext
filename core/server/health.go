@@ -313,10 +313,6 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 
 	// Health check endpoint handler
 	healthHandler := func(c *core.RequestEvent) error {
-		// Log the authorization header for debugging
-		authHeader := c.Request.Header.Get("Authorization")
-		log.Printf("Health dashboard access - Auth header: %s", authHeader)
-
 		// If not already authenticated, show login template
 		if c.Auth == nil || !c.Auth.IsSuperuser() {
 			// Prepare login template data
