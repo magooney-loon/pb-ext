@@ -16,7 +16,7 @@ import (
 
 // NewASTParser creates a new simplified PocketBase-focused AST parser
 func NewASTParser() *ASTParser {
-	parser := &ASTParser{
+	ap := &ASTParser{
 		fileSet:            token.NewFileSet(),
 		structs:            make(map[string]*StructInfo),
 		handlers:           make(map[string]*ASTHandlerInfo),
@@ -26,11 +26,11 @@ func NewASTParser() *ASTParser {
 	}
 
 	// Auto-discover source files
-	if err := parser.DiscoverSourceFiles(); err != nil {
-		parser.logger.Error("Failed to discover source files: %v", err)
+	if err := ap.DiscoverSourceFiles(); err != nil {
+		ap.logger.Error("Failed to discover source files: %v", err)
 	}
 
-	return parser
+	return ap
 }
 
 // DiscoverSourceFiles finds and parses files with API_SOURCE directive
@@ -93,13 +93,15 @@ func (p *ASTParser) ParseFile(filename string) error {
 }
 
 // extractStructs extracts struct definitions that might be used for requests/responses
+// Uses a two-pass approach: first pass registers all structs, second pass generates schemas
 func (p *ASTParser) extractStructs(file *ast.File) {
+	// First pass: register all structs with their fields (without JSONSchema)
 	ast.Inspect(file, func(n ast.Node) bool {
 		if genDecl, ok := n.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
 			for _, spec := range genDecl.Specs {
 				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
 					if structType, ok := typeSpec.Type.(*ast.StructType); ok {
-						structInfo := p.parseStruct(typeSpec, structType)
+						structInfo := p.parseStruct(typeSpec, structType, false)
 						p.structs[structInfo.Name] = structInfo
 					}
 				}
@@ -107,10 +109,16 @@ func (p *ASTParser) extractStructs(file *ast.File) {
 		}
 		return true
 	})
+
+	// Second pass: generate JSON schemas now that all structs are known
+	for _, structInfo := range p.structs {
+		structInfo.JSONSchema = p.generateStructSchema(structInfo)
+	}
 }
 
 // parseStruct parses a struct definition
-func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructType) *StructInfo {
+// generateSchema: if false, only extracts fields without generating JSONSchema
+func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructType, generateSchema bool) *StructInfo {
 	structInfo := &StructInfo{
 		Name:   typeSpec.Name.Name,
 		Fields: make(map[string]*FieldInfo),
@@ -132,8 +140,11 @@ func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructTy
 		}
 	}
 
-	// Generate JSON schema
-	structInfo.JSONSchema = p.generateStructSchema(structInfo)
+	// Generate JSON schema only if requested (second pass)
+	if generateSchema {
+		structInfo.JSONSchema = p.generateStructSchema(structInfo)
+	}
+
 	return structInfo
 }
 
@@ -207,8 +218,9 @@ func (p *ASTParser) analyzePocketBaseHandler(funcDecl *ast.FuncDecl) *ASTHandler
 	}
 
 	// Try to generate request schema if we have a request type
+	// Use inline=true to get full schema for endpoint request (1st level)
 	if handlerInfo.RequestType != "" {
-		if schema := p.generateSchemaFromType(handlerInfo.RequestType); schema != nil {
+		if schema := p.generateSchemaFromType(handlerInfo.RequestType, true); schema != nil {
 			handlerInfo.RequestSchema = schema
 		}
 	}
@@ -277,13 +289,13 @@ func (p *ASTParser) analyzePocketBaseCall(call *ast.CallExpr, handlerInfo *ASTHa
 			p.handleJSONDecode(call, handlerInfo)
 		case "NewDecoder":
 			// Handle json.NewDecoder() calls
-			p.handleNewDecoder(call, handlerInfo)
+			p.handleNewDecoder(handlerInfo)
 		}
 	} else if ident, ok := call.Fun.(*ast.Ident); ok {
 		// Handle direct function calls
 		switch ident.Name {
 		case "NewDecoder":
-			p.handleNewDecoder(call, handlerInfo)
+			p.handleNewDecoder(handlerInfo)
 		}
 	}
 }
@@ -314,15 +326,16 @@ func (p *ASTParser) handleJSONResponse(call *ast.CallExpr, handlerInfo *ASTHandl
 		}
 
 		// Then try type inference for struct-based responses
+		// Use inline=true to get full schema for endpoint response (1st level)
 		if responseType := p.inferTypeFromExpression(call.Args[1], handlerInfo); responseType != "" {
 			handlerInfo.ResponseType = responseType
-			if schema := p.generateSchemaFromType(responseType); schema != nil {
+			if schema := p.generateSchemaFromType(responseType, true); schema != nil {
 				handlerInfo.ResponseSchema = schema
 				return
 			}
 		}
 
-		// Fallback: generate a basic object schemaa
+		// Fallback: generate a basic object schema
 		handlerInfo.ResponseSchema = &OpenAPISchema{
 			Type:                 "object",
 			Description:          "Response data",
@@ -340,7 +353,8 @@ func (p *ASTParser) handleJSONDecode(call *ast.CallExpr, handlerInfo *ASTHandler
 				if varType, exists := handlerInfo.Variables[ident.Name]; exists {
 					handlerInfo.RequestType = varType
 					// Generate request schema immediately
-					if schema := p.generateSchemaFromType(varType); schema != nil {
+					// Use inline=true to get full schema for endpoint request (1st level)
+					if schema := p.generateSchemaFromType(varType, true); schema != nil {
 						handlerInfo.RequestSchema = schema
 					}
 				}
@@ -350,7 +364,7 @@ func (p *ASTParser) handleJSONDecode(call *ast.CallExpr, handlerInfo *ASTHandler
 }
 
 // handleNewDecoder handles json.NewDecoder(c.Request.Body) pattern
-func (p *ASTParser) handleNewDecoder(call *ast.CallExpr, handlerInfo *ASTHandlerInfo) {
+func (p *ASTParser) handleNewDecoder(handlerInfo *ASTHandlerInfo) {
 	// This indicates JSON decoding is being used
 	handlerInfo.UsesJSONDecode = true
 }
@@ -491,25 +505,169 @@ func (p *ASTParser) generateStructSchema(structInfo *StructInfo) *OpenAPISchema 
 }
 
 // generateFieldSchema generates OpenAPI schema for a field type
+// This is now a wrapper around generateSchemaFromType for consistency
+// Uses inline=false to generate $ref for nested types (2nd level)
 func (p *ASTParser) generateFieldSchema(fieldType string) *OpenAPISchema {
-	switch fieldType {
-	case "string":
-		return &OpenAPISchema{Type: "string"}
-	case "int", "int64", "int32":
-		return &OpenAPISchema{Type: "integer"}
-	case "float64", "float32":
-		return &OpenAPISchema{Type: "number"}
-	case "bool":
-		return &OpenAPISchema{Type: "boolean"}
-	default:
-		if strings.HasPrefix(fieldType, "[]") {
-			return &OpenAPISchema{
-				Type:  "array",
-				Items: p.generateFieldSchema(strings.TrimPrefix(fieldType, "[]")),
+	return p.generateSchemaFromType(fieldType, false)
+}
+
+// deepCopySchema creates a deep copy of an OpenAPISchema
+// This is needed when returning inline schemas to avoid modifying the original
+func (p *ASTParser) deepCopySchema(src *OpenAPISchema) *OpenAPISchema {
+	if src == nil {
+		return nil
+	}
+
+	dst := &OpenAPISchema{
+		Type:        src.Type,
+		Format:      src.Format,
+		Title:       src.Title,
+		Description: src.Description,
+		Default:     src.Default,
+		Example:     src.Example,
+		Pattern:     src.Pattern,
+		Ref:         src.Ref,
+	}
+
+	// Copy validation fields
+	if src.MultipleOf != nil {
+		val := *src.MultipleOf
+		dst.MultipleOf = &val
+	}
+	if src.Maximum != nil {
+		val := *src.Maximum
+		dst.Maximum = &val
+	}
+	if src.ExclusiveMaximum != nil {
+		val := *src.ExclusiveMaximum
+		dst.ExclusiveMaximum = &val
+	}
+	if src.Minimum != nil {
+		val := *src.Minimum
+		dst.Minimum = &val
+	}
+	if src.ExclusiveMinimum != nil {
+		val := *src.ExclusiveMinimum
+		dst.ExclusiveMinimum = &val
+	}
+	if src.MaxLength != nil {
+		val := *src.MaxLength
+		dst.MaxLength = &val
+	}
+	if src.MinLength != nil {
+		val := *src.MinLength
+		dst.MinLength = &val
+	}
+	if src.MaxItems != nil {
+		val := *src.MaxItems
+		dst.MaxItems = &val
+	}
+	if src.MinItems != nil {
+		val := *src.MinItems
+		dst.MinItems = &val
+	}
+	if src.UniqueItems != nil {
+		val := *src.UniqueItems
+		dst.UniqueItems = &val
+	}
+	if src.MaxProperties != nil {
+		val := *src.MaxProperties
+		dst.MaxProperties = &val
+	}
+	if src.MinProperties != nil {
+		val := *src.MinProperties
+		dst.MinProperties = &val
+	}
+
+	// Copy arrays and slices
+	if src.Required != nil {
+		dst.Required = make([]string, len(src.Required))
+		copy(dst.Required, src.Required)
+	}
+	if src.Enum != nil {
+		dst.Enum = make([]interface{}, len(src.Enum))
+		copy(dst.Enum, src.Enum)
+	}
+	if src.AllOf != nil {
+		dst.AllOf = make([]*OpenAPISchema, len(src.AllOf))
+		for i, schema := range src.AllOf {
+			dst.AllOf[i] = p.deepCopySchema(schema)
+		}
+	}
+	if src.OneOf != nil {
+		dst.OneOf = make([]*OpenAPISchema, len(src.OneOf))
+		for i, schema := range src.OneOf {
+			dst.OneOf[i] = p.deepCopySchema(schema)
+		}
+	}
+	if src.AnyOf != nil {
+		dst.AnyOf = make([]*OpenAPISchema, len(src.AnyOf))
+		for i, schema := range src.AnyOf {
+			dst.AnyOf[i] = p.deepCopySchema(schema)
+		}
+	}
+
+	// Copy properties map
+	if src.Properties != nil {
+		dst.Properties = make(map[string]*OpenAPISchema)
+		for k, v := range src.Properties {
+			dst.Properties[k] = p.deepCopySchema(v)
+		}
+	}
+
+	// Copy AdditionalProperties
+	dst.AdditionalProperties = src.AdditionalProperties
+
+	// Copy Items
+	if src.Items != nil {
+		dst.Items = p.deepCopySchema(src.Items)
+	}
+
+	// Copy Not
+	if src.Not != nil {
+		dst.Not = p.deepCopySchema(src.Not)
+	}
+
+	// Copy Discriminator
+	if src.Discriminator != nil {
+		dst.Discriminator = &OpenAPIDiscriminator{
+			PropertyName: src.Discriminator.PropertyName,
+		}
+		if src.Discriminator.Mapping != nil {
+			dst.Discriminator.Mapping = make(map[string]string)
+			for k, v := range src.Discriminator.Mapping {
+				dst.Discriminator.Mapping[k] = v
 			}
 		}
-		return &OpenAPISchema{Type: "object"}
 	}
+
+	// Copy boolean pointers
+	if src.ReadOnly != nil {
+		val := *src.ReadOnly
+		dst.ReadOnly = &val
+	}
+	if src.WriteOnly != nil {
+		val := *src.WriteOnly
+		dst.WriteOnly = &val
+	}
+	if src.Deprecated != nil {
+		val := *src.Deprecated
+		dst.Deprecated = &val
+	}
+	if src.Nullable != nil {
+		val := *src.Nullable
+		dst.Nullable = &val
+	}
+
+	// Copy ExternalDocs
+	if src.ExternalDocs != nil {
+		dst.ExternalDocs = &OpenAPIExternalDocs{
+			Description: src.ExternalDocs.Description,
+			URL:         src.ExternalDocs.URL,
+		}
+	}
+
+	return dst
 }
 
 // =============================================================================
@@ -951,11 +1109,13 @@ func (p *ASTParser) extractVarDecl(genDecl *ast.GenDecl, handlerInfo *ASTHandler
 }
 
 // generateSchemaFromType generates an OpenAPI schema from a type name
-func (p *ASTParser) generateSchemaFromType(typeName string) *OpenAPISchema {
+// inline: if true, returns the full schema for struct types; if false, returns $ref for struct types
+// This allows endpoints to have inline schemas while nested types use $ref
+func (p *ASTParser) generateSchemaFromType(typeName string, inline bool) *OpenAPISchema {
 	// Handle array types
 	if strings.HasPrefix(typeName, "[]") {
 		elementType := strings.TrimPrefix(typeName, "[]")
-		elementSchema := p.generateSchemaFromType(elementType)
+		elementSchema := p.generateSchemaFromType(elementType, inline)
 		if elementSchema != nil {
 			return &OpenAPISchema{
 				Type:  "array",
@@ -982,7 +1142,24 @@ func (p *ASTParser) generateSchemaFromType(typeName string) *OpenAPISchema {
 
 	// Look for struct definition
 	if structInfo, exists := p.structs[typeName]; exists {
-		return structInfo.JSONSchema
+		// Check if JSONSchema is nil (shouldn't happen after two-pass parsing, but safety first)
+		if structInfo.JSONSchema == nil {
+			// Fallback: return a reference anyway, schema will be generated later
+			return &OpenAPISchema{
+				Ref: "#/components/schemas/" + typeName,
+			}
+		}
+
+		// If inline=true, return the full schema; if inline=false, return $ref
+		if inline {
+			// Return a deep copy of the schema to avoid modifying the original
+			return p.deepCopySchema(structInfo.JSONSchema)
+		}
+
+		// Use $ref for nested types (2nd level) to avoid duplication and handle circular references
+		return &OpenAPISchema{
+			Ref: "#/components/schemas/" + typeName,
+		}
 	}
 
 	// Handle map types or unknown structs
