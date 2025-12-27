@@ -240,10 +240,16 @@ func (s *Server) Start() error {
 
 	// Add extended server URLs after PocketBase initialization
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		// Extract the server address from the ServeEvent
+		serverAddr := e.Server.Addr
+		if serverAddr == "" {
+			serverAddr = "127.0.0.1:8090" // fallback default
+		}
+
 		// Wait for the next tick to ensure PocketBase has logged its URLs first
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			log.Println("└─ pb-ext Dashboard:  http://127.0.0.1:8090/_/_")
+			log.Printf("└─ pb-ext Dashboard:  http://%s/_/_", serverAddr)
 		}()
 		return e.Next()
 	})

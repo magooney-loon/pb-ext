@@ -24,6 +24,22 @@ func initApp(devMode bool) {
 		opts = append(opts, app.InNormalMode())
 	}
 
+	// Option 1: Use a custom PocketBase config
+	// pbConfig := &pocketbase.Config{
+	// 	DefaultDev:     true,
+	// 	DefaultDataDir: "./custom_pb_data",
+	// }
+	// opts = append(opts, app.WithConfig(pbConfig))
+
+	// Option 2: Use an existing PocketBase instance
+	// pb := pocketbase.New()
+	// opts = append(opts, app.WithPocketbase(pb))
+
+	// Set custom port programmatically
+	// os.Args = []string{"app", "serve", "--http=127.0.0.1:9090"}
+
+	// Note: WithConfig and WithPocketbase cannot be used together
+
 	srv := app.New(opts...)
 
 	app.SetupLogging(srv)
