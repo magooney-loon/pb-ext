@@ -20,6 +20,7 @@ type ASTParser struct {
 	pocketbasePatterns *PocketBasePatterns
 	logger             Logger
 	parseErrors        []ParseError
+	typeAliases        map[string]string // Maps alias name to real type name
 }
 
 // FileParseResult stores parsing results with metadata

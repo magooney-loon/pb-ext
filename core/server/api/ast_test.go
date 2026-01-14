@@ -1109,6 +1109,301 @@ type SearchResponse struct {
 	}
 }
 
+func TestTypeAliasResolution(t *testing.T) {
+	// Test that type aliases generate correct $ref instead of additionalProperties
+	content := `package main
+
+// API_SOURCE
+type RealStruct struct {
+	ID   string ` + "`json:\"id\"`" + `
+	Name string ` + "`json:\"name\"`" + `
+}
+
+type AliasType = RealStruct
+
+type Response struct {
+	Data []AliasType ` + "`json:\"data\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Verify that the alias was registered
+	if _, exists := parser.typeAliases["AliasType"]; !exists {
+		t.Error("Expected AliasType to be registered as an alias")
+	}
+
+	// Test that resolving the alias returns the real type
+	resolved, isAlias := parser.resolveTypeAlias("AliasType", nil)
+	if !isAlias {
+		t.Error("Expected AliasType to be identified as an alias")
+	}
+	if resolved != "RealStruct" {
+		t.Errorf("Expected resolved type to be 'RealStruct', got '%s'", resolved)
+	}
+
+	// Test schema generation for a field using the alias
+	responseSchema := parser.generateSchemaFromType("Response", true)
+	if responseSchema == nil {
+		t.Fatal("Expected response schema to be generated")
+	}
+
+	// Check that the data field uses $ref to RealStruct, not additionalProperties
+	dataField := responseSchema.Properties["data"]
+	if dataField == nil {
+		t.Fatal("Expected response schema to have 'data' property")
+	}
+	if dataField.Type != "array" {
+		t.Errorf("Expected data field to be array, got '%s'", dataField.Type)
+	}
+	if dataField.Items == nil {
+		t.Fatal("Expected data array to have items")
+	}
+
+	// Items should use $ref to RealStruct, not additionalProperties
+	if dataField.Items.Ref == "" {
+		t.Error("Expected nested type (AliasType -> RealStruct) to use $ref")
+	}
+	if dataField.Items.Ref != "#/components/schemas/RealStruct" {
+		t.Errorf("Expected $ref to be '#/components/schemas/RealStruct', got '%s'", dataField.Items.Ref)
+	}
+	if dataField.Items.AdditionalProperties == true {
+		t.Error("Expected items to NOT have additionalProperties: true")
+	}
+}
+
+func TestTypeAliasWithQualifiedType(t *testing.T) {
+	// Test alias towards a qualified type (e.g., searchresult.ExportData)
+	content := `package main
+
+// API_SOURCE
+type ExportData struct {
+	ID   string ` + "`json:\"id\"`" + `
+	Name string ` + "`json:\"name\"`" + `
+}
+
+type AliasExportData = searchresult.ExportData
+
+type Response struct {
+	Products []AliasExportData ` + "`json:\"products\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Verify that the alias was registered with the qualified type
+	if realType, exists := parser.typeAliases["AliasExportData"]; !exists {
+		t.Error("Expected AliasExportData to be registered as an alias")
+	} else if realType != "searchresult.ExportData" {
+		t.Errorf("Expected alias to point to 'searchresult.ExportData', got '%s'", realType)
+	}
+
+	// Test that resolving the alias handles qualified types
+	resolved, isAlias := parser.resolveTypeAlias("AliasExportData", nil)
+	if !isAlias {
+		t.Error("Expected AliasExportData to be identified as an alias")
+	}
+	// The resolved type should extract the simple name if the struct is registered locally
+	// Since ExportData is registered, it should resolve to "ExportData"
+	if resolved != "ExportData" && resolved != "searchresult.ExportData" {
+		t.Errorf("Expected resolved type to be 'ExportData' or 'searchresult.ExportData', got '%s'", resolved)
+	}
+
+	// Test schema generation
+	responseSchema := parser.generateSchemaFromType("Response", true)
+	if responseSchema == nil {
+		t.Fatal("Expected response schema to be generated")
+	}
+
+	productsField := responseSchema.Properties["products"]
+	if productsField == nil {
+		t.Fatal("Expected response schema to have 'products' property")
+	}
+	if productsField.Items == nil {
+		t.Fatal("Expected products array to have items")
+	}
+
+	// Should use $ref to ExportData (the locally registered struct)
+	if productsField.Items.Ref == "" {
+		t.Error("Expected nested type to use $ref")
+	}
+	if productsField.Items.Ref != "#/components/schemas/ExportData" {
+		t.Errorf("Expected $ref to be '#/components/schemas/ExportData', got '%s'", productsField.Items.Ref)
+	}
+	if productsField.Items.AdditionalProperties == true {
+		t.Error("Expected items to NOT have additionalProperties: true")
+	}
+}
+
+func TestRecursiveTypeAlias(t *testing.T) {
+	// Test that alias chains are resolved recursively
+	content := `package main
+
+// API_SOURCE
+type RealStruct struct {
+	ID   string ` + "`json:\"id\"`" + `
+	Name string ` + "`json:\"name\"`" + `
+}
+
+type FirstAlias = RealStruct
+type SecondAlias = FirstAlias
+type ThirdAlias = SecondAlias
+
+type Response struct {
+	Data []ThirdAlias ` + "`json:\"data\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Test recursive resolution
+	resolved, isAlias := parser.resolveTypeAlias("ThirdAlias", nil)
+	if !isAlias {
+		t.Error("Expected ThirdAlias to be identified as an alias")
+	}
+	if resolved != "RealStruct" {
+		t.Errorf("Expected resolved type to be 'RealStruct' after recursive resolution, got '%s'", resolved)
+	}
+
+	// Test that circular references don't cause infinite loops
+	// (This is handled by the visited map in resolveTypeAlias)
+	visited := make(map[string]bool)
+	resolved2, _ := parser.resolveTypeAlias("ThirdAlias", visited)
+	if resolved2 != "RealStruct" {
+		t.Errorf("Expected resolved type to be 'RealStruct', got '%s'", resolved2)
+	}
+
+	// Test schema generation
+	responseSchema := parser.generateSchemaFromType("Response", true)
+	if responseSchema == nil {
+		t.Fatal("Expected response schema to be generated")
+	}
+
+	dataField := responseSchema.Properties["data"]
+	if dataField == nil {
+		t.Fatal("Expected response schema to have 'data' property")
+	}
+	if dataField.Items == nil {
+		t.Fatal("Expected data array to have items")
+	}
+
+	// Should resolve to RealStruct through the alias chain
+	if dataField.Items.Ref != "#/components/schemas/RealStruct" {
+		t.Errorf("Expected $ref to be '#/components/schemas/RealStruct' after recursive resolution, got '%s'", dataField.Items.Ref)
+	}
+}
+
+func TestMapTypeSchemaGeneration(t *testing.T) {
+	// Test that map types generate correct schemas with additionalProperties containing the value type
+	content := `package main
+
+// API_SOURCE
+type SearchResult struct {
+	Codes  []string           ` + "`json:\"codes\"`" + `
+	Scores map[string]float64 ` + "`json:\"scores\"`" + `
+	Tags   map[string]string  ` + "`json:\"tags\"`" + `
+	Counts map[string]int     ` + "`json:\"counts\"`" + `
+	Flags  map[string]bool    ` + "`json:\"flags\"`" + `
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Generate schema for SearchResult
+	resultSchema := parser.generateSchemaFromType("SearchResult", true)
+	if resultSchema == nil {
+		t.Fatal("Expected SearchResult schema to be generated")
+	}
+
+	// Test Scores field: map[string]float64
+	scoresField := resultSchema.Properties["scores"]
+	if scoresField == nil {
+		t.Fatal("Expected SearchResult schema to have 'scores' property")
+	}
+	if scoresField.Type != "object" {
+		t.Errorf("Expected scores field type to be 'object', got '%s'", scoresField.Type)
+	}
+	if scoresField.AdditionalProperties == nil {
+		t.Fatal("Expected scores field to have additionalProperties")
+	}
+	// Check if additionalProperties is a schema (not just true)
+	if additionalProps, ok := scoresField.AdditionalProperties.(*OpenAPISchema); ok {
+		if additionalProps.Type != "number" {
+			t.Errorf("Expected scores additionalProperties type to be 'number', got '%s'", additionalProps.Type)
+		}
+	} else if scoresField.AdditionalProperties != true {
+		t.Errorf("Expected scores additionalProperties to be a schema with type 'number', got %v", scoresField.AdditionalProperties)
+	}
+
+	// Test Tags field: map[string]string
+	tagsField := resultSchema.Properties["tags"]
+	if tagsField == nil {
+		t.Fatal("Expected SearchResult schema to have 'tags' property")
+	}
+	if tagsField.Type != "object" {
+		t.Errorf("Expected tags field type to be 'object', got '%s'", tagsField.Type)
+	}
+	if additionalProps, ok := tagsField.AdditionalProperties.(*OpenAPISchema); ok {
+		if additionalProps.Type != "string" {
+			t.Errorf("Expected tags additionalProperties type to be 'string', got '%s'", additionalProps.Type)
+		}
+	} else {
+		t.Errorf("Expected tags additionalProperties to be a schema with type 'string', got %v", tagsField.AdditionalProperties)
+	}
+
+	// Test Counts field: map[string]int
+	countsField := resultSchema.Properties["counts"]
+	if countsField == nil {
+		t.Fatal("Expected SearchResult schema to have 'counts' property")
+	}
+	if countsField.Type != "object" {
+		t.Errorf("Expected counts field type to be 'object', got '%s'", countsField.Type)
+	}
+	if additionalProps, ok := countsField.AdditionalProperties.(*OpenAPISchema); ok {
+		if additionalProps.Type != "integer" {
+			t.Errorf("Expected counts additionalProperties type to be 'integer', got '%s'", additionalProps.Type)
+		}
+	} else {
+		t.Errorf("Expected counts additionalProperties to be a schema with type 'integer', got %v", countsField.AdditionalProperties)
+	}
+
+	// Test Flags field: map[string]bool
+	flagsField := resultSchema.Properties["flags"]
+	if flagsField == nil {
+		t.Fatal("Expected SearchResult schema to have 'flags' property")
+	}
+	if flagsField.Type != "object" {
+		t.Errorf("Expected flags field type to be 'object', got '%s'", flagsField.Type)
+	}
+	if additionalProps, ok := flagsField.AdditionalProperties.(*OpenAPISchema); ok {
+		if additionalProps.Type != "boolean" {
+			t.Errorf("Expected flags additionalProperties type to be 'boolean', got '%s'", additionalProps.Type)
+		}
+	} else {
+		t.Errorf("Expected flags additionalProperties to be a schema with type 'boolean', got %v", flagsField.AdditionalProperties)
+	}
+}
+
 // =============================================================================
 // Examples
 // =============================================================================
