@@ -23,6 +23,7 @@ func NewASTParser() *ASTParser {
 		pocketbasePatterns: NewPocketBasePatterns(),
 		logger:             &DefaultLogger{},
 		parseErrors:        make([]ParseError, 0),
+		typeAliases:        make(map[string]string),
 	}
 
 	// Auto-discover source files
@@ -93,16 +94,25 @@ func (p *ASTParser) ParseFile(filename string) error {
 }
 
 // extractStructs extracts struct definitions that might be used for requests/responses
-// Uses a two-pass approach: first pass registers all structs, second pass generates schemas
+// Uses a two-pass approach: first pass registers all structs and type aliases, second pass generates schemas
 func (p *ASTParser) extractStructs(file *ast.File) {
-	// First pass: register all structs with their fields (without JSONSchema)
+	// First pass: register all structs with their fields (without JSONSchema) and type aliases
 	ast.Inspect(file, func(n ast.Node) bool {
 		if genDecl, ok := n.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
 			for _, spec := range genDecl.Specs {
 				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
 					if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+						// It's a struct definition
 						structInfo := p.parseStruct(typeSpec, structType, false)
 						p.structs[structInfo.Name] = structInfo
+					} else {
+						// It might be a type alias (type Alias = RealType)
+						// Extract the real type name
+						realTypeName := p.extractTypeName(typeSpec.Type)
+						if realTypeName != "" {
+							aliasName := typeSpec.Name.Name
+							p.typeAliases[aliasName] = realTypeName
+						}
 					}
 				}
 			}
@@ -126,9 +136,16 @@ func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructTy
 
 	for _, field := range structType.Fields.List {
 		for _, name := range field.Names {
+			fieldType := p.extractTypeName(field.Type)
+
+			// Log error if type extraction failed
+			if fieldType == "" {
+				p.logger.Error("Failed to extract type for field '%s' in struct '%s'", name.Name, structInfo.Name)
+			}
+
 			fieldInfo := &FieldInfo{
 				Name: name.Name,
-				Type: p.extractTypeName(field.Type),
+				Type: fieldType,
 			}
 
 			// Parse JSON tags
@@ -471,16 +488,26 @@ func (p *ASTParser) inferTypeFromExpression(expr ast.Expr, handlerInfo *ASTHandl
 }
 
 // extractTypeName extracts type name from AST expressions
+// For qualified types like searchresult.ExportData, returns the full qualified name
 func (p *ASTParser) extractTypeName(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.Ident:
 		return e.Name
 	case *ast.SelectorExpr:
+		// For qualified types like searchresult.ExportData, return the full qualified name
+		if x, ok := e.X.(*ast.Ident); ok {
+			return x.Name + "." + e.Sel.Name
+		}
 		return e.Sel.Name
 	case *ast.StarExpr:
 		return p.extractTypeName(e.X)
 	case *ast.ArrayType:
 		return "[]" + p.extractTypeName(e.Elt)
+	case *ast.MapType:
+		// Extract key and value types for map types
+		keyType := p.extractTypeName(e.Key)
+		valueType := p.extractTypeName(e.Value)
+		return "map[" + keyType + "]" + valueType
 	}
 	return ""
 }
@@ -1108,6 +1135,51 @@ func (p *ASTParser) extractVarDecl(genDecl *ast.GenDecl, handlerInfo *ASTHandler
 	}
 }
 
+// resolveTypeAlias resolves a type alias recursively to find the real type
+// Returns the resolved type name and a boolean indicating if it was an alias
+// Handles qualified types (e.g., searchresult.ExportData) by extracting the simple name
+func (p *ASTParser) resolveTypeAlias(typeName string, visited map[string]bool) (string, bool) {
+	if visited == nil {
+		visited = make(map[string]bool)
+	}
+
+	// Prevent infinite loops
+	if visited[typeName] {
+		return typeName, false
+	}
+	visited[typeName] = true
+
+	// Check if it's a direct alias
+	if realType, exists := p.typeAliases[typeName]; exists {
+		// Resolve recursively in case of alias chains
+		resolved, _ := p.resolveTypeAlias(realType, visited)
+		return resolved, true
+	}
+
+	// Handle qualified types (e.g., searchresult.ExportData)
+	// Extract the simple name (ExportData) and check if it's registered as a struct
+	if strings.Contains(typeName, ".") {
+		parts := strings.Split(typeName, ".")
+		simpleName := parts[len(parts)-1]
+
+		// Check if the simple name is an alias
+		if realType, exists := p.typeAliases[simpleName]; exists {
+			resolved, _ := p.resolveTypeAlias(realType, visited)
+			return resolved, true
+		}
+
+		// Check if the simple name is a registered struct
+		if _, exists := p.structs[simpleName]; exists {
+			return simpleName, false
+		}
+
+		// Return the simple name as fallback
+		return simpleName, false
+	}
+
+	return typeName, false
+}
+
 // generateSchemaFromType generates an OpenAPI schema from a type name
 // inline: if true, returns the full schema for struct types; if false, returns $ref for struct types
 // This allows endpoints to have inline schemas while nested types use $ref
@@ -1128,25 +1200,41 @@ func (p *ASTParser) generateSchemaFromType(typeName string, inline bool) *OpenAP
 		}
 	}
 
-	// Handle primitive types
-	switch typeName {
-	case "string":
-		return &OpenAPISchema{Type: "string"}
-	case "int", "int64", "int32":
-		return &OpenAPISchema{Type: "integer"}
-	case "float64", "float32":
-		return &OpenAPISchema{Type: "number"}
-	case "bool":
-		return &OpenAPISchema{Type: "boolean"}
+	// Resolve type alias before checking for structs
+	resolvedType, isAlias := p.resolveTypeAlias(typeName, nil)
+
+	// Use resolved type for further processing
+	// If it was an alias, we want to use the resolved type name for the schema reference
+	typeToUse := resolvedType
+	if isAlias {
+		// If we resolved an alias, use the resolved type
+		typeToUse = resolvedType
+	} else {
+		// If not an alias, use the original type name
+		typeToUse = typeName
 	}
 
-	// Look for struct definition
-	if structInfo, exists := p.structs[typeName]; exists {
+	// Handle primitive types (check both original and resolved)
+	for _, t := range []string{typeName, typeToUse} {
+		switch t {
+		case "string":
+			return &OpenAPISchema{Type: "string"}
+		case "int", "int64", "int32":
+			return &OpenAPISchema{Type: "integer"}
+		case "float64", "float32":
+			return &OpenAPISchema{Type: "number"}
+		case "bool":
+			return &OpenAPISchema{Type: "boolean"}
+		}
+	}
+
+	// Look for struct definition using resolved type
+	if structInfo, exists := p.structs[typeToUse]; exists {
 		// Check if JSONSchema is nil (shouldn't happen after two-pass parsing, but safety first)
 		if structInfo.JSONSchema == nil {
 			// Fallback: return a reference anyway, schema will be generated later
 			return &OpenAPISchema{
-				Ref: "#/components/schemas/" + typeName,
+				Ref: "#/components/schemas/" + typeToUse,
 			}
 		}
 
@@ -1158,23 +1246,78 @@ func (p *ASTParser) generateSchemaFromType(typeName string, inline bool) *OpenAP
 
 		// Use $ref for nested types (2nd level) to avoid duplication and handle circular references
 		return &OpenAPISchema{
-			Ref: "#/components/schemas/" + typeName,
+			Ref: "#/components/schemas/" + typeToUse,
 		}
 	}
 
-	// Handle map types or unknown structs
-	if strings.Contains(typeName, "map[") || typeName == "interface{}" {
+	// Handle map types
+	if strings.HasPrefix(typeName, "map[") {
+		// Parse map type: map[keyType]valueType
+		// Extract value type between ] and end
+		closeBracket := strings.Index(typeName, "]")
+		if closeBracket > 0 && closeBracket < len(typeName)-1 {
+			valueType := typeName[closeBracket+1:]
+			// Generate schema for the value type recursively
+			valueSchema := p.generateSchemaFromType(valueType, false)
+			if valueSchema != nil {
+				return &OpenAPISchema{
+					Type:                 "object",
+					AdditionalProperties: valueSchema,
+				}
+			}
+		}
+		// Fallback if parsing fails
 		return &OpenAPISchema{
 			Type:                 "object",
 			AdditionalProperties: true,
 		}
 	}
 
-	// Default to object type with reference
+	// Handle interface{} or unknown types
+	if typeName == "interface{}" {
+		return &OpenAPISchema{
+			Type:                 "object",
+			AdditionalProperties: true,
+		}
+	}
+
+	// If we resolved an alias but the resolved type is not a known struct,
+	// it might be in another package. Try to use the resolved type name anyway.
+	if isAlias {
+		// Extract simple name from qualified type if needed
+		simpleName := resolvedType
+		if strings.Contains(resolvedType, ".") {
+			parts := strings.Split(resolvedType, ".")
+			simpleName = parts[len(parts)-1]
+		}
+
+		// Check if the simple name is a known struct
+		if structInfo, exists := p.structs[simpleName]; exists {
+			if inline {
+				return p.deepCopySchema(structInfo.JSONSchema)
+			}
+			return &OpenAPISchema{
+				Ref: "#/components/schemas/" + simpleName,
+			}
+		}
+
+		// Use the resolved type name for the reference
+		return &OpenAPISchema{
+			Ref: "#/components/schemas/" + simpleName,
+		}
+	}
+
+	// Default to object type with reference (but don't use additionalProperties for unknown types)
+	// This was the original problematic behavior - we should avoid it now
+	// Instead, try to create a reference based on the type name
+	simpleName := typeName
+	if strings.Contains(typeName, ".") {
+		parts := strings.Split(typeName, ".")
+		simpleName = parts[len(parts)-1]
+	}
+
 	return &OpenAPISchema{
-		Type:                 "object",
-		Description:          "Response object of type " + typeName,
-		AdditionalProperties: true,
+		Ref: "#/components/schemas/" + simpleName,
 	}
 }
 
