@@ -518,59 +518,12 @@ func (vm *APIVersionManager) RegisterWithServer(app core.App) {
 			return vm.VersionsHandler(c)
 		}).Bind(apis.RequireSuperuserAuth())
 
-		// Debug AST endpoint
+		// Debug AST endpoint — comprehensive pipeline dump
 		e.Router.GET("/api/docs/debug/ast", func(c *core.RequestEvent) error {
-			// Check authentication
 			if c.Auth == nil {
 				return c.JSON(http.StatusUnauthorized, map[string]any{"error": "SuperUser Authentication required"})
 			}
-
-			// Create a temporary AST parser for debugging
-			astParser := NewASTParser()
-
-			allStructs := astParser.GetAllStructs()
-			allHandlers := astParser.GetAllHandlers()
-
-			debugData := map[string]interface{}{
-				"structs":  make(map[string]interface{}),
-				"handlers": make(map[string]interface{}),
-				"summary": map[string]interface{}{
-					"total_structs":  len(allStructs),
-					"total_handlers": len(allHandlers),
-				},
-			}
-
-			// Add struct information
-			structsMap := debugData["structs"].(map[string]interface{})
-			for name, structInfo := range allStructs {
-				structsMap[name] = map[string]interface{}{
-					"name":        structInfo.Name,
-					"field_count": len(structInfo.Fields),
-					"fields":      structInfo.Fields,
-					"json_schema": structInfo.JSONSchema,
-				}
-			}
-
-			// Add handler information
-			handlersMap := debugData["handlers"].(map[string]interface{})
-			for name, handlerInfo := range allHandlers {
-				handlersMap[name] = map[string]interface{}{
-					"name":             handlerInfo.Name,
-					"request_type":     handlerInfo.RequestType,
-					"response_type":    handlerInfo.ResponseType,
-					"request_schema":   handlerInfo.RequestSchema,
-					"response_schema":  handlerInfo.ResponseSchema,
-					"api_description":  handlerInfo.APIDescription,
-					"api_tags":         handlerInfo.APITags,
-					"variables":        handlerInfo.Variables,
-					"uses_bind_body":   handlerInfo.UsesBindBody,
-					"uses_json_decode": handlerInfo.UsesJSONDecode,
-					"requires_auth":    handlerInfo.RequiresAuth,
-					"auth_type":        handlerInfo.AuthType,
-				}
-			}
-
-			return c.JSON(http.StatusOK, debugData)
+			return c.JSON(http.StatusOK, vm.BuildDebugData())
 		})
 
 		// Version-specific OpenAPI endpoints

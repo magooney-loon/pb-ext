@@ -85,7 +85,7 @@ func (p *ASTParser) ParseFile(filename string) error {
 	p.extractStructs(file)
 
 	// Extract variable declarations first
-	p.extractVariableDeclarations(file, &ASTHandlerInfo{Variables: make(map[string]string)})
+	p.extractVariableDeclarations(file, &ASTHandlerInfo{Variables: make(map[string]string), VariableExprs: make(map[string]ast.Expr)})
 
 	// Extract handlers
 	p.extractHandlers(file)
@@ -130,11 +130,21 @@ func (p *ASTParser) extractStructs(file *ast.File) {
 // generateSchema: if false, only extracts fields without generating JSONSchema
 func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructType, generateSchema bool) *StructInfo {
 	structInfo := &StructInfo{
-		Name:   typeSpec.Name.Name,
-		Fields: make(map[string]*FieldInfo),
+		Name:     typeSpec.Name.Name,
+		Fields:   make(map[string]*FieldInfo),
+		Embedded: []string{},
 	}
 
 	for _, field := range structType.Fields.List {
+		if len(field.Names) == 0 {
+			// Embedded (anonymous) field — record the type name for later flattening
+			embeddedType := p.extractTypeName(field.Type)
+			if embeddedType != "" {
+				structInfo.Embedded = append(structInfo.Embedded, embeddedType)
+			}
+			continue
+		}
+
 		for _, name := range field.Names {
 			fieldType := p.extractTypeName(field.Type)
 
@@ -220,8 +230,9 @@ func (p *ASTParser) isPocketBaseHandler(funcDecl *ast.FuncDecl) bool {
 // analyzePocketBaseHandler analyzes a PocketBase handler function
 func (p *ASTParser) analyzePocketBaseHandler(funcDecl *ast.FuncDecl) *ASTHandlerInfo {
 	handlerInfo := &ASTHandlerInfo{
-		Name:      funcDecl.Name.Name,
-		Variables: make(map[string]string),
+		Name:          funcDecl.Name.Name,
+		Variables:     make(map[string]string),
+		VariableExprs: make(map[string]ast.Expr),
 	}
 
 	// Extract API description from comments
@@ -336,19 +347,45 @@ func (p *ASTParser) handleBindBody(call *ast.CallExpr, handlerInfo *ASTHandlerIn
 // handleJSONResponse handles e.JSON(status, data) pattern
 func (p *ASTParser) handleJSONResponse(call *ast.CallExpr, handlerInfo *ASTHandlerInfo) {
 	if len(call.Args) >= 2 {
-		// First try to analyze map literals for detailed schemas
-		if schema := p.analyzeMapLiteralSchema(call.Args[1]); schema != nil {
-			handlerInfo.ResponseSchema = schema
-			return
+		arg := call.Args[1]
+
+		// Unwrap &expr at the call site: e.JSON(200, &SomeStruct{...})
+		if unary, ok := arg.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+			arg = unary.X
 		}
 
-		// Then try type inference for struct-based responses
-		// Use $ref for known struct types so they appear in components/schemas
-		if responseType := p.inferTypeFromExpression(call.Args[1], handlerInfo); responseType != "" {
-			handlerInfo.ResponseType = responseType
-			if schema := p.generateSchemaForEndpoint(responseType); schema != nil {
+		// Resolve the expression to analyze — either directly or via variable tracing
+		exprsToAnalyze := []ast.Expr{arg}
+		if ident, ok := arg.(*ast.Ident); ok {
+			if expr, exists := handlerInfo.VariableExprs[ident.Name]; exists {
+				tracedExpr := expr
+				if unary, ok := tracedExpr.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+					tracedExpr = unary.X
+				}
+				exprsToAnalyze = append(exprsToAnalyze, tracedExpr)
+			}
+		}
+
+		// Try composite literal analysis on each candidate expression
+		for _, candidate := range exprsToAnalyze {
+			if schema := p.analyzeMapLiteralSchema(candidate); schema != nil {
+				// Also set ResponseType for metadata if we can infer it
+				if responseType := p.inferTypeFromExpression(candidate, handlerInfo); responseType != "" {
+					handlerInfo.ResponseType = responseType
+				}
 				handlerInfo.ResponseSchema = schema
 				return
+			}
+		}
+
+		// Try type inference for struct-based responses (variable reference → type lookup)
+		for _, candidate := range exprsToAnalyze {
+			if responseType := p.inferTypeFromExpression(candidate, handlerInfo); responseType != "" {
+				handlerInfo.ResponseType = responseType
+				if schema := p.generateSchemaForEndpoint(responseType); schema != nil {
+					handlerInfo.ResponseSchema = schema
+					return
+				}
 			}
 		}
 
@@ -418,10 +455,12 @@ func (p *ASTParser) handleDatabaseOperation(method string, handlerInfo *ASTHandl
 func (p *ASTParser) trackVariableAssignment(assign *ast.AssignStmt, handlerInfo *ASTHandlerInfo) {
 	for i, lhs := range assign.Lhs {
 		if ident, ok := lhs.(*ast.Ident); ok && i < len(assign.Rhs) {
-			// Handle var declarations like: var req TodoRequest
-			if varType := p.inferTypeFromExpression(assign.Rhs[i], handlerInfo); varType != "" {
+			rhs := assign.Rhs[i]
+			if varType := p.inferTypeFromExpression(rhs, handlerInfo); varType != "" {
 				handlerInfo.Variables[ident.Name] = varType
 			}
+			// Always store the RHS expression so we can analyze map literals later
+			handlerInfo.VariableExprs[ident.Name] = rhs
 		}
 	}
 }
@@ -513,12 +552,36 @@ func (p *ASTParser) extractTypeName(expr ast.Expr) string {
 }
 
 // generateStructSchema generates OpenAPI schema for a struct
+// It flattens embedded struct fields into the parent schema (Go's promotion semantics)
 func (p *ASTParser) generateStructSchema(structInfo *StructInfo) *OpenAPISchema {
 	schema := &OpenAPISchema{
 		Type:       "object",
 		Properties: make(map[string]*OpenAPISchema),
 	}
 
+	// First, add fields from embedded structs (promoted fields)
+	for _, embeddedType := range structInfo.Embedded {
+		resolved, _ := p.resolveTypeAlias(embeddedType, nil)
+		if embeddedStruct, exists := p.structs[resolved]; exists {
+			for _, fieldInfo := range embeddedStruct.Fields {
+				fieldName := fieldInfo.JSONName
+				if fieldName == "" {
+					fieldName = fieldInfo.Name
+				}
+				// Only add if not already present (parent fields take precedence)
+				if _, exists := schema.Properties[fieldName]; !exists {
+					schema.Properties[fieldName] = p.generateFieldSchema(fieldInfo.Type)
+				}
+			}
+			// Recurse: if the embedded struct itself has embeds, they're already
+			// flattened into embeddedStruct.Fields during its own schema generation,
+			// BUT that only happens for JSONSchema. For Fields map, we need to also
+			// walk the embedded struct's Embedded list.
+			p.flattenEmbeddedFields(embeddedStruct, schema)
+		}
+	}
+
+	// Then add the struct's own fields (override any promoted fields)
 	for _, fieldInfo := range structInfo.Fields {
 		fieldName := fieldInfo.JSONName
 		if fieldName == "" {
@@ -529,6 +592,25 @@ func (p *ASTParser) generateStructSchema(structInfo *StructInfo) *OpenAPISchema 
 	}
 
 	return schema
+}
+
+// flattenEmbeddedFields recursively adds promoted fields from nested embeds
+func (p *ASTParser) flattenEmbeddedFields(structInfo *StructInfo, schema *OpenAPISchema) {
+	for _, embeddedType := range structInfo.Embedded {
+		resolved, _ := p.resolveTypeAlias(embeddedType, nil)
+		if embeddedStruct, exists := p.structs[resolved]; exists {
+			for _, fieldInfo := range embeddedStruct.Fields {
+				fieldName := fieldInfo.JSONName
+				if fieldName == "" {
+					fieldName = fieldInfo.Name
+				}
+				if _, exists := schema.Properties[fieldName]; !exists {
+					schema.Properties[fieldName] = p.generateFieldSchema(fieldInfo.Type)
+				}
+			}
+			p.flattenEmbeddedFields(embeddedStruct, schema)
+		}
+	}
 }
 
 // generateFieldSchema generates OpenAPI schema for a field type
@@ -848,14 +930,11 @@ func (p *ASTParser) ClearCache() {
 	p.handlers = make(map[string]*ASTHandlerInfo)
 }
 
-// analyzeMapLiteralSchema analyzes map[string]any{...} literals to generate schemas
+// analyzeMapLiteralSchema analyzes composite literals (map, struct, slice) to generate schemas
+// Returns nil if the expression is not a composite literal, so callers can fall through to other checks
 func (p *ASTParser) analyzeMapLiteralSchema(expr ast.Expr) *OpenAPISchema {
-	switch e := expr.(type) {
-	case *ast.CompositeLit:
-		// Check if it's a map literal
-		if _, ok := e.Type.(*ast.MapType); ok {
-			return p.parseMapLiteral(e)
-		}
+	if compLit, ok := expr.(*ast.CompositeLit); ok {
+		return p.analyzeCompositeLitSchema(compLit)
 	}
 	return nil
 }
@@ -926,27 +1005,18 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
 				Type:    "boolean",
 				Example: e.Name == "true",
 			}
+		case "nil":
+			return &OpenAPISchema{Type: "object"}
 		default:
-			// Generic variable reference handling based on naming patterns
-			varName := e.Name
-			if strings.HasSuffix(varName, "s") && len(varName) > 2 {
-				// Plural names likely arrays
-				return &OpenAPISchema{
-					Type:  "array",
-					Items: &OpenAPISchema{Type: "object"},
-				}
-			}
-			// Default to string for identifiers
+			// Default to string for identifiers we can't resolve
 			return &OpenAPISchema{Type: "string"}
 		}
 	case *ast.CompositeLit:
-		// Handle nested map literals
-		if _, ok := e.Type.(*ast.MapType); ok {
-			return p.parseMapLiteral(e)
-		}
-		// Handle slice literals
-		if _, ok := e.Type.(*ast.ArrayType); ok {
-			return p.parseArrayLiteral(e)
+		return p.analyzeCompositeLitSchema(e)
+	case *ast.UnaryExpr:
+		// Handle &SomeStruct{...} — unwrap and analyze
+		if e.Op == token.AND {
+			return p.analyzeValueExpression(e.X)
 		}
 	case *ast.CallExpr:
 		// Handle method calls that return specific types
@@ -998,6 +1068,16 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
 			}
 		}
 	case *ast.SelectorExpr:
+		// Handle req.Field access — try to resolve the field type from struct definitions
+		if ident, ok := e.X.(*ast.Ident); ok {
+			fieldName := e.Sel.Name
+			// Check if the receiver is a known variable with a known struct type
+			// We can't access handlerInfo here, but we can check struct field types
+			// by looking at the identifier name patterns
+			_ = ident
+			_ = fieldName
+		}
+
 		// Handle method calls and property access generically
 		if sel := e.Sel.Name; sel != "" {
 			// PocketBase record getter methods
@@ -1031,6 +1111,87 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
 
 	// Default to string for unknown expressions instead of generic object
 	return &OpenAPISchema{Type: "string"}
+}
+
+// analyzeCompositeLitSchema analyzes a composite literal (struct, map, or slice) and returns a schema
+func (p *ASTParser) analyzeCompositeLitSchema(e *ast.CompositeLit) *OpenAPISchema {
+	if e.Type == nil {
+		// Bare composite literal inside a slice: []SomeType{ {field: val}, {field: val} }
+		// These appear as CompositeLit with nil Type — they inherit the type from parent
+		// Try to build an inline object from key-value pairs
+		if len(e.Elts) > 0 {
+			if _, ok := e.Elts[0].(*ast.KeyValueExpr); ok {
+				// Looks like a struct or map literal with keys
+				schema := &OpenAPISchema{
+					Type:       "object",
+					Properties: make(map[string]*OpenAPISchema),
+				}
+				for _, elt := range e.Elts {
+					if kv, ok := elt.(*ast.KeyValueExpr); ok {
+						var keyName string
+						// Struct field: Key is *ast.Ident
+						if ident, ok := kv.Key.(*ast.Ident); ok {
+							keyName = ident.Name
+						}
+						// Map key: Key is *ast.BasicLit
+						if basicLit, ok := kv.Key.(*ast.BasicLit); ok && basicLit.Kind.String() == "STRING" {
+							keyName = strings.Trim(basicLit.Value, `"`)
+						}
+						if keyName != "" {
+							schema.Properties[keyName] = p.analyzeValueExpression(kv.Value)
+						}
+					}
+				}
+				return schema
+			}
+		}
+		return &OpenAPISchema{Type: "object"}
+	}
+
+	// Handle nested map literals: map[string]any{...}
+	if _, ok := e.Type.(*ast.MapType); ok {
+		return p.parseMapLiteral(e)
+	}
+
+	// Handle slice/array literals: []Type{...}
+	if arrayType, ok := e.Type.(*ast.ArrayType); ok {
+		elemTypeName := p.extractTypeName(arrayType.Elt)
+		if elemTypeName != "" {
+			// Use generateSchemaForEndpoint to get $ref for known structs
+			elemSchema := p.generateSchemaForEndpoint(elemTypeName)
+			if elemSchema != nil {
+				return &OpenAPISchema{
+					Type:  "array",
+					Items: elemSchema,
+				}
+			}
+		}
+		// Fallback: try to infer from first element
+		return p.parseArrayLiteral(e)
+	}
+
+	// Handle struct composite literals: SomeStruct{...}
+	typeName := p.extractTypeName(e.Type)
+	if typeName != "" {
+		// Check if it's a known struct — use $ref
+		resolvedType, _ := p.resolveTypeAlias(typeName, nil)
+		if _, exists := p.structs[resolvedType]; exists {
+			return &OpenAPISchema{
+				Ref: "#/components/schemas/" + resolvedType,
+			}
+		}
+		if _, exists := p.structs[typeName]; exists {
+			return &OpenAPISchema{
+				Ref: "#/components/schemas/" + typeName,
+			}
+		}
+		// If it's a map type written as a named composite literal
+		if strings.HasPrefix(typeName, "map[") {
+			return p.generateSchemaFromType(typeName, false)
+		}
+	}
+
+	return &OpenAPISchema{Type: "object"}
 }
 
 // parseArrayLiteral parses an array literal
@@ -1103,9 +1264,12 @@ func (p *ASTParser) extractLocalVariables(body *ast.BlockStmt, handlerInfo *ASTH
 			if node.Tok == token.DEFINE {
 				for i, lhs := range node.Lhs {
 					if ident, ok := lhs.(*ast.Ident); ok && i < len(node.Rhs) {
-						if typeName := p.inferTypeFromExpression(node.Rhs[i], handlerInfo); typeName != "" {
+						rhs := node.Rhs[i]
+						if typeName := p.inferTypeFromExpression(rhs, handlerInfo); typeName != "" {
 							handlerInfo.Variables[ident.Name] = typeName
 						}
+						// Store the RHS expression for map literal analysis
+						handlerInfo.VariableExprs[ident.Name] = rhs
 					}
 				}
 			}
@@ -1124,11 +1288,17 @@ func (p *ASTParser) extractVarDecl(genDecl *ast.GenDecl, handlerInfo *ASTHandler
 					if typeName != "" {
 						handlerInfo.Variables[name.Name] = typeName
 					}
-				} else if i < len(valueSpec.Values) {
-					// Infer type from value
-					if typeName := p.inferTypeFromExpression(valueSpec.Values[i], handlerInfo); typeName != "" {
-						handlerInfo.Variables[name.Name] = typeName
+				}
+				if i < len(valueSpec.Values) {
+					rhs := valueSpec.Values[i]
+					if valueSpec.Type == nil {
+						// Infer type from value
+						if typeName := p.inferTypeFromExpression(rhs, handlerInfo); typeName != "" {
+							handlerInfo.Variables[name.Name] = typeName
+						}
 					}
+					// Store the RHS expression for map literal analysis
+					handlerInfo.VariableExprs[name.Name] = rhs
 				}
 			}
 		}

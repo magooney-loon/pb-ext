@@ -1416,6 +1416,94 @@ type SearchResult struct {
 	}
 }
 
+func TestVariableRefMapLiteralSchema(t *testing.T) {
+	// Test that map literals assigned to a variable and then passed to e.JSON()
+	// produce detailed schemas (not generic map[string]any)
+	content := `package main
+
+import "github.com/pocketbase/pocketbase/core"
+
+// API_SOURCE
+
+// API_DESC Get candles for a token
+// API_TAGS Analytics
+func getCandlesHandler(e *core.RequestEvent) error {
+	candles := []map[string]any{}
+	result := map[string]any{
+		"token_id": "abc123",
+		"candles":  candles,
+		"count":    42,
+		"success":  true,
+	}
+	return e.JSON(200, result)
+}
+
+// API_DESC Get direct map response
+// API_TAGS Analytics
+func getDirectMapHandler(e *core.RequestEvent) error {
+	return e.JSON(200, map[string]any{
+		"status":  "ok",
+		"latency": 1.5,
+	})
+}
+`
+
+	parser := NewASTParser()
+	filePath := createTestFile(t, "test_varref.go", content)
+	err := parser.ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	t.Run("variable ref map literal gets detailed schema", func(t *testing.T) {
+		handlers := parser.GetAllHandlers()
+		handler := handlers["getCandlesHandler"]
+		if handler == nil {
+			t.Fatal("Expected getCandlesHandler to be found")
+		}
+		if handler.ResponseSchema == nil {
+			t.Fatal("Expected response schema to be generated")
+		}
+		// Should have properties from the map literal, not generic additionalProperties
+		if handler.ResponseSchema.Properties == nil {
+			t.Fatalf("Expected response schema to have properties, got: type=%s additionalProperties=%v",
+				handler.ResponseSchema.Type, handler.ResponseSchema.AdditionalProperties)
+		}
+		if _, ok := handler.ResponseSchema.Properties["token_id"]; !ok {
+			t.Error("Expected 'token_id' property in response schema")
+		}
+		if _, ok := handler.ResponseSchema.Properties["candles"]; !ok {
+			t.Error("Expected 'candles' property in response schema")
+		}
+		if _, ok := handler.ResponseSchema.Properties["count"]; !ok {
+			t.Error("Expected 'count' property in response schema")
+		}
+		if _, ok := handler.ResponseSchema.Properties["success"]; !ok {
+			t.Error("Expected 'success' property in response schema")
+		}
+	})
+
+	t.Run("direct map literal still works", func(t *testing.T) {
+		handlers := parser.GetAllHandlers()
+		handler := handlers["getDirectMapHandler"]
+		if handler == nil {
+			t.Fatal("Expected getDirectMapHandler to be found")
+		}
+		if handler.ResponseSchema == nil {
+			t.Fatal("Expected response schema to be generated")
+		}
+		if handler.ResponseSchema.Properties == nil {
+			t.Fatal("Expected response schema to have properties")
+		}
+		if _, ok := handler.ResponseSchema.Properties["status"]; !ok {
+			t.Error("Expected 'status' property in response schema")
+		}
+		if _, ok := handler.ResponseSchema.Properties["latency"]; !ok {
+			t.Error("Expected 'latency' property in response schema")
+		}
+	})
+}
+
 // =============================================================================
 // Examples
 // =============================================================================

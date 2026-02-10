@@ -476,3 +476,313 @@ func getPlatformStatsHandler(c *core.RequestEvent) error {
 
 	return c.JSON(http.StatusOK, result)
 }
+
+// =============================================================================
+// 13. BindBody request — the PocketBase-native body parsing path
+// =============================================================================
+
+// UpdateProfileRequest is used with e.BindBody
+type UpdateProfileRequest struct {
+	DisplayName string  `json:"display_name"`
+	Bio         *string `json:"bio,omitempty"`
+	AvatarURL   *string `json:"avatar_url,omitempty"`
+}
+
+// API_DESC Update the authenticated user's profile via BindBody
+// API_TAGS Users
+func updateProfileHandler(c *core.RequestEvent) error {
+	var req UpdateProfileRequest
+	if err := c.BindBody(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid request body"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"updated": map[string]any{
+			"display_name": req.DisplayName,
+			"bio":          req.Bio,
+			"avatar_url":   req.AvatarURL,
+		},
+	})
+}
+
+// =============================================================================
+// 14. Embedded (anonymous) struct — tests struct composition
+// =============================================================================
+
+// BaseEntity has common fields that get embedded
+type BaseEntity struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ProductResponse embeds BaseEntity and adds product-specific fields
+type ProductResponse struct {
+	BaseEntity
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Price       float64  `json:"price"`
+	Currency    string   `json:"currency"`
+	Tags        []string `json:"tags,omitempty"`
+	InStock     bool     `json:"in_stock"`
+}
+
+// API_DESC Get product details with embedded base entity fields
+// API_TAGS Products
+func getProductHandler(c *core.RequestEvent) error {
+	resp := ProductResponse{
+		BaseEntity: BaseEntity{
+			ID:        c.Request.PathValue("id"),
+			CreatedAt: time.Now().AddDate(0, -3, 0),
+			UpdatedAt: time.Now(),
+		},
+		Name:        "Premium Widget",
+		Description: "A high-quality widget for all your needs",
+		Price:       29.99,
+		Currency:    "USD",
+		Tags:        []string{"electronics", "widgets", "premium"},
+		InStock:     true,
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// =============================================================================
+// 15. Slice of primitives response ([]string)
+// =============================================================================
+
+// API_DESC List all available product categories
+// API_TAGS Products
+func listCategoriesHandler(c *core.RequestEvent) error {
+	categories := []string{
+		"electronics",
+		"clothing",
+		"home-garden",
+		"sports",
+		"books",
+	}
+
+	return c.JSON(http.StatusOK, categories)
+}
+
+// =============================================================================
+// 16. DELETE handler — minimal success response
+// =============================================================================
+
+// API_DESC Delete a product by ID
+// API_TAGS Products
+func deleteProductHandler(c *core.RequestEvent) error {
+	productID := c.Request.PathValue("id")
+	_ = productID
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"deleted": true,
+	})
+}
+
+// =============================================================================
+// 17. Variable-referenced struct (struct assigned to variable, then returned)
+// =============================================================================
+
+// HealthCheckResponse is a simple health status struct
+type HealthCheckResponse struct {
+	Status    string `json:"status"`
+	Version   string `json:"version"`
+	Uptime    int64  `json:"uptime"`
+	Timestamp string `json:"timestamp"`
+}
+
+// API_DESC Get API health check status
+// API_TAGS System
+func healthCheckHandler(c *core.RequestEvent) error {
+	resp := HealthCheckResponse{
+		Status:    "healthy",
+		Version:   "2.1.0",
+		Uptime:    86400,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// =============================================================================
+// 18. Query parameters usage — tests PathValue and URL.Query extraction
+// =============================================================================
+
+// API_DESC Search products with filters
+// API_TAGS Products
+func searchProductsHandler(c *core.RequestEvent) error {
+	query := c.Request.URL.Query().Get("q")
+	category := c.Request.URL.Query().Get("category")
+	_ = query
+	_ = category
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"results": []ProductResponse{
+			{
+				BaseEntity:  BaseEntity{ID: "p1", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+				Name:        "Search Result Widget",
+				Description: "Matched your search",
+				Price:       19.99,
+				Currency:    "USD",
+				InStock:     true,
+			},
+		},
+		"total":    1,
+		"page":     1,
+		"per_page": 20,
+	})
+}
+
+// =============================================================================
+// 19. Map literal containing struct values (map[string]any with struct fields)
+// =============================================================================
+
+// API_DESC Get order summary with separate shipping and billing details
+// API_TAGS Orders
+func getOrderSummaryHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"order_id": "ord_12345",
+		"status":   "processing",
+		"shipping": Address{
+			Street:     "789 Pine St",
+			City:       "Austin",
+			State:      "TX",
+			PostalCode: "73301",
+			Country:    "US",
+			Geo:        GeoCoordinate{Latitude: 30.2672, Longitude: -97.7431},
+		},
+		"item_count":   3,
+		"total_amount": 149.97,
+		"currency":     "USD",
+	})
+}
+
+// =============================================================================
+// 20. Multiple conditional return paths (early error, then success)
+// =============================================================================
+
+// BatchDeleteRequest tests a simple request struct with a slice of IDs
+type BatchDeleteRequest struct {
+	IDs    []string `json:"ids"`
+	DryRun bool     `json:"dry_run"`
+}
+
+// API_DESC Batch delete products by IDs
+// API_TAGS Products
+func batchDeleteHandler(c *core.RequestEvent) error {
+	var req BatchDeleteRequest
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid request"})
+	}
+
+	if len(req.IDs) == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "No IDs provided"})
+	}
+
+	if len(req.IDs) > 100 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Maximum 100 IDs per batch"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"deleted_count": len(req.IDs),
+		"dry_run":       req.DryRun,
+		"ids":           req.IDs,
+	})
+}
+
+// =============================================================================
+// 21. Variable-referenced map literal built with struct slices inside
+// =============================================================================
+
+// API_DESC Get dashboard data with recent orders and top users
+// API_TAGS Analytics
+func getDashboardHandler(c *core.RequestEvent) error {
+	dashboard := map[string]any{
+		"recent_orders": []OrderResponse{
+			{
+				ID:     "ord_999",
+				Status: "pending",
+				ShippingAddress: Address{
+					Street: "1 First Ave", City: "NYC", PostalCode: "10001", Country: "US",
+					Geo: GeoCoordinate{Latitude: 40.7128, Longitude: -74.0060},
+				},
+				Items:       []OrderItem{{ProductID: "p5", ProductName: "Deluxe Item", Quantity: 1, UnitPrice: 75.00, Subtotal: 75.00}},
+				Payment:     PaymentInfo{Method: "card", Amount: 75.00, Currency: "USD"},
+				TotalAmount: 75.00,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
+			},
+		},
+		"top_users": []UserProfile{
+			{ID: "u10", Username: "topuser", DisplayName: "Top User", Email: "top@example.com", IsVerified: true, Reputation: 5000, Balance: 999.99, JoinedAt: time.Now()},
+		},
+		"total_revenue": 125000.50,
+		"active_orders": 42,
+	}
+
+	return c.JSON(http.StatusOK, dashboard)
+}
+
+// =============================================================================
+// 22. Returning a single struct pointer
+// =============================================================================
+
+// API_DESC Get contact info for a user
+// API_TAGS Users
+func getContactInfoHandler(c *core.RequestEvent) error {
+	website := "https://example.com"
+	info := &ContactInfo{
+		Email:     "contact@example.com",
+		Phone:     nil,
+		Website:   &website,
+		SocialIDs: []string{"twitter:handle", "linkedin:handle"},
+	}
+
+	return c.JSON(http.StatusOK, info)
+}
+
+// =============================================================================
+// 23. Inline map with array of maps (nested dynamic structures)
+// =============================================================================
+
+// API_DESC Get recent activity feed entries
+// API_TAGS Analytics
+func getActivityFeedHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"activities": []map[string]any{
+			{
+				"type":      "purchase",
+				"user_id":   "u1",
+				"amount":    49.99,
+				"timestamp": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
+			},
+			{
+				"type":      "signup",
+				"user_id":   "u2",
+				"timestamp": time.Now().Add(-30 * time.Minute).Format(time.RFC3339),
+			},
+		},
+		"total_count": 2,
+		"has_more":    false,
+	})
+}
+
+// =============================================================================
+// 24. Var-declared struct (var x Type = ...) instead of :=
+// =============================================================================
+
+// API_DESC Get default payment info template
+// API_TAGS Orders
+func getDefaultPaymentHandler(c *core.RequestEvent) error {
+	var payment PaymentInfo = PaymentInfo{
+		Method:   "card",
+		Currency: "USD",
+		Amount:   0,
+		Headers:  map[string]string{"X-Payment-Version": "2"},
+	}
+
+	return c.JSON(http.StatusOK, payment)
+}
