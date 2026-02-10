@@ -1214,17 +1214,22 @@ func (p *ASTParser) generateSchemaFromType(typeName string, inline bool) *OpenAP
 		typeToUse = typeName
 	}
 
-	// Handle primitive types (check both original and resolved)
+	// Handle primitive types and well-known stdlib types (check both original and resolved)
 	for _, t := range []string{typeName, typeToUse} {
 		switch t {
 		case "string":
 			return &OpenAPISchema{Type: "string"}
-		case "int", "int64", "int32":
+		case "int", "int8", "int16", "int32", "int64",
+			"uint", "uint8", "uint16", "uint32", "uint64":
 			return &OpenAPISchema{Type: "integer"}
 		case "float64", "float32":
 			return &OpenAPISchema{Type: "number"}
 		case "bool":
 			return &OpenAPISchema{Type: "boolean"}
+		case "time.Time", "Time":
+			return &OpenAPISchema{Type: "string", Format: "date-time"}
+		case "interface{}", "any":
+			return &OpenAPISchema{Type: "object", AdditionalProperties: true}
 		}
 	}
 
@@ -1273,8 +1278,8 @@ func (p *ASTParser) generateSchemaFromType(typeName string, inline bool) *OpenAP
 		}
 	}
 
-	// Handle interface{} or unknown types
-	if typeName == "interface{}" {
+	// Handle interface{} / any or unknown types
+	if typeName == "interface{}" || typeName == "any" {
 		return &OpenAPISchema{
 			Type:                 "object",
 			AdditionalProperties: true,
