@@ -15,12 +15,14 @@
         const analyticsTab = document.querySelector('.analytics-tab');
         const apiTab = document.querySelector('.api-tab');
         const cronTab = document.querySelector('.cron-tab');
+        const rulesTab = document.querySelector('.rules-tab');
         const healthSection = document.getElementById('health-section');
         const analyticsSection = document.getElementById('analytics-section');
         const apiSection = document.getElementById('api-section');
         const cronSection = document.getElementById('cron-section');
+        const rulesSection = document.getElementById('rules-section');
 
-        if (!healthTab || !analyticsTab || !apiTab || !cronTab || !healthSection || !analyticsSection || !apiSection || !cronSection) return;
+        if (!healthTab || !analyticsTab || !apiTab || !cronTab || !rulesTab || !healthSection || !analyticsSection || !apiSection || !cronSection || !rulesSection) return;
 
         function switchToTab(tabName) {
             // Remove current-route class from all tabs
@@ -28,12 +30,14 @@
             analyticsTab.classList.remove('current-route');
             apiTab.classList.remove('current-route');
             cronTab.classList.remove('current-route');
+            rulesTab.classList.remove('current-route');
 
             // Hide all sections
             healthSection.style.display = 'none';
             analyticsSection.style.display = 'none';
             apiSection.style.display = 'none';
             cronSection.style.display = 'none';
+            rulesSection.style.display = 'none';
 
             if (tabName === 'health') {
                 healthTab.classList.add('current-route');
@@ -55,6 +59,14 @@
                 if (typeof initializeCronJobs === 'function') {
                     initializeCronJobs();
                 }
+            } else if (tabName === 'rules') {
+                rulesTab.classList.add('current-route');
+                rulesSection.style.display = 'block';
+                window.location.hash = 'rules';
+                // Initialize rules when tab is shown
+                if (typeof initializeRules === 'function') {
+                    initializeRules();
+                }
             }
         }
 
@@ -65,6 +77,8 @@
             switchToTab('api');
         } else if (window.location.hash === '#cron') {
             switchToTab('cron');
+        } else if (window.location.hash === '#rules') {
+            switchToTab('rules');
         } else {
             switchToTab('health');
         }
@@ -90,6 +104,11 @@
             switchToTab('cron');
         });
 
+        rulesTab.addEventListener('click', function(e) {
+            e.preventDefault();
+            switchToTab('rules');
+        });
+
         // Handle hash changes (for browser navigation)
         window.addEventListener('hashchange', function() {
             if (window.location.hash === '#analytics') {
@@ -98,6 +117,8 @@
                 switchToTab('api');
             } else if (window.location.hash === '#cron') {
                 switchToTab('cron');
+            } else if (window.location.hash === '#rules') {
+                switchToTab('rules');
             } else {
                 switchToTab('health');
             }

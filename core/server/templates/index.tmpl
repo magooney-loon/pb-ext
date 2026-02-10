@@ -35,6 +35,7 @@
                     <a href="#analytics" class="menu-item analytics-tab" aria-label="Analytics" title="Analytics"><i class="ri-bar-chart-line"></i></a>
                     <a href="#api" class="menu-item api-tab" aria-label="API" title="API"><i class="ri-code-s-slash-line"></i></a>
                     <a href="#cron" class="menu-item cron-tab" aria-label="Cron Jobs" title="Cron Jobs"><i class="ri-time-line"></i></a>
+                    <a href="#rules" class="menu-item rules-tab" aria-label="Rules" title="Rules"><i class="ri-lock-line"></i></a>
                 </nav>
                 <div onclick="openDebugAPI(event)" target="_blank" class="menu-item thumb thumb-circle link-hint" aria-label="Debug" title="Debug AST"><i class="ri-bug-line"></i></div>
             </aside>
@@ -94,6 +95,18 @@
 
                             <!-- Cron Jobs Management -->
                             {{template "cron_jobs" .}}
+                        </div>
+                    </main>
+                </div>
+
+                <!-- Rules Section -->
+                <div id="rules-section" class="section-content" style="display: none;">
+                    <main class="page-content">
+                        <div class="dashboard-wrapper">
+                            {{template "header" .}}
+
+                            <!-- API Rules Overview -->
+                            {{template "rules" .}}
                         </div>
                     </main>
                 </div>

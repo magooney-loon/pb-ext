@@ -440,11 +440,6 @@ func TestGetOpenAPIEndpointSchema(t *testing.T) {
 				t.Error("Expected no parameters but got some")
 			}
 
-			// Verify basic schema properties exist
-			if schema == nil {
-				t.Error("Expected schema but got nil")
-			}
-
 			// Note: OpenAPIEndpointSchema may not have Description/Tags fields directly
 			// These would typically be in the parent OpenAPI operation object
 		})

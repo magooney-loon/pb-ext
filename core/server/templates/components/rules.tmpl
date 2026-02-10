@@ -1,0 +1,123 @@
+{{define "rules"}}
+<div class="section" style="margin-top: 18px">
+    <header class="section-header">
+        <h4 class="section-title">
+            <i class="ri-lock-line"></i> API Rules Overview
+        </h4>
+    </header>
+
+    <div id="rules-table-container">
+        <table class="table" id="rules-table">
+            <thead>
+                <tr>
+                    <th>Collection</th>
+                    <th>List/Search</th>
+                    <th>View</th>
+                    <th>Create</th>
+                    <th>Update</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody id="rules-tbody">
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+    let rulesInitialized = false;
+
+    function initializeRules() {
+        if (rulesInitialized) return;
+        rulesInitialized = true;
+        loadRules();
+    }
+
+    async function loadRules() {
+        const tbody = document.getElementById('rules-tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '<tr><td colspan="6" class="txt-center txt-hint">Loading collections...</td></tr>';
+
+        const tokenData = localStorage.getItem('__pb_superuser_auth__');
+        if (!tokenData) return;
+
+        let token;
+        try {
+            token = JSON.parse(tokenData).token;
+        } catch {
+            return;
+        }
+
+        if (!token) return;
+
+        try {
+            const response = await fetch(window.location.origin + '/api/collections?perPage=1000', {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': token
+                }
+            });
+
+            if (!response.ok) {
+                tbody.innerHTML = '<tr><td colspan="6" class="txt-center txt-danger">Failed to load collections</td></tr>';
+                return;
+            }
+
+            const data = await response.json();
+            tbody.innerHTML = '';
+
+            for (const collection of data.items) {
+                if (collection.name.startsWith('_')) continue;
+
+                const row = document.createElement('tr');
+
+                // Collection name cell with type icon
+                const nameCell = document.createElement('td');
+                if (collection.type === 'base') {
+                    nameCell.innerHTML = '<i class="ri-folder-2-line" title="Base Collection"></i> ';
+                } else if (collection.type === 'view') {
+                    nameCell.innerHTML = '<i class="ri-table-line" title="View Collection"></i> ';
+                } else if (collection.type === 'auth') {
+                    nameCell.innerHTML = '<i class="ri-group-line" title="Auth Collection"></i> ';
+                }
+                nameCell.innerHTML += '<a href="/_/#/collections?collection=' + collection.id + '">' + collection.name + '</a>';
+                row.appendChild(nameCell);
+
+                addRuleCell(row, collection.listRule);
+                addRuleCell(row, collection.viewRule);
+                addRuleCell(row, collection.createRule);
+                addRuleCell(row, collection.updateRule);
+                addRuleCell(row, collection.deleteRule);
+
+                tbody.appendChild(row);
+            }
+
+            if (tbody.children.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="txt-center txt-hint">No user collections found</td></tr>';
+            }
+
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="6" class="txt-center txt-danger">Error: ' + e.message + '</td></tr>';
+        }
+    }
+
+    function addRuleCell(row, rule) {
+        const cell = document.createElement('td');
+        if (rule === null || rule === undefined) {
+            cell.innerHTML = '<i class="ri-lock-line"></i> Superuser Only';
+            cell.title = 'Superuser Only';
+            cell.style.background = 'var(--successAltColor)';
+        } else if (rule === '') {
+            cell.innerHTML = '<i class="ri-lock-unlock-line"></i> Public';
+            cell.title = 'Public';
+            cell.style.background = 'var(--dangerAltColor)';
+        } else {
+            cell.innerText = rule;
+            cell.title = rule;
+        }
+        row.appendChild(cell);
+    }
+</script>
+{{end}}
