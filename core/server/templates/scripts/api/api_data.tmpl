@@ -173,7 +173,7 @@
                 }
 
                 // Convert OpenAPI paths to flat endpoints array for UI consumption
-                const endpoints = this._pathsToEndpoints(openApiSpec.paths);
+                const endpoints = this._pathsToEndpoints(openApiSpec.paths, openApiSpec.components);
 
                 // Process and validate endpoints
                 const processedEndpoints = this._processEndpoints(endpoints);
@@ -185,6 +185,11 @@
                 StateManager.setState('api.filteredEndpoints', processedEndpoints);
                 StateManager.setState('api.stats', stats);
 
+                // Update the displayed base URL from the loaded schema's server URL
+                const baseUrlEl = document.getElementById('version-base-url');
+                if (baseUrlEl && openApiSpec.servers?.length > 0) {
+                    baseUrlEl.textContent = openApiSpec.servers[0].url;
+                }
 
                 EventBus.emit(APIEvents.DATA.SCHEMA_UPDATED, { schema: openApiSpec });
                 EventBus.emit(APIEvents.DATA.ENDPOINTS_UPDATED, {
@@ -523,11 +528,30 @@
             };
         },
 
-        // Build URL with path parameters
+        // Get the API base path from the current schema's server URL (e.g. "/api/v1")
+        getApiBasePath() {
+            const schema = StateManager.getState('api.schema');
+            if (schema?.servers?.length > 0) {
+                try {
+                    const serverUrl = schema.servers[0].url;
+                    const parsed = new URL(serverUrl);
+                    // Return path without trailing slash
+                    return parsed.pathname.replace(/\/+$/, '');
+                } catch {
+                    // If URL parsing fails, try to extract path manually
+                    const match = schema.servers[0].url.match(/https?:\/\/[^/]+(\/.*)/);
+                    if (match) return match[1].replace(/\/+$/, '');
+                }
+            }
+            return '';
+        },
+
+        // Build URL with path parameters, prepending the API base path
         buildUrl(endpoint, pathParams = {}) {
             if (!endpoint?.path) return '';
 
-            let url = endpoint.path;
+            const basePath = this.getApiBasePath();
+            let url = basePath + endpoint.path;
 
             // Replace path parameters
             Object.entries(pathParams).forEach(([key, value]) => {
@@ -635,7 +659,7 @@
         },
 
         // Convert OpenAPI paths object to flat endpoints array
-        _pathsToEndpoints(paths) {
+        _pathsToEndpoints(paths, components) {
             const endpoints = [];
             const methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head'];
 
@@ -643,16 +667,16 @@
                 for (const method of methods) {
                     const operation = pathItem[method];
                     if (operation) {
-                        // Extract request schema from requestBody
+                        // Extract request schema from requestBody, resolving $ref
                         let request = null;
                         if (operation.requestBody?.content?.['application/json']?.schema) {
-                            request = operation.requestBody.content['application/json'].schema;
+                            request = this._resolveSchema(operation.requestBody.content['application/json'].schema, components);
                         }
 
-                        // Extract response schema from responses.200
+                        // Extract response schema from responses.200, resolving $ref
                         let response = null;
                         if (operation.responses?.['200']?.content?.['application/json']?.schema) {
-                            response = operation.responses['200'].content['application/json'].schema;
+                            response = this._resolveSchema(operation.responses['200'].content['application/json'].schema, components);
                         }
 
                         // Build auth info from security
@@ -789,6 +813,61 @@
             } else {
                 console.error('Required DOM elements not found for version details');
             }
+        },
+
+        // Resolve $ref references in a schema against components.
+        // Recursively resolves nested $refs in properties, items, and additionalProperties.
+        // `ancestors` tracks the $ref chain for circular reference detection (not shared across siblings).
+        _resolveSchema(schema, components, ancestors) {
+            if (!schema) return schema;
+            ancestors = ancestors || new Set();
+
+            // Resolve top-level $ref
+            if (schema.$ref) {
+                const refPath = schema.$ref;
+                if (ancestors.has(refPath)) return { type: 'object', description: '(circular ref)' };
+
+                const parts = refPath.replace('#/', '').split('/');
+                let resolved = { components };
+                for (const part of parts) {
+                    resolved = resolved?.[part];
+                    if (!resolved) break;
+                }
+
+                if (resolved && typeof resolved === 'object') {
+                    const clone = JSON.parse(JSON.stringify(resolved));
+                    const childAncestors = new Set(ancestors);
+                    childAncestors.add(refPath);
+                    return this._resolveSchema(clone, components, childAncestors);
+                }
+                return schema;
+            }
+
+            // Resolve $refs inside properties
+            if (schema.properties) {
+                for (const [key, prop] of Object.entries(schema.properties)) {
+                    schema.properties[key] = this._resolveSchema(prop, components, ancestors);
+                }
+            }
+
+            // Resolve $ref in array items
+            if (schema.items) {
+                schema.items = this._resolveSchema(schema.items, components, ancestors);
+            }
+
+            // Resolve $ref in additionalProperties
+            if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+                schema.additionalProperties = this._resolveSchema(schema.additionalProperties, components, ancestors);
+            }
+
+            // Resolve allOf/oneOf/anyOf
+            for (const keyword of ['allOf', 'oneOf', 'anyOf']) {
+                if (Array.isArray(schema[keyword])) {
+                    schema[keyword] = schema[keyword].map(s => this._resolveSchema(s, components, ancestors));
+                }
+            }
+
+            return schema;
         },
 
         // Extract fields from schema object

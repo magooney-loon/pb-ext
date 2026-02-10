@@ -235,9 +235,9 @@ func (p *ASTParser) analyzePocketBaseHandler(funcDecl *ast.FuncDecl) *ASTHandler
 	}
 
 	// Try to generate request schema if we have a request type
-	// Use inline=true to get full schema for endpoint request (1st level)
+	// Use $ref for known struct types so they appear in components/schemas
 	if handlerInfo.RequestType != "" {
-		if schema := p.generateSchemaFromType(handlerInfo.RequestType, true); schema != nil {
+		if schema := p.generateSchemaForEndpoint(handlerInfo.RequestType); schema != nil {
 			handlerInfo.RequestSchema = schema
 		}
 	}
@@ -343,10 +343,10 @@ func (p *ASTParser) handleJSONResponse(call *ast.CallExpr, handlerInfo *ASTHandl
 		}
 
 		// Then try type inference for struct-based responses
-		// Use inline=true to get full schema for endpoint response (1st level)
+		// Use $ref for known struct types so they appear in components/schemas
 		if responseType := p.inferTypeFromExpression(call.Args[1], handlerInfo); responseType != "" {
 			handlerInfo.ResponseType = responseType
-			if schema := p.generateSchemaFromType(responseType, true); schema != nil {
+			if schema := p.generateSchemaForEndpoint(responseType); schema != nil {
 				handlerInfo.ResponseSchema = schema
 				return
 			}
@@ -370,8 +370,8 @@ func (p *ASTParser) handleJSONDecode(call *ast.CallExpr, handlerInfo *ASTHandler
 				if varType, exists := handlerInfo.Variables[ident.Name]; exists {
 					handlerInfo.RequestType = varType
 					// Generate request schema immediately
-					// Use inline=true to get full schema for endpoint request (1st level)
-					if schema := p.generateSchemaFromType(varType, true); schema != nil {
+					// Use $ref for known struct types so they appear in components/schemas
+					if schema := p.generateSchemaForEndpoint(varType); schema != nil {
 						handlerInfo.RequestSchema = schema
 					}
 				}
@@ -1178,6 +1178,47 @@ func (p *ASTParser) resolveTypeAlias(typeName string, visited map[string]bool) (
 	}
 
 	return typeName, false
+}
+
+// generateSchemaForEndpoint generates an OpenAPI schema for a top-level endpoint request/response.
+// Unlike generateSchemaFromType, this always uses $ref for known struct types so they appear
+// in components/schemas rather than being inlined. For arrays of structs, it wraps $ref in items.
+// For non-struct types (primitives, maps, etc.) it delegates to generateSchemaFromType.
+func (p *ASTParser) generateSchemaForEndpoint(typeName string) *OpenAPISchema {
+	// Handle array types: []StructName → { type: "array", items: { $ref: ... } }
+	if strings.HasPrefix(typeName, "[]") {
+		elementType := strings.TrimPrefix(typeName, "[]")
+		elementSchema := p.generateSchemaForEndpoint(elementType)
+		if elementSchema != nil {
+			return &OpenAPISchema{
+				Type:  "array",
+				Items: elementSchema,
+			}
+		}
+		return &OpenAPISchema{
+			Type:  "array",
+			Items: &OpenAPISchema{Type: "object"},
+		}
+	}
+
+	// Resolve type aliases
+	resolvedType, _ := p.resolveTypeAlias(typeName, nil)
+
+	// If it's a known struct, always use $ref (standard OpenAPI pattern)
+	if _, exists := p.structs[resolvedType]; exists {
+		return &OpenAPISchema{
+			Ref: "#/components/schemas/" + resolvedType,
+		}
+	}
+	// Also check original name
+	if _, exists := p.structs[typeName]; exists {
+		return &OpenAPISchema{
+			Ref: "#/components/schemas/" + typeName,
+		}
+	}
+
+	// For everything else (primitives, maps, any, etc.), use the existing logic
+	return p.generateSchemaFromType(typeName, false)
 }
 
 // generateSchemaFromType generates an OpenAPI schema from a type name

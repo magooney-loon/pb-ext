@@ -1031,7 +1031,6 @@ type SimpleStruct struct {
 }
 
 func TestInlineSchemaForEndpoints(t *testing.T) {
-	// Test that endpoint request/response schemas are inline, not $ref
 	content := `package main
 
 // API_SOURCE
@@ -1057,56 +1056,69 @@ type SearchResponse struct {
 		t.Fatalf("Failed to parse file: %v", err)
 	}
 
-	// Test that endpoint-level schema (inline=true) returns full schema
-	requestSchema := parser.generateSchemaFromType("SearchRequest", true)
-	if requestSchema == nil {
-		t.Fatal("Expected request schema to be generated")
-	}
+	// Test generateSchemaForEndpoint: known struct types should use $ref
+	t.Run("endpoint struct types use $ref", func(t *testing.T) {
+		requestSchema := parser.generateSchemaForEndpoint("SearchRequest")
+		if requestSchema == nil {
+			t.Fatal("Expected request schema to be generated")
+		}
+		if requestSchema.Ref != "#/components/schemas/SearchRequest" {
+			t.Errorf("Expected $ref '#/components/schemas/SearchRequest', got Ref='%s' Type='%s'", requestSchema.Ref, requestSchema.Type)
+		}
+	})
 
-	// Should be inline (not $ref)
-	if requestSchema.Ref != "" {
-		t.Error("Expected endpoint request schema to be inline, not $ref")
-	}
-	if requestSchema.Type != "object" {
-		t.Errorf("Expected request schema type to be 'object', got '%s'", requestSchema.Type)
-	}
-	if requestSchema.Properties == nil {
-		t.Fatal("Expected request schema to have properties")
-	}
+	// Test generateSchemaForEndpoint: array of structs should use $ref in items
+	t.Run("endpoint array of structs uses $ref in items", func(t *testing.T) {
+		schema := parser.generateSchemaForEndpoint("[]ExportData")
+		if schema == nil {
+			t.Fatal("Expected schema to be generated")
+		}
+		if schema.Type != "array" {
+			t.Errorf("Expected type 'array', got '%s'", schema.Type)
+		}
+		if schema.Items == nil {
+			t.Fatal("Expected items to be set")
+		}
+		if schema.Items.Ref != "#/components/schemas/ExportData" {
+			t.Errorf("Expected items $ref '#/components/schemas/ExportData', got '%s'", schema.Items.Ref)
+		}
+	})
 
-	// Test that nested field schema (inline=false) uses $ref
-	responseSchema := parser.generateSchemaFromType("SearchResponse", true)
-	if responseSchema == nil {
-		t.Fatal("Expected response schema to be generated")
-	}
+	// Test generateSchemaForEndpoint: primitives should NOT produce $ref
+	t.Run("endpoint primitives do not use $ref", func(t *testing.T) {
+		schema := parser.generateSchemaForEndpoint("string")
+		if schema == nil {
+			t.Fatal("Expected schema to be generated")
+		}
+		if schema.Ref != "" {
+			t.Error("Expected primitive type to NOT use $ref")
+		}
+		if schema.Type != "string" {
+			t.Errorf("Expected type 'string', got '%s'", schema.Type)
+		}
+	})
 
-	// Response schema itself should be inline
-	if responseSchema.Ref != "" {
-		t.Error("Expected endpoint response schema to be inline, not $ref")
-	}
-	if responseSchema.Properties == nil {
-		t.Fatal("Expected response schema to have properties")
-	}
-
-	// But nested field (ExportData) should use $ref
-	productsField := responseSchema.Properties["products"]
-	if productsField == nil {
-		t.Fatal("Expected response schema to have 'products' property")
-	}
-	if productsField.Type != "array" {
-		t.Errorf("Expected products field to be array, got '%s'", productsField.Type)
-	}
-	if productsField.Items == nil {
-		t.Fatal("Expected products array to have items")
-	}
-
-	// Items should use $ref for nested type (2nd level)
-	if productsField.Items.Ref == "" {
-		t.Error("Expected nested type (ExportData) to use $ref at 2nd level")
-	}
-	if productsField.Items.Ref != "#/components/schemas/ExportData" {
-		t.Errorf("Expected $ref to be '#/components/schemas/ExportData', got '%s'", productsField.Items.Ref)
-	}
+	// Test generateSchemaFromType with inline=true still inlines (for component schema generation)
+	t.Run("generateSchemaFromType inline=true still works", func(t *testing.T) {
+		schema := parser.generateSchemaFromType("SearchResponse", true)
+		if schema == nil {
+			t.Fatal("Expected schema to be generated")
+		}
+		if schema.Ref != "" {
+			t.Error("Expected inline schema (not $ref) from generateSchemaFromType with inline=true")
+		}
+		if schema.Properties == nil {
+			t.Fatal("Expected inline schema to have properties")
+		}
+		// Nested field (ExportData) should still use $ref at 2nd level
+		productsField := schema.Properties["products"]
+		if productsField == nil {
+			t.Fatal("Expected 'products' property")
+		}
+		if productsField.Items == nil || productsField.Items.Ref != "#/components/schemas/ExportData" {
+			t.Error("Expected nested type to use $ref at 2nd level")
+		}
+	})
 }
 
 func TestTypeAliasResolution(t *testing.T) {

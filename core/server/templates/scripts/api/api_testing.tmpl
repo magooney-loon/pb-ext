@@ -920,8 +920,8 @@
                 // Collect form data
                 const formData = this._collectFormData();
 
-                // Build request URL
-                let url = this._currentEndpoint.path;
+                // Build request URL with API base path prefix
+                let url = APIDataManager.getApiBasePath() + this._currentEndpoint.path;
 
                 // Replace path parameters
                 if (formData.pathParams) {
@@ -1286,10 +1286,10 @@
                 methodElement.className = `http-method ${endpoint.method.toLowerCase()}`;
             }
 
-            // Update path
+            // Update path (with API base path prefix for display)
             const pathElement = document.getElementById('tester-path');
             if (pathElement) {
-                let url = endpoint.path;
+                let url = APIDataManager.getApiBasePath() + endpoint.path;
 
                 if (!forceClean) {
                     // Get current path parameter values
