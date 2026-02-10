@@ -18,6 +18,7 @@ type APIRegistry struct {
 	endpoints       map[string]APIEndpoint
 	astParser       ASTParserInterface
 	schemaGenerator SchemaGeneratorInterface
+	pathPrefix      string // prefix to strip from paths (derived from server URL)
 }
 
 // NewAPIRegistry creates a new API documentation registry with dependency injection
@@ -127,15 +128,150 @@ func (r *APIRegistry) GetEndpointsInternal() []APIEndpoint {
 }
 
 // GetDocsWithComponents returns documentation with generated component schemas
+// Only includes component schemas that are actually referenced by this version's endpoints
 func (r *APIRegistry) GetDocsWithComponents() *APIDocs {
 
 	docs := r.GetDocs()
 
 	if r.schemaGenerator != nil {
-		docs.Components = r.schemaGenerator.GenerateComponentSchemas()
+		allComponents := r.schemaGenerator.GenerateComponentSchemas()
+
+		// Collect all $ref targets used by this version's paths
+		refs := make(map[string]bool)
+		for _, pathItem := range docs.Paths {
+			collectRefsFromPathItem(pathItem, refs)
+		}
+		// Also collect refs from common responses/parameters in components
+		for _, resp := range allComponents.Responses {
+			collectRefsFromResponse(resp, refs)
+		}
+
+		// Recursively resolve nested $refs from the collected schemas
+		resolved := make(map[string]bool)
+		pending := make([]string, 0, len(refs))
+		for name := range refs {
+			pending = append(pending, name)
+		}
+		for len(pending) > 0 {
+			name := pending[len(pending)-1]
+			pending = pending[:len(pending)-1]
+			if resolved[name] {
+				continue
+			}
+			resolved[name] = true
+			if schema, ok := allComponents.Schemas[name]; ok {
+				nested := make(map[string]bool)
+				collectRefsFromSchema(schema, nested)
+				for n := range nested {
+					if !resolved[n] {
+						pending = append(pending, n)
+					}
+				}
+			}
+		}
+
+		// Prune schemas to only those referenced by this version's endpoints
+		pruned := make(map[string]*OpenAPISchema)
+		for name, schema := range allComponents.Schemas {
+			if resolved[name] {
+				pruned[name] = schema
+			}
+		}
+		// Always keep Error and PocketBaseRecord as they're used by common responses
+		if s, ok := allComponents.Schemas["Error"]; ok {
+			pruned["Error"] = s
+		}
+		if s, ok := allComponents.Schemas["PocketBaseRecord"]; ok {
+			pruned["PocketBaseRecord"] = s
+		}
+		allComponents.Schemas = pruned
+
+		docs.Components = allComponents
 	}
 
 	return docs
+}
+
+// collectRefsFromPathItem collects all $ref schema names from a path item's operations
+func collectRefsFromPathItem(pathItem *OpenAPIPathItem, refs map[string]bool) {
+	for _, op := range []*OpenAPIOperation{
+		pathItem.Get, pathItem.Put, pathItem.Post, pathItem.Delete,
+		pathItem.Patch, pathItem.Options, pathItem.Head, pathItem.Trace,
+	} {
+		if op == nil {
+			continue
+		}
+		if op.RequestBody != nil {
+			for _, mt := range op.RequestBody.Content {
+				if mt.Schema != nil {
+					collectRefsFromSchema(mt.Schema, refs)
+				}
+			}
+		}
+		for _, resp := range op.Responses {
+			collectRefsFromResponse(resp, refs)
+		}
+		for _, param := range op.Parameters {
+			if param.Schema != nil {
+				collectRefsFromSchema(param.Schema, refs)
+			}
+		}
+	}
+}
+
+// collectRefsFromResponse collects $ref schema names from a response object
+func collectRefsFromResponse(resp *OpenAPIResponse, refs map[string]bool) {
+	if resp == nil {
+		return
+	}
+	for _, mt := range resp.Content {
+		if mt.Schema != nil {
+			collectRefsFromSchema(mt.Schema, refs)
+		}
+	}
+}
+
+// collectRefsFromSchema recursively collects $ref schema names from a schema
+func collectRefsFromSchema(schema *OpenAPISchema, refs map[string]bool) {
+	if schema == nil {
+		return
+	}
+	if schema.Ref != "" {
+		name := schemaNameFromRef(schema.Ref)
+		if name != "" {
+			refs[name] = true
+		}
+	}
+	for _, prop := range schema.Properties {
+		collectRefsFromSchema(prop, refs)
+	}
+	if schema.Items != nil {
+		collectRefsFromSchema(schema.Items, refs)
+	}
+	if addl, ok := schema.AdditionalProperties.(*OpenAPISchema); ok {
+		collectRefsFromSchema(addl, refs)
+	}
+	for _, s := range schema.AllOf {
+		collectRefsFromSchema(s, refs)
+	}
+	for _, s := range schema.OneOf {
+		collectRefsFromSchema(s, refs)
+	}
+	for _, s := range schema.AnyOf {
+		collectRefsFromSchema(s, refs)
+	}
+	if schema.Not != nil {
+		collectRefsFromSchema(schema.Not, refs)
+	}
+}
+
+// schemaNameFromRef extracts the schema name from a $ref string like "#/components/schemas/Foo"
+func schemaNameFromRef(ref string) string {
+	const prefix = "#/components/schemas/"
+	if strings.HasPrefix(ref, prefix) {
+		return ref[len(prefix):]
+	}
+	return ""
 }
 
 // GetEndpoint retrieves a specific endpoint by method and path
@@ -196,6 +332,33 @@ func (r *APIRegistry) UpdateConfig(config *APIDocsConfig) {
 			Description: "API Server",
 		},
 	}
+}
+
+// SetServers sets the OpenAPI servers and derives a path prefix to strip from registered paths.
+// When a server URL ends with a path (e.g., http://host/api/v1), registered paths like
+// /api/v1/todos will be stored as /todos in the spec, since the server URL already includes the prefix.
+func (r *APIRegistry) SetServers(servers []*OpenAPIServer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.docs.Servers = servers
+
+	// Derive path prefix from the first server's URL path component
+	if len(servers) > 0 {
+		serverURL := servers[0].URL
+		// Extract path portion after the host (find 3rd slash: http://host/path)
+		slashCount := 0
+		for i, c := range serverURL {
+			if c == '/' {
+				slashCount++
+				if slashCount == 3 {
+					r.pathPrefix = serverURL[i:]
+					return
+				}
+			}
+		}
+	}
+	r.pathPrefix = ""
 }
 
 // ClearEndpoints removes all registered endpoints
@@ -380,11 +543,20 @@ func (r *APIRegistry) buildPaths(endpoints []APIEndpoint) map[string]*OpenAPIPat
 	paths := make(map[string]*OpenAPIPathItem)
 
 	for _, endpoint := range endpoints {
+		// Strip path prefix so paths are relative to the server URL
+		docPath := endpoint.Path
+		if r.pathPrefix != "" && strings.HasPrefix(docPath, r.pathPrefix) {
+			docPath = strings.TrimPrefix(docPath, r.pathPrefix)
+			if docPath == "" {
+				docPath = "/"
+			}
+		}
+
 		// Get or create path item
-		pathItem, exists := paths[endpoint.Path]
+		pathItem, exists := paths[docPath]
 		if !exists {
 			pathItem = &OpenAPIPathItem{}
-			paths[endpoint.Path] = pathItem
+			paths[docPath] = pathItem
 		}
 
 		// Create operation

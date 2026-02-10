@@ -32,8 +32,22 @@ func ConvertGoTypeToOpenAPISchema(goType string, fieldInfo *FieldInfo) *OpenAPIS
 	// Handle map types
 	if strings.HasPrefix(goType, "map[") {
 		schema.Type = "object"
-		schema.AdditionalProperties = true
-		// Could be enhanced to handle typed maps like map[string]SomeStruct
+		closeBracket := strings.Index(goType, "]")
+		if closeBracket > 0 && closeBracket < len(goType)-1 {
+			valueType := goType[closeBracket+1:]
+			if valueType == "any" || valueType == "interface{}" {
+				schema.AdditionalProperties = true
+			} else {
+				valueSchema := ConvertGoTypeToOpenAPISchema(valueType, nil)
+				if valueSchema != nil && valueSchema.Type != "" {
+					schema.AdditionalProperties = valueSchema
+				} else {
+					schema.AdditionalProperties = true
+				}
+			}
+		} else {
+			schema.AdditionalProperties = true
+		}
 		return schema
 	}
 
@@ -67,7 +81,7 @@ func ConvertGoTypeToOpenAPISchema(goType string, fieldInfo *FieldInfo) *OpenAPIS
 	case "time.Time":
 		schema.Type = "string"
 		schema.Format = "date-time"
-	case "interface{}":
+	case "interface{}", "any":
 		// Any type - no constraints
 		schema = &OpenAPISchema{}
 	default:

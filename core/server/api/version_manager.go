@@ -123,6 +123,23 @@ func (vm *APIVersionManager) RegisterVersion(version string, config *APIDocsConf
 	schemaGenerator := NewSchemaGenerator(astParser)
 	registry := NewAPIRegistry(config, astParser, schemaGenerator)
 
+	// Set version-specific server URL so each version's OpenAPI spec is self-identifying
+	effectiveConfig := config
+	if effectiveConfig == nil {
+		effectiveConfig = DefaultAPIDocsConfig()
+	}
+	baseURL := strings.TrimRight(effectiveConfig.BaseURL, "/")
+	status := effectiveConfig.Status
+	if status == "" {
+		status = "stable"
+	}
+	registry.SetServers([]*OpenAPIServer{
+		{
+			URL:         baseURL + "/api/" + version,
+			Description: fmt.Sprintf("API %s Server (%s)", version, status),
+		},
+	})
+
 	// Store version information
 	vm.versions = append(vm.versions, version)
 	vm.registries[version] = registry

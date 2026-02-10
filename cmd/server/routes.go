@@ -94,7 +94,41 @@ func registerV2Routes(router *api.VersionedAPIRouter) {
 	// Utility routes (no auth required)
 	v2.GET("/time", timeHandler)
 
-	// Future v2 routes can be added here easily:
-	// v2.GET("/status", statusHandler)
-	// v2.GET("/health", healthHandler)
+	// --- Schema test routes: exercises every AST schema generation path ---
+
+	// 1. Deep nested struct response (Order → Address → GeoCoordinate, []OrderItem, PaymentInfo)
+	v2.GET("/orders/{id}", getOrderHandler)
+
+	// 2. Nested struct request body via json.Decode
+	v2.POST("/orders", createOrderHandler).Bind(apis.RequireAuth())
+
+	// 3. Array-of-structs response
+	v2.GET("/orders", listOrdersHandler)
+
+	// 4. Struct with typed maps (map[string]float64, map[string]string, map[string]int)
+	v2.GET("/tokens/{id}/indicators", getIndicatorsHandler)
+
+	// 5. Struct with any/interface{} fields + json.Decode request
+	v2.POST("/events", trackEventHandler)
+
+	// 6. Inline map literal with deeply nested sub-maps
+	v2.GET("/diagnostics", getDiagnosticsHandler)
+
+	// 7. Flat struct + nested struct field (UserProfile → ContactInfo)
+	v2.GET("/users/{id}", getUserProfileHandler)
+
+	// 8. Paginated response: inline map wrapping struct array + struct value
+	v2.GET("/users", searchUsersHandler)
+
+	// 9. Array of numeric-heavy structs (timeseries / OHLCV)
+	v2.GET("/tokens/{id}/candles", getCandlestickHandler)
+
+	// 10. Pure map[string]string variable response (typed map, not literal)
+	v2.GET("/config", getConfigHandler)
+
+	// 11. Mixed inline map: bools, ints, strings, nested map literals
+	v2.GET("/feature-flags", getFeatureFlagsHandler)
+
+	// 12. map[string]any variable response (the original bug case)
+	v2.GET("/stats", getPlatformStatsHandler)
 }
