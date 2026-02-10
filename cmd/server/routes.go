@@ -131,4 +131,40 @@ func registerV2Routes(router *api.VersionedAPIRouter) {
 
 	// 12. map[string]any variable response (the original bug case)
 	v2.GET("/stats", getPlatformStatsHandler)
+
+	// 13. BindBody request — PocketBase-native body parsing
+	v2.PATCH("/profile", updateProfileHandler).Bind(apis.RequireAuth())
+
+	// 14. Embedded struct (ProductResponse embeds BaseEntity)
+	v2.GET("/products/{id}", getProductHandler)
+
+	// 15. Slice of primitives ([]string)
+	v2.GET("/categories", listCategoriesHandler)
+
+	// 16. DELETE handler — minimal success response
+	v2.DELETE("/products/{id}", deleteProductHandler).Bind(apis.RequireAuth())
+
+	// 17. Variable-referenced struct response
+	v2.GET("/health", healthCheckHandler)
+
+	// 18. Query parameters + map with struct slice
+	v2.GET("/products", searchProductsHandler)
+
+	// 19. Map literal containing struct values
+	v2.GET("/orders/{id}/summary", getOrderSummaryHandler)
+
+	// 20. Multiple conditional return paths + json.Decode request
+	v2.POST("/products/batch-delete", batchDeleteHandler).Bind(apis.RequireAuth())
+
+	// 21. Variable map literal with struct slices inside
+	v2.GET("/dashboard", getDashboardHandler)
+
+	// 22. Struct pointer response (&ContactInfo{...})
+	v2.GET("/users/{id}/contact", getContactInfoHandler)
+
+	// 23. Inline map with array of maps
+	v2.GET("/activity", getActivityFeedHandler)
+
+	// 24. Var-declared struct (var x Type = ...)
+	v2.GET("/payments/default", getDefaultPaymentHandler)
 }

@@ -38,12 +38,14 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 		info := allStructs[name]
 		fields := make([]map[string]any, 0, len(info.Fields))
 		for _, f := range info.Fields {
-			fields = append(fields, map[string]any{
+			fieldEntry := map[string]any{
 				"name":            f.Name,
 				"type":            f.Type,
 				"json_name":       f.JSONName,
 				"json_omit_empty": f.JSONOmitEmpty,
-			})
+				"is_pointer":      f.IsPointer,
+			}
+			fields = append(fields, fieldEntry)
 		}
 		structsOut[name] = map[string]any{
 			"name":        info.Name,
@@ -96,6 +98,29 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 			vars[vn] = entry
 		}
 
+		// Build map additions info
+		var mapAdds map[string]any
+		if len(h.MapAdditions) > 0 {
+			mapAdds = make(map[string]any, len(h.MapAdditions))
+			for varName, additions := range h.MapAdditions {
+				addList := make([]map[string]any, 0, len(additions))
+				for _, add := range additions {
+					entry := map[string]any{"key": add.Key}
+					var sb strings.Builder
+					if err := printer.Fprint(&sb, parser.fileSet, add.Value); err == nil {
+						src := sb.String()
+						if len(src) > 200 {
+							src = src[:200] + "..."
+						}
+						entry["value_source"] = src
+					}
+					entry["value_type"] = fmt.Sprintf("%T", add.Value)
+					addList = append(addList, entry)
+				}
+				mapAdds[varName] = addList
+			}
+		}
+
 		handlersOut[name] = map[string]any{
 			"name":             h.Name,
 			"api_description":  h.APIDescription,
@@ -105,6 +130,7 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 			"request_schema":   h.RequestSchema,
 			"response_schema":  h.ResponseSchema,
 			"variables":        vars,
+			"map_additions":    mapAdds,
 			"requires_auth":    h.RequiresAuth,
 			"auth_type":        h.AuthType,
 			"uses_bind_body":   h.UsesBindBody,
