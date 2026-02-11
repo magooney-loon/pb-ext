@@ -22,6 +22,7 @@ type ASTParser struct {
 	logger             Logger
 	parseErrors        []ParseError
 	typeAliases        map[string]string // Maps alias name to real type name
+	funcReturnTypes    map[string]string // Maps function name to inferred return type from signature
 }
 
 // FileParseResult stores parsing results with metadata

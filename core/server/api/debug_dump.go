@@ -61,11 +61,18 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 		aliases[k] = v
 	}
 
+	// Function return types
+	funcRetTypes := make(map[string]string, len(parser.funcReturnTypes))
+	for k, v := range parser.funcReturnTypes {
+		funcRetTypes[k] = v
+	}
+
 	result["ast"] = map[string]any{
-		"total_structs":  len(allStructs),
-		"total_handlers": len(allHandlers),
-		"structs":        structsOut,
-		"type_aliases":   aliases,
+		"total_structs":     len(allStructs),
+		"total_handlers":    len(allHandlers),
+		"structs":           structsOut,
+		"type_aliases":      aliases,
+		"func_return_types": funcRetTypes,
 	}
 
 	// -------------------------------------------------------------------------
@@ -129,6 +136,7 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 			"response_type":    h.ResponseType,
 			"request_schema":   h.RequestSchema,
 			"response_schema":  h.ResponseSchema,
+			"parameters":       h.Parameters,
 			"variables":        vars,
 			"map_additions":    mapAdds,
 			"requires_auth":    h.RequiresAuth,

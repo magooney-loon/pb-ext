@@ -27,14 +27,16 @@ Source files (// API_SOURCE)
   |
   v
 ASTParser.ParseFile()
-  |-- extractStructs()        two-pass: register all structs, then generate JSONSchemas
-  |-- extractHandlers()        find func(c *core.RequestEvent) error
+  |-- extractStructs()            two-pass: register all structs, then generate JSONSchemas
+  |-- extractFuncReturnTypes()    scan non-handler functions for return type signatures
+  |-- extractHandlers()           find func(c *core.RequestEvent) error
   |     |-- parseHandlerComments()   // API_DESC, // API_TAGS
   |     |-- analyzePocketBasePatterns()
   |     |     |-- BindBody / JSON / Decode detection
   |     |     |-- trackVariableAssignment()   vars + map["key"]=value additions
   |     |     \-- auth / database operation detection
-  |     \-- extractLocalVariables()
+  |     |-- extractLocalVariables()
+  |     \-- extractQueryParameters()  detect q := URL.Query(); q.Get("param") patterns
   v
 APIRegistry.RegisterRoute(method, path, handler, middlewares)
   |-- RouteAnalyzer: handler name, auth, path params, tags
@@ -70,6 +72,18 @@ Response detection: `c.JSON(status, expr)` — the second argument is analyzed:
 3. Merge any `MapAdditions` for that variable
 4. Fall back to type inference -> `$ref` for known structs
 5. Last resort: generic object schema
+
+### Function Return Type Resolution
+
+`extractFuncReturnTypes()` runs before handler analysis. It scans all non-handler function declarations in API_SOURCE files and extracts the first non-error return type from the function signature. Stored in `ASTParser.funcReturnTypes` as `map[string]string` (func name → Go type string).
+
+This enables `inferTypeFromExpression` and `analyzeValueExpression` to resolve variables assigned from helper function calls (e.g., `candles := formatCandlesFull(records)` → type `[]map[string]any` → schema `{type: "array", items: {type: "object", additionalProperties: true}}`).
+
+**Limitation**: Only covers functions defined in API_SOURCE files, not imported packages.
+
+### Query Parameter Detection
+
+`extractQueryParameters()` detects `q := e.Request.URL.Query()` variable assignments and subsequent `q.Get("paramName")` calls. Detected parameters are added to `handlerInfo.Parameters` as `ParamInfo` entries with `Source: "query"`. The conversion pipeline in `schema_conversion.go` already handles `ParamInfo` → `OpenAPIParameter`.
 
 ### Value Expression Analysis
 
@@ -118,6 +132,8 @@ Each API version (`v1`, `v2`, ...) gets its own isolated `ASTParser`, `SchemaGen
 - **`$ref` vs inline**: endpoint-level schemas use `$ref` via `generateSchemaForEndpoint`. Nested types in struct fields use `$ref` via `generateFieldSchema` -> `generateSchemaFromType(type, inline=false)`. Map literal values use inline schemas from `analyzeValueExpression`.
 - **Type aliases**: resolved via `resolveTypeAlias()` with cycle detection. Qualified types (`pkg.Type`) are resolved to simple names.
 - **Component pruning**: `GetDocsWithComponents()` walks all `$ref` targets recursively. If you add a new place where `$ref` can appear, make sure `collectRefsFromSchema` covers it.
+- **`extractFuncReturnTypes` ordering**: must run BEFORE `extractHandlers` in `ParseFile`, so that `inferTypeFromExpression` can resolve function call return types during handler body analysis.
+- **`funcReturnTypes` scope**: only covers functions in API_SOURCE files. Functions from imported packages won't be resolved — their call sites fall through to heuristic matching in `analyzeValueExpression`.
 
 ## Test Coverage
 

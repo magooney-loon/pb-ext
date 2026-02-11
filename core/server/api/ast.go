@@ -24,6 +24,7 @@ func NewASTParser() *ASTParser {
 		logger:             &DefaultLogger{},
 		parseErrors:        make([]ParseError, 0),
 		typeAliases:        make(map[string]string),
+		funcReturnTypes:    make(map[string]string),
 	}
 
 	// Auto-discover source files
@@ -86,6 +87,10 @@ func (p *ASTParser) ParseFile(filename string) error {
 
 	// Extract variable declarations first
 	p.extractVariableDeclarations(file, &ASTHandlerInfo{Variables: make(map[string]string), VariableExprs: make(map[string]ast.Expr)})
+
+	// Extract return types from non-handler functions BEFORE handler analysis,
+	// so that inferTypeFromExpression can resolve function call return types
+	p.extractFuncReturnTypes(file)
 
 	// Extract handlers
 	p.extractHandlers(file)
@@ -222,6 +227,96 @@ func (p *ASTParser) extractHandlers(file *ast.File) {
 	})
 }
 
+// extractFuncReturnTypes extracts return types from non-handler function declarations.
+// This enables resolving the return type of helper functions like formatCandlesFull()
+// that are called within handlers but whose return types can't be inferred from the call site.
+func (p *ASTParser) extractFuncReturnTypes(file *ast.File) {
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Type.Results == nil || funcDecl.Recv != nil {
+			continue // skip non-functions, no-return functions, and methods
+		}
+		if p.isPocketBaseHandler(funcDecl) {
+			continue // skip handlers — they're analyzed separately
+		}
+		// Use the first non-error return type
+		for _, result := range funcDecl.Type.Results.List {
+			typeName := p.extractTypeName(result.Type)
+			if typeName != "" && typeName != "error" {
+				p.funcReturnTypes[funcDecl.Name.Name] = typeName
+				break
+			}
+		}
+	}
+}
+
+// extractQueryParameters detects query parameter usage patterns in handler bodies.
+// It tracks variables assigned from URL.Query() and finds q.Get("paramName") calls.
+func (p *ASTParser) extractQueryParameters(body *ast.BlockStmt, handlerInfo *ASTHandlerInfo) {
+	queryVarNames := map[string]bool{}
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		// Track: q := e.Request.URL.Query()
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			for i, rhs := range assign.Rhs {
+				if isURLQueryCall(rhs) {
+					if i < len(assign.Lhs) {
+						if ident, ok := assign.Lhs[i].(*ast.Ident); ok {
+							queryVarNames[ident.Name] = true
+						}
+					}
+				}
+			}
+		}
+		// Detect: q.Get("paramName")
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Get" {
+				if ident, ok := sel.X.(*ast.Ident); ok && queryVarNames[ident.Name] {
+					if len(call.Args) > 0 {
+						if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+							paramName := strings.Trim(lit.Value, `"`)
+							handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+								Name:     paramName,
+								Type:     "string",
+								Source:   "query",
+								Required: false,
+							})
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+}
+
+// isURLQueryCall checks if an expression is a call to .URL.Query()
+func isURLQueryCall(expr ast.Expr) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Query" {
+		return false
+	}
+	// Check for .URL.Query() pattern
+	if innerSel, ok := sel.X.(*ast.SelectorExpr); ok {
+		return innerSel.Sel.Name == "URL"
+	}
+	return false
+}
+
+// appendParamIfNew appends a ParamInfo to the slice if no param with the same name exists
+func appendParamIfNew(params []*ParamInfo, param *ParamInfo) []*ParamInfo {
+	for _, p := range params {
+		if p.Name == param.Name {
+			return params
+		}
+	}
+	return append(params, param)
+}
+
 // isPocketBaseHandler checks if a function is a PocketBase handler
 func (p *ASTParser) isPocketBaseHandler(funcDecl *ast.FuncDecl) bool {
 	if funcDecl.Type.Params == nil || len(funcDecl.Type.Params.List) != 1 {
@@ -268,6 +363,11 @@ func (p *ASTParser) analyzePocketBaseHandler(funcDecl *ast.FuncDecl) *ASTHandler
 	// Additional pass to detect variable declarations within the handler
 	if funcDecl.Body != nil {
 		p.extractLocalVariables(funcDecl.Body, handlerInfo)
+	}
+
+	// Extract query parameters from URL.Query().Get() patterns
+	if funcDecl.Body != nil {
+		p.extractQueryParameters(funcDecl.Body, handlerInfo)
 	}
 
 	return handlerInfo
@@ -566,6 +666,10 @@ func (p *ASTParser) inferTypeFromExpression(expr ast.Expr, handlerInfo *ASTHandl
 			}
 			if strings.HasPrefix(ident.Name, "New") && len(ident.Name) > 3 {
 				return strings.TrimPrefix(ident.Name, "New")
+			}
+			// Check function return types from signature analysis
+			if retType, exists := p.funcReturnTypes[ident.Name]; exists {
+				return retType
 			}
 		}
 		// Handle method calls that return records/arrays
@@ -1000,6 +1104,7 @@ func (p *ASTParser) ClearCache() {
 
 	p.structs = make(map[string]*StructInfo)
 	p.handlers = make(map[string]*ASTHandlerInfo)
+	p.funcReturnTypes = make(map[string]string)
 }
 
 // analyzeMapLiteralSchema analyzes composite literals (map, struct, slice) to generate schemas
@@ -1176,7 +1281,13 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 					Items: &OpenAPISchema{Type: "object"},
 				}
 			default:
-				if strings.Contains(ident.Name, "String") || strings.HasPrefix(ident.Name, "Format") {
+				// Check if we know the return type from function signature analysis
+				if retType, ok := p.funcReturnTypes[ident.Name]; ok {
+					if schema := p.resolveTypeToSchema(retType); schema != nil {
+						return schema
+					}
+				}
+				if strings.Contains(ident.Name, "String") {
 					return &OpenAPISchema{Type: "string"}
 				}
 				if strings.Contains(ident.Name, "Int") || strings.Contains(ident.Name, "Count") {

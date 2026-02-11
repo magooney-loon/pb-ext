@@ -1980,6 +1980,59 @@ func getDefaultPaymentHandler(c *core.RequestEvent) error {
 	}
 	return c.JSON(http.StatusOK, payment)
 }
+
+// --- Helper functions (non-handlers) for return type resolution tests ---
+
+func formatRecords(records []*core.Record) []map[string]any {
+	result := make([]map[string]any, 0, len(records))
+	return result
+}
+
+func buildSummary(name string) map[string]any {
+	return map[string]any{"name": name}
+}
+
+func computeTotal(items []OrderItem) float64 {
+	return 0.0
+}
+
+// 25. Handler calling a local function whose return type should be resolved
+// API_DESC Get formatted records
+// API_TAGS Records
+func getFormattedRecordsHandler(c *core.RequestEvent) error {
+	records, _ := c.App.FindRecordsByFilter("items", "1=1", "", 100, 0)
+	items := formatRecords(records)
+	result := map[string]any{"items": items, "count": len(items)}
+	return c.JSON(http.StatusOK, result)
+}
+
+// 26. Handler with query parameters via URL.Query().Get()
+// API_DESC Search with filters
+// API_TAGS Search
+func searchWithFiltersHandler(c *core.RequestEvent) error {
+	q := c.Request.URL.Query()
+	category := q.Get("category")
+	status := q.Get("status")
+	_ = category
+	_ = status
+	return c.JSON(http.StatusOK, map[string]any{"results": []string{}})
+}
+
+// 27. Handler calling a function that returns a primitive
+// API_DESC Get computed total
+// API_TAGS Orders
+func getComputedTotalHandler(c *core.RequestEvent) error {
+	total := computeTotal(nil)
+	return c.JSON(http.StatusOK, map[string]any{"total": total})
+}
+
+// 25b. Map string any function
+// API_DESC Get summary
+// API_TAGS Summary
+func getSummaryHandler(c *core.RequestEvent) error {
+	summary := buildSummary("test")
+	return c.JSON(http.StatusOK, summary)
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -2548,6 +2601,8 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"deleteProductHandler", "healthCheckHandler", "searchProductsHandler",
 		"getOrderSummaryHandler", "batchDeleteHandler", "getDashboardHandler",
 		"getContactInfoHandler", "getActivityFeedHandler", "getDefaultPaymentHandler",
+		"getFormattedRecordsHandler", "searchWithFiltersHandler",
+		"getComputedTotalHandler", "getSummaryHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -2617,6 +2672,146 @@ func TestHandlerScenario_PointerFields(t *testing.T) {
 	}
 	if phoneField.Type != "string" {
 		t.Errorf("Expected phone type 'string', got %q", phoneField.Type)
+	}
+}
+
+// =============================================================================
+// Function Return Type Resolution Tests
+// =============================================================================
+
+func TestFuncReturnTypeExtraction(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// Check that helper function return types were extracted
+	tests := []struct {
+		funcName     string
+		expectedType string
+	}{
+		{"formatRecords", "[]map[string]any"},
+		{"buildSummary", "map[string]any"},
+		{"computeTotal", "float64"},
+	}
+
+	for _, tt := range tests {
+		retType, exists := parser.funcReturnTypes[tt.funcName]
+		if !exists {
+			t.Errorf("Expected return type for %q to be extracted", tt.funcName)
+			continue
+		}
+		if retType != tt.expectedType {
+			t.Errorf("Return type for %q: expected %q, got %q", tt.funcName, tt.expectedType, retType)
+		}
+	}
+
+	// Handlers should NOT be in funcReturnTypes
+	for _, handlerName := range []string{"getOrderHandler", "healthCheckHandler", "getFormattedRecordsHandler"} {
+		if _, exists := parser.funcReturnTypes[handlerName]; exists {
+			t.Errorf("Handler %q should not be in funcReturnTypes", handlerName)
+		}
+	}
+}
+
+func TestHandlerScenario_FunctionReturnTypeResolution(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getFormattedRecordsHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// Response should be an object with "items" and "count"
+	assertInlineObject(t, h.ResponseSchema, []string{"items", "count"}, "response")
+
+	// "items" should be type:"array" (resolved from formatRecords return type []map[string]any)
+	itemsSchema := h.ResponseSchema.Properties["items"]
+	if itemsSchema == nil {
+		t.Fatal("Expected 'items' property in response schema")
+	}
+	if itemsSchema.Type != "array" {
+		t.Errorf("Expected 'items' type to be 'array', got %q", itemsSchema.Type)
+	}
+
+	// "count" should be integer (from len())
+	countSchema := h.ResponseSchema.Properties["count"]
+	if countSchema == nil {
+		t.Fatal("Expected 'count' property in response schema")
+	}
+	if countSchema.Type != "integer" {
+		t.Errorf("Expected 'count' type to be 'integer', got %q", countSchema.Type)
+	}
+}
+
+func TestHandlerScenario_FunctionReturnTypePrimitive(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getComputedTotalHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// "total" should be number (resolved from computeTotal return type float64)
+	totalSchema := h.ResponseSchema.Properties["total"]
+	if totalSchema == nil {
+		t.Fatal("Expected 'total' property in response schema")
+	}
+	if totalSchema.Type != "number" {
+		t.Errorf("Expected 'total' type to be 'number', got %q", totalSchema.Type)
+	}
+}
+
+func TestHandlerScenario_FunctionReturnTypeMapResponse(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getSummaryHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// buildSummary returns map[string]any — the response variable holds this
+	// The schema should be an object (from map[string]any resolution)
+	if h.ResponseSchema.Type != "object" {
+		t.Errorf("Expected response type 'object', got %q", h.ResponseSchema.Type)
+	}
+}
+
+// =============================================================================
+// Query Parameter Detection Tests
+// =============================================================================
+
+func TestHandlerScenario_QueryParameterDetection(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "searchWithFiltersHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected query parameters to be detected")
+	}
+
+	// Should have detected "category" and "status"
+	paramNames := map[string]bool{}
+	for _, p := range h.Parameters {
+		paramNames[p.Name] = true
+		if p.Source != "query" {
+			t.Errorf("Expected parameter %q source to be 'query', got %q", p.Name, p.Source)
+		}
+		if p.Type != "string" {
+			t.Errorf("Expected parameter %q type to be 'string', got %q", p.Name, p.Type)
+		}
+	}
+
+	if !paramNames["category"] {
+		t.Error("Expected 'category' query parameter to be detected")
+	}
+	if !paramNames["status"] {
+		t.Error("Expected 'status' query parameter to be detected")
+	}
+}
+
+func TestHandlerScenario_NoQueryParamsOnSimpleHandler(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "healthCheckHandler")
+
+	if len(h.Parameters) > 0 {
+		t.Errorf("Expected no parameters on healthCheckHandler, got %d", len(h.Parameters))
 	}
 }
 
