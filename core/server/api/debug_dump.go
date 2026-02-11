@@ -67,12 +67,21 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 		funcRetTypes[k] = v
 	}
 
+	// Parsed directories
+	parsedDirsList := make([]string, 0, len(parser.parsedDirs))
+	for dir := range parser.parsedDirs {
+		parsedDirsList = append(parsedDirsList, dir)
+	}
+	sort.Strings(parsedDirsList)
+
 	result["ast"] = map[string]any{
 		"total_structs":     len(allStructs),
 		"total_handlers":    len(allHandlers),
 		"structs":           structsOut,
 		"type_aliases":      aliases,
 		"func_return_types": funcRetTypes,
+		"module_path":       parser.modulePath,
+		"imported_packages": parsedDirsList,
 	}
 
 	// -------------------------------------------------------------------------

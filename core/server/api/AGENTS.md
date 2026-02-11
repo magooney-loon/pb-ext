@@ -26,17 +26,31 @@ This package (`core/server/api/`) is the OpenAPI documentation engine for pb-ext
 Source files (// API_SOURCE)
   |
   v
-ASTParser.ParseFile()
-  |-- extractStructs()            two-pass: register all structs, then generate JSONSchemas
-  |-- extractFuncReturnTypes()    scan non-handler functions for return type signatures
-  |-- extractHandlers()           find func(c *core.RequestEvent) error
-  |     |-- parseHandlerComments()   // API_DESC, // API_TAGS
-  |     |-- analyzePocketBasePatterns()
-  |     |     |-- BindBody / JSON / Decode detection
-  |     |     |-- trackVariableAssignment()   vars + map["key"]=value additions
-  |     |     \-- auth / database operation detection
-  |     |-- extractLocalVariables()
-  |     \-- extractQueryParameters()  detect q := URL.Query(); q.Get("param") patterns
+ASTParser.DiscoverSourceFiles()
+  |
+  |-- Phase 1: Parse API_SOURCE files
+  |     |
+  |     v
+  |   ASTParser.ParseFile()  (for each API_SOURCE file)
+  |     |-- extractStructs()            two-pass: register all structs, then generate JSONSchemas
+  |     |-- extractFuncReturnTypes()    scan non-handler functions for return type signatures
+  |     |-- extractHandlers()           find func(c *core.RequestEvent) error
+  |     |     |-- parseHandlerComments()   // API_DESC, // API_TAGS
+  |     |     |-- analyzePocketBasePatterns()
+  |     |     |     |-- BindBody / JSON / Decode detection
+  |     |     |     |-- trackVariableAssignment()   vars + map["key"]=value additions
+  |     |     |     \-- auth / database operation detection
+  |     |     |-- extractLocalVariables()
+  |     |     \-- extractQueryParameters()  detect q := URL.Query(); q.Get("param") patterns
+  |     \-- marks directory in parsedDirs
+  |
+  |-- Phase 2: Follow local imports (zero-config)
+  |     |-- parseImportedPackages()     collect imports from all API_SOURCE files
+  |     |     |-- getModulePath()       read go.mod for module name (cached on parser)
+  |     |     |-- resolve imports       strip module prefix → local directory path
+  |     |     |-- skip parsedDirs       avoid re-parsing API_SOURCE directories
+  |     |     \-- parseDirectoryStructs()  extract structs only from each dir (no handlers)
+  |     \-- re-run schema generation    imported structs may cross-reference each other
   v
 APIRegistry.RegisterRoute(method, path, handler, middlewares)
   |-- RouteAnalyzer: handler name, auth, path params, tags
@@ -84,6 +98,28 @@ This enables `inferTypeFromExpression` and `analyzeValueExpression` to resolve v
 ### Query Parameter Detection
 
 `extractQueryParameters()` detects `q := e.Request.URL.Query()` variable assignments and subsequent `q.Get("paramName")` calls. Detected parameters are added to `handlerInfo.Parameters` as `ParamInfo` entries with `Source: "query"`. The conversion pipeline in `schema_conversion.go` already handles `ParamInfo` → `OpenAPIParameter`.
+
+### Auto-Import Following (Cross-Package Struct Resolution)
+
+After all API_SOURCE files are parsed, `parseImportedPackages()` automatically resolves local imports (same Go module) and parses their struct definitions. This is zero-config — no directives needed on type definition files.
+
+**How it works:**
+1. `getModulePath()` reads `go.mod` (walking up from cwd) to get the module name. Cached in `ASTParser.modulePath`.
+2. For each API_SOURCE file, re-parse its imports. If an import path starts with `modulePath`, strip the prefix to get a relative directory.
+3. Skip directories already in `parsedDirs` (marked during Phase 1 when parsing API_SOURCE files).
+4. `parseDirectoryStructs(dir)` parses all `.go` files (excluding `_test.go`) in the directory, calling `extractStructs()` only — no handler analysis.
+5. After all imported directories are processed, re-run `generateStructSchema()` for all structs so cross-references between imported structs resolve correctly.
+
+**Key fields on ASTParser:**
+- `modulePath string` — Go module path from go.mod (e.g., `github.com/magooney-loon/pb-ext`)
+- `parsedDirs map[string]bool` — tracks directories already parsed to avoid duplicates
+
+**Edge cases:**
+- No `go.mod` found → `modulePath` stays empty, feature silently disabled (falls back to current behavior)
+- External imports (different module) → ignored, only local module imports are followed
+- API_SOURCE file's own directory → already in `parsedDirs` from Phase 1, won't be re-parsed
+- `_test.go` files → skipped in `parseDirectoryStructs`
+- Circular imports → not an issue since we only extract structs, never follow further imports
 
 ### Value Expression Analysis
 
@@ -134,6 +170,8 @@ Each API version (`v1`, `v2`, ...) gets its own isolated `ASTParser`, `SchemaGen
 - **Component pruning**: `GetDocsWithComponents()` walks all `$ref` targets recursively. If you add a new place where `$ref` can appear, make sure `collectRefsFromSchema` covers it.
 - **`extractFuncReturnTypes` ordering**: must run BEFORE `extractHandlers` in `ParseFile`, so that `inferTypeFromExpression` can resolve function call return types during handler body analysis.
 - **`funcReturnTypes` scope**: only covers functions in API_SOURCE files. Functions from imported packages won't be resolved — their call sites fall through to heuristic matching in `analyzeValueExpression`.
+- **Import following scope**: only resolves struct definitions from local imports. Handlers, func return types, and type aliases in imported packages are NOT extracted — only `extractStructs()` is called on imported directories.
+- **Duplicate struct names**: if an imported package defines a struct with the same name as one in an API_SOURCE file, last-parsed wins. No package-qualified naming yet.
 
 ## Test Coverage
 

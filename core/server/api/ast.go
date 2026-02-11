@@ -14,6 +14,29 @@ import (
 // Simplified PocketBase-Focused AST Parser
 // =============================================================================
 
+// getModulePath reads go.mod from the current directory (or parent directories)
+// and extracts the module path. Returns empty string if go.mod is not found.
+func getModulePath() string {
+	dir, _ := filepath.Abs(".")
+	for {
+		content, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		if err == nil {
+			for _, line := range strings.Split(string(content), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "module ") {
+					return strings.TrimSpace(strings.TrimPrefix(line, "module"))
+				}
+			}
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "" // reached filesystem root
+		}
+		dir = parent
+	}
+}
+
 // NewASTParser creates a new simplified PocketBase-focused AST parser
 func NewASTParser() *ASTParser {
 	ap := &ASTParser{
@@ -25,6 +48,8 @@ func NewASTParser() *ASTParser {
 		parseErrors:        make([]ParseError, 0),
 		typeAliases:        make(map[string]string),
 		funcReturnTypes:    make(map[string]string),
+		modulePath:         getModulePath(),
+		parsedDirs:         make(map[string]bool),
 	}
 
 	// Auto-discover source files
@@ -35,9 +60,12 @@ func NewASTParser() *ASTParser {
 	return ap
 }
 
-// DiscoverSourceFiles finds and parses files with API_SOURCE directive
+// DiscoverSourceFiles finds and parses files with API_SOURCE directive,
+// then follows local imports to parse struct definitions from imported packages.
 func (p *ASTParser) DiscoverSourceFiles() error {
-	return filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	// Phase 1: Find and parse all API_SOURCE files
+	var apiSourceFiles []string
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil || !strings.HasSuffix(path, ".go") {
 			return nil
 		}
@@ -48,11 +76,108 @@ func (p *ASTParser) DiscoverSourceFiles() error {
 		}
 
 		if strings.Contains(string(content), "// API_SOURCE") {
-			return p.ParseFile(path)
+			apiSourceFiles = append(apiSourceFiles, path)
 		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	for _, f := range apiSourceFiles {
+		if parseErr := p.ParseFile(f); parseErr != nil {
+			p.logger.Error("Failed to parse %s: %v", f, parseErr)
+		}
+	}
+
+	// Phase 2: Follow local imports from API_SOURCE files and parse their structs
+	p.parseImportedPackages(apiSourceFiles)
+
+	return nil
+}
+
+// parseImportedPackages collects imports from API_SOURCE files, resolves local ones
+// (within the same Go module) to filesystem paths, and parses their struct definitions.
+// This enables handlers to reference types from imported packages without extra directives.
+func (p *ASTParser) parseImportedPackages(apiSourceFiles []string) {
+	if p.modulePath == "" {
+		return // no go.mod found, can't resolve imports
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Collect all local import directories from API_SOURCE files
+	localDirs := map[string]bool{}
+	for _, f := range apiSourceFiles {
+		file, err := parser.ParseFile(p.fileSet, f, nil, parser.ParseComments)
+		if err != nil {
+			continue
+		}
+		for _, imp := range file.Imports {
+			importPath := strings.Trim(imp.Path.Value, `"`)
+			if !strings.HasPrefix(importPath, p.modulePath) {
+				continue
+			}
+			suffix := strings.TrimPrefix(importPath, p.modulePath)
+			suffix = strings.TrimPrefix(suffix, "/")
+			if suffix == "" {
+				continue // skip root module import
+			}
+			localDir := filepath.FromSlash(suffix)
+			localDirs[localDir] = true
+		}
+	}
+
+	// Parse each local directory for structs (skip already-parsed dirs)
+	newStructsAdded := false
+	for dir := range localDirs {
+		if p.parsedDirs[dir] {
+			continue
+		}
+		p.parsedDirs[dir] = true
+		if p.parseDirectoryStructs(dir) {
+			newStructsAdded = true
+		}
+	}
+
+	// Re-run schema generation if new structs were added (they may cross-reference)
+	if newStructsAdded {
+		for _, structInfo := range p.structs {
+			structInfo.JSONSchema = p.generateStructSchema(structInfo)
+		}
+	}
+}
+
+// parseDirectoryStructs parses all .go files in a directory for struct definitions
+// and type aliases only (no handlers or function return types). Returns true if any
+// new structs were added.
+func (p *ASTParser) parseDirectoryStructs(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	added := false
+	countBefore := len(p.structs)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		filePath := filepath.Join(dir, entry.Name())
+		file, err := parser.ParseFile(p.fileSet, filePath, nil, parser.ParseComments)
+		if err != nil {
+			continue
+		}
+		p.extractStructs(file)
+	}
+	if len(p.structs) > countBefore {
+		added = true
+	}
+	return added
 }
 
 // ParseFile parses a single Go file for PocketBase patterns
@@ -81,6 +206,10 @@ func (p *ASTParser) ParseFile(filename string) error {
 		// File doesn't have API_SOURCE directive, skip processing
 		return nil
 	}
+
+	// Track this file's directory as already parsed (avoid re-parsing in import resolution)
+	dir := filepath.Dir(filename)
+	p.parsedDirs[dir] = true
 
 	// Extract structs (for request/response types)
 	p.extractStructs(file)
@@ -1105,6 +1234,7 @@ func (p *ASTParser) ClearCache() {
 	p.structs = make(map[string]*StructInfo)
 	p.handlers = make(map[string]*ASTHandlerInfo)
 	p.funcReturnTypes = make(map[string]string)
+	p.parsedDirs = make(map[string]bool)
 }
 
 // analyzeMapLiteralSchema analyzes composite literals (map, struct, slice) to generate schemas
