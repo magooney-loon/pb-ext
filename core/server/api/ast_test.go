@@ -2208,6 +2208,23 @@ func getObservationsHandler(c *core.RequestEvent) error {
 	return c.JSON(http.StatusOK, result)
 }
 
+// 37. Handler that uses inline append (no separate entry variable)
+// API_DESC List inline items
+// API_TAGS Test
+func listInlineAppendHandler(c *core.RequestEvent) error {
+	records, _ := c.App.FindRecordsByFilter("items", "1=1", "", 100, 0)
+	items := make([]map[string]any, 0, len(records))
+	for _, r := range records {
+		items = append(items, map[string]any{
+			"id":       r.GetString("id"),
+			"name":     r.GetString("name"),
+			"value":    r.GetFloat("value"),
+			"active":   r.GetBool("active"),
+		})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": items, "total": len(items)})
+}
+
 // --- Index expression resolution from funcBodySchemas ---
 
 // fetchIntervalSummary is a helper that returns a map[string]any with known keys
@@ -2813,7 +2830,7 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getCandleDataHandler", "getScoreItemsHandler",
 		"getTokenDetailHandler", "getMultiMapHandler", "getEmptyFormatHandler",
 		"listNetworksHandler", "listTokensHandler", "getObservationsHandler",
-		"getLatestSummaryHandler",
+		"getLatestSummaryHandler", "listInlineAppendHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -3434,6 +3451,48 @@ func TestHandlerScenario_SliceAppendTracking(t *testing.T) {
 	// The append expression should be a variable reference to "entry"
 	if appendExpr == nil {
 		t.Fatal("Expected non-nil append expression")
+	}
+}
+
+func TestHandlerScenario_InlineAppendPattern(t *testing.T) {
+	// Tests the pattern: items = append(items, map[string]any{...}) with NO separate entry variable
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "listInlineAppendHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	assertInlineObject(t, h.ResponseSchema, []string{"items", "total"}, "response")
+
+	itemsSchema := h.ResponseSchema.Properties["items"]
+	if itemsSchema == nil {
+		t.Fatal("Expected 'items' property")
+	}
+	if itemsSchema.Type != "array" {
+		t.Fatalf("Expected 'items' type 'array', got %q", itemsSchema.Type)
+	}
+	if itemsSchema.Items == nil {
+		t.Fatal("Expected Items on items array")
+	}
+
+	items := itemsSchema.Items
+	if len(items.Properties) == 0 {
+		t.Fatal("Expected items to have properties (inline append resolution), got empty — still generic?")
+	}
+
+	for _, key := range []string{"id", "name", "value", "active"} {
+		if _, ok := items.Properties[key]; !ok {
+			t.Errorf("Expected property %q in inline-appended item schema", key)
+		}
+	}
+
+	// Verify types
+	if s := items.Properties["active"]; s != nil && s.Type != "boolean" {
+		t.Errorf("Expected 'active' type 'boolean', got %q", s.Type)
+	}
+	if s := items.Properties["value"]; s != nil && s.Type != "number" {
+		t.Errorf("Expected 'value' type 'number', got %q", s.Type)
 	}
 }
 
