@@ -557,6 +557,13 @@ func (p *ASTParser) inferTypeFromExpression(expr ast.Expr, handlerInfo *ASTHandl
 	case *ast.CallExpr:
 		// Handle constructor patterns generically
 		if ident, ok := e.Fun.(*ast.Ident); ok {
+			// Handle make() — extract type from first argument
+			if ident.Name == "make" && len(e.Args) > 0 {
+				typeName := p.extractTypeName(e.Args[0])
+				if typeName != "" {
+					return typeName
+				}
+			}
 			if strings.HasPrefix(ident.Name, "New") && len(ident.Name) > 3 {
 				return strings.TrimPrefix(ident.Name, "New")
 			}
@@ -1089,12 +1096,22 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 					}
 					// Try composite literal analysis (map/struct/slice literals)
 					if schema := p.analyzeMapLiteralSchema(inner, handlerInfo); schema != nil {
+						// Merge dynamic map additions for this variable
+						p.mergeMapAdditions(schema, e.Name, handlerInfo)
+						return schema
+					}
+					// Try full expression analysis (handles make(), function calls, etc.)
+					if schema := p.analyzeValueExpression(inner, handlerInfo); schema != nil && schema.Type != "string" {
+						// Merge dynamic map additions for this variable
+						p.mergeMapAdditions(schema, e.Name, handlerInfo)
 						return schema
 					}
 				}
 				// Then check the inferred type name
 				if varType, exists := handlerInfo.Variables[e.Name]; exists {
 					if schema := p.resolveTypeToSchema(varType); schema != nil {
+						// Merge dynamic map additions for this variable
+						p.mergeMapAdditions(schema, e.Name, handlerInfo)
 						return schema
 					}
 				}
@@ -1109,6 +1126,9 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 		if e.Op == token.AND {
 			return p.analyzeValueExpression(e.X, handlerInfo)
 		}
+	case *ast.StarExpr:
+		// Handle pointer dereference *expr — unwrap and analyze the inner expression
+		return p.analyzeValueExpression(e.X, handlerInfo)
 	case *ast.CallExpr:
 		// Handle method calls that return specific types
 		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
