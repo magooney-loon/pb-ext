@@ -39,7 +39,7 @@ ASTParser.DiscoverSourceFiles()
   |     |     |-- parseHandlerComments()   // API_DESC, // API_TAGS
   |     |     |-- analyzePocketBasePatterns()
   |     |     |     |-- BindBody / JSON / Decode detection
-  |     |     |     |-- trackVariableAssignment()   vars + map["key"]=value additions
+  |     |     |     |-- trackVariableAssignment()   vars + map["key"]=value additions + append() tracking
   |     |     |     \-- auth / database operation detection
   |     |     |-- extractLocalVariables()
   |     |     \-- extractQueryParameters()  detect q := URL.Query(); q.Get("param") patterns
@@ -110,6 +110,39 @@ When `extractFuncReturnTypes()` finds a function returning `map[string]any` or `
 **Consumption**: In `analyzeValueExpression`, when a `*ast.CallExpr` is encountered for a function with a `funcBodySchemas` entry, the deep schema is returned (via `deepCopySchema`) instead of the generic type-based schema from `resolveTypeToSchema`. This flows through the normal handler analysis — when a handler has `candles := formatCandlesFull(records)` and returns `map[string]any{"candles": candles}`, the `candles` value resolves to the array-of-objects schema with typed properties instead of `{type: "array", items: {type: "object", additionalProperties: true}}`.
 
 **Limitation**: Only covers functions defined in API_SOURCE files, not imported packages.
+
+### Append-Based Slice Item Resolution
+
+When a handler builds a slice via `make([]map[string]any, ...)` and populates it in a loop with `append(varName, entry)`, the `make()` call alone produces a generic `{type: "array", items: {type: "object", additionalProperties: true}}`. The append-based resolution connects the appended item expression to the slice variable.
+
+**How it works:**
+1. `trackVariableAssignment()` detects `varName = append(varName, itemExpr)` patterns and stores `itemExpr` in `SliceAppendExprs[varName]` on the handler info
+2. `enrichArraySchemaFromAppend()` is called after resolving a variable to an array schema — if the items are generic, it looks up the append source expression and resolves it via `analyzeValueExpression()`
+3. The resolved item expression (usually a variable referencing a `map[string]any{...}` literal) provides the rich items schema with typed properties
+
+**Key field on ASTHandlerInfo:** `SliceAppendExprs map[string]ast.Expr` — maps slice variable names to the item expression being appended.
+
+**Common pattern this resolves:**
+```go
+entries := make([]map[string]any, 0)
+for _, r := range records {
+    entry := map[string]any{"name": r.GetString("name"), "value": r.GetFloat("val")}
+    entries = append(entries, entry)
+}
+return c.JSON(200, map[string]any{"entries": entries})
+```
+
+### Index Expression Resolution (map["key"] from funcBodySchemas)
+
+When a helper function reads values from another helper's return value via index expressions (e.g., `summary["price"]`), the parser resolves the property type by looking up the source function's `funcBodySchemas` entry.
+
+**How it works:**
+1. In `analyzeValueExpression`, the `*ast.IndexExpr` case handles `mapVar["key"]` patterns
+2. It traces `mapVar` to its defining expression via `handlerInfo.VariableExprs`
+3. If the defining expression is a function call (e.g., `fetchIntervalSummary(tokenID)`), it looks up the function name in `funcBodySchemas`
+4. If the body schema has a property matching the key, that property's schema is returned
+
+This means `summary["price"]` where `summary = fetchIntervalSummary(id)` resolves to `{type: "number"}` instead of generic `{type: "string"}`.
 
 ### Query Parameter Detection
 

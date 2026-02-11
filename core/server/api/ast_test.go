@@ -2145,6 +2145,101 @@ func getEmptyFormatHandler(c *core.RequestEvent) error {
 	items := emptyFormatFunc(records)
 	return c.JSON(http.StatusOK, map[string]any{"items": items})
 }
+
+// --- Append-based inline loop patterns (make + append in handler body) ---
+
+// 33. Handler that builds a slice with make() + append() in a for-range loop
+// API_DESC List networks
+// API_TAGS Networks
+func listNetworksHandler(c *core.RequestEvent) error {
+	records, _ := c.App.FindRecordsByFilter("networks", "1=1", "", 100, 0)
+	networks := make([]map[string]any, 0, len(records))
+	for _, r := range records {
+		entry := map[string]any{
+			"id":         r.GetString("id"),
+			"name":       r.GetString("name"),
+			"chain_id":   r.GetInt("chain_id"),
+			"rpc_url":    r.GetString("rpc_url"),
+			"active":     r.GetBool("active"),
+		}
+		networks = append(networks, entry)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"networks": networks, "count": len(networks)})
+}
+
+// 34. Handler that builds a slice with make() + append() and map additions on appended item
+// API_DESC List tokens
+// API_TAGS Tokens
+func listTokensHandler(c *core.RequestEvent) error {
+	records, _ := c.App.FindRecordsByFilter("tokens", "1=1", "", 100, 0)
+	tokens := make([]map[string]any, 0, len(records))
+	for _, r := range records {
+		entry := map[string]any{
+			"id":       r.GetString("id"),
+			"symbol":   r.GetString("symbol"),
+			"name":     r.GetString("name"),
+			"decimals": r.GetInt("decimals"),
+		}
+		entry["price"] = r.GetFloat("price")
+		entry["volume"] = r.GetFloat("volume_24h")
+		tokens = append(tokens, entry)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"tokens": tokens})
+}
+
+// 35. Handler that directly returns a make+append result (not wrapped in outer map)
+// API_DESC Get observations
+// API_TAGS Analytics
+func getObservationsHandler(c *core.RequestEvent) error {
+	records, _ := c.App.FindRecordsByFilter("observations", "1=1", "", 100, 0)
+	observations := make([]map[string]any, 0)
+	for _, r := range records {
+		obs := map[string]any{
+			"timestamp": r.GetDateTime("created"),
+			"value":     r.GetFloat("value"),
+			"source":    r.GetString("source"),
+		}
+		observations = append(observations, obs)
+	}
+	result := map[string]any{
+		"observations": observations,
+		"total":        len(observations),
+	}
+	return c.JSON(http.StatusOK, result)
+}
+
+// --- Index expression resolution from funcBodySchemas ---
+
+// fetchIntervalSummary is a helper that returns a map[string]any with known keys
+func fetchIntervalSummary(tokenID string) map[string]any {
+	return map[string]any{
+		"price":       42.5,
+		"volume":      1000000.0,
+		"market_cap":  5000000.0,
+		"change_pct":  2.5,
+		"high":        45.0,
+		"low":         40.0,
+	}
+}
+
+// fetchLatestSummary builds a map by reading keys from another helper's result
+func fetchLatestSummary(tokenID string) map[string]any {
+	summary := fetchIntervalSummary(tokenID)
+	return map[string]any{
+		"price":      summary["price"],
+		"volume":     summary["volume"],
+		"market_cap": summary["market_cap"],
+		"updated":    true,
+	}
+}
+
+// 36. Handler using fetchLatestSummary (index expr resolution via funcBodySchemas)
+// API_DESC Get latest summary
+// API_TAGS Analytics
+func getLatestSummaryHandler(c *core.RequestEvent) error {
+	summary := fetchLatestSummary("tok123")
+	return c.JSON(http.StatusOK, summary)
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -2717,6 +2812,8 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getComputedTotalHandler", "getSummaryHandler",
 		"getCandleDataHandler", "getScoreItemsHandler",
 		"getTokenDetailHandler", "getMultiMapHandler", "getEmptyFormatHandler",
+		"listNetworksHandler", "listTokensHandler", "getObservationsHandler",
+		"getLatestSummaryHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -3197,6 +3294,231 @@ func TestHandlerScenario_DeepHelperEmptyFallback(t *testing.T) {
 	}
 	if itemsSchema.Type != "array" {
 		t.Fatalf("Expected 'items' type 'array', got %q", itemsSchema.Type)
+	}
+}
+
+// =============================================================================
+// Append-Based Inline Loop Resolution Tests (make + append in handler body)
+// =============================================================================
+
+func TestHandlerScenario_AppendBasedNetworks(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "listNetworksHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// Response should be {networks: [...], count: int}
+	assertInlineObject(t, h.ResponseSchema, []string{"networks", "count"}, "response")
+
+	networksSchema := h.ResponseSchema.Properties["networks"]
+	if networksSchema == nil {
+		t.Fatal("Expected 'networks' property")
+	}
+	if networksSchema.Type != "array" {
+		t.Fatalf("Expected 'networks' type 'array', got %q", networksSchema.Type)
+	}
+	if networksSchema.Items == nil {
+		t.Fatal("Expected Items on networks array")
+	}
+
+	// The items should have actual keys from the map literal, NOT generic additionalProperties
+	items := networksSchema.Items
+	if len(items.Properties) == 0 {
+		t.Fatal("Expected items to have properties (append-based resolution), got empty — still generic?")
+	}
+
+	for _, key := range []string{"id", "name", "chain_id", "rpc_url", "active"} {
+		if _, ok := items.Properties[key]; !ok {
+			t.Errorf("Expected property %q in network item schema", key)
+		}
+	}
+
+	// Verify specific types
+	if s := items.Properties["active"]; s != nil && s.Type != "boolean" {
+		t.Errorf("Expected 'active' type 'boolean', got %q", s.Type)
+	}
+	if s := items.Properties["name"]; s != nil && s.Type != "string" {
+		t.Errorf("Expected 'name' type 'string', got %q", s.Type)
+	}
+}
+
+func TestHandlerScenario_AppendBasedTokensWithMapAdditions(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "listTokensHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	tokensSchema := h.ResponseSchema.Properties["tokens"]
+	if tokensSchema == nil {
+		t.Fatal("Expected 'tokens' property")
+	}
+	if tokensSchema.Type != "array" {
+		t.Fatalf("Expected 'tokens' type 'array', got %q", tokensSchema.Type)
+	}
+	if tokensSchema.Items == nil {
+		t.Fatal("Expected Items on tokens array")
+	}
+
+	items := tokensSchema.Items
+	if len(items.Properties) == 0 {
+		t.Fatal("Expected items to have properties from append resolution")
+	}
+
+	// Keys from the map literal
+	for _, key := range []string{"id", "symbol", "name", "decimals"} {
+		if _, ok := items.Properties[key]; !ok {
+			t.Errorf("Expected property %q from map literal in token item schema", key)
+		}
+	}
+
+	// Keys from map additions (entry["price"] = ..., entry["volume"] = ...)
+	// These should be resolved via the map additions on the appended variable
+	for _, key := range []string{"price", "volume"} {
+		if _, ok := items.Properties[key]; !ok {
+			t.Errorf("Expected property %q from map additions in token item schema", key)
+		}
+	}
+}
+
+func TestHandlerScenario_AppendBasedObservations(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getObservationsHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	assertInlineObject(t, h.ResponseSchema, []string{"observations", "total"}, "response")
+
+	obsSchema := h.ResponseSchema.Properties["observations"]
+	if obsSchema == nil {
+		t.Fatal("Expected 'observations' property")
+	}
+	if obsSchema.Type != "array" {
+		t.Fatalf("Expected 'observations' type 'array', got %q", obsSchema.Type)
+	}
+	if obsSchema.Items == nil {
+		t.Fatal("Expected Items on observations array")
+	}
+
+	items := obsSchema.Items
+	if len(items.Properties) == 0 {
+		t.Fatal("Expected items to have properties from append resolution")
+	}
+
+	for _, key := range []string{"timestamp", "value", "source"} {
+		if _, ok := items.Properties[key]; !ok {
+			t.Errorf("Expected property %q in observation item schema", key)
+		}
+	}
+}
+
+func TestHandlerScenario_SliceAppendTracking(t *testing.T) {
+	// Verify that SliceAppendExprs are correctly populated
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "listNetworksHandler")
+
+	if h.SliceAppendExprs == nil {
+		t.Fatal("Expected SliceAppendExprs to be initialized")
+	}
+
+	appendExpr, exists := h.SliceAppendExprs["networks"]
+	if !exists {
+		t.Fatal("Expected 'networks' to have an append expression tracked")
+	}
+
+	// The append expression should be a variable reference to "entry"
+	if appendExpr == nil {
+		t.Fatal("Expected non-nil append expression")
+	}
+}
+
+// =============================================================================
+// Index Expression Resolution Tests (map["key"] from funcBodySchemas)
+// =============================================================================
+
+func TestFuncBodySchema_FetchIntervalSummary(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// fetchIntervalSummary returns map[string]any with known keys
+	schema, exists := parser.funcBodySchemas["fetchIntervalSummary"]
+	if !exists {
+		t.Fatal("Expected funcBodySchemas entry for 'fetchIntervalSummary'")
+	}
+
+	if schema.Type != "object" {
+		t.Fatalf("Expected type 'object', got %q", schema.Type)
+	}
+
+	expectedKeys := []string{"price", "volume", "market_cap", "change_pct", "high", "low"}
+	for _, key := range expectedKeys {
+		if _, ok := schema.Properties[key]; !ok {
+			t.Errorf("Expected property %q in fetchIntervalSummary schema", key)
+		}
+	}
+}
+
+func TestFuncBodySchema_FetchLatestSummary(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// fetchLatestSummary builds a map where some values are summary["key"] index expressions
+	schema, exists := parser.funcBodySchemas["fetchLatestSummary"]
+	if !exists {
+		t.Fatal("Expected funcBodySchemas entry for 'fetchLatestSummary'")
+	}
+
+	if schema.Type != "object" {
+		t.Fatalf("Expected type 'object', got %q", schema.Type)
+	}
+
+	// Should have all 4 keys
+	expectedKeys := []string{"price", "volume", "market_cap", "updated"}
+	for _, key := range expectedKeys {
+		if _, ok := schema.Properties[key]; !ok {
+			t.Errorf("Expected property %q in fetchLatestSummary schema", key)
+		}
+	}
+
+	// "updated" should be boolean (from literal true)
+	if s := schema.Properties["updated"]; s != nil && s.Type != "boolean" {
+		t.Errorf("Expected 'updated' type 'boolean', got %q", s.Type)
+	}
+
+	// "price" should resolve to a numeric type (from fetchIntervalSummary's body schema)
+	// since summary["price"] should look up the type from funcBodySchemas["fetchIntervalSummary"]
+	if s := schema.Properties["price"]; s != nil {
+		if s.Type != "number" {
+			t.Errorf("Expected 'price' type 'number' (from index expr resolution), got %q", s.Type)
+		}
+	}
+}
+
+func TestHandlerScenario_LatestSummaryEndToEnd(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getLatestSummaryHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// Response should have the keys from fetchLatestSummary
+	if h.ResponseSchema.Type != "object" {
+		t.Fatalf("Expected response type 'object', got %q", h.ResponseSchema.Type)
+	}
+
+	for _, key := range []string{"price", "volume", "market_cap", "updated"} {
+		if _, ok := h.ResponseSchema.Properties[key]; !ok {
+			t.Errorf("Expected property %q in latest summary response", key)
+		}
+	}
+
+	// "updated" should be boolean
+	if s := h.ResponseSchema.Properties["updated"]; s != nil && s.Type != "boolean" {
+		t.Errorf("Expected 'updated' type 'boolean', got %q", s.Type)
 	}
 }
 

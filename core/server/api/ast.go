@@ -394,9 +394,10 @@ func (p *ASTParser) extractFuncReturnTypes(file *ast.File) {
 func (p *ASTParser) analyzeHelperFuncBody(funcDecl *ast.FuncDecl) *OpenAPISchema {
 	// Build a temporary handler info to track variables and map additions within this function
 	tempInfo := &ASTHandlerInfo{
-		Variables:     make(map[string]string),
-		VariableExprs: make(map[string]ast.Expr),
-		MapAdditions:  make(map[string][]MapKeyAdd),
+		Variables:        make(map[string]string),
+		VariableExprs:    make(map[string]ast.Expr),
+		MapAdditions:     make(map[string][]MapKeyAdd),
+		SliceAppendExprs: make(map[string]ast.Expr),
 	}
 
 	// Collect all map[string]any composite literals found in the body.
@@ -566,10 +567,11 @@ func (p *ASTParser) isPocketBaseHandler(funcDecl *ast.FuncDecl) bool {
 // analyzePocketBaseHandler analyzes a PocketBase handler function
 func (p *ASTParser) analyzePocketBaseHandler(funcDecl *ast.FuncDecl) *ASTHandlerInfo {
 	handlerInfo := &ASTHandlerInfo{
-		Name:          funcDecl.Name.Name,
-		Variables:     make(map[string]string),
-		VariableExprs: make(map[string]ast.Expr),
-		MapAdditions:  make(map[string][]MapKeyAdd),
+		Name:             funcDecl.Name.Name,
+		Variables:        make(map[string]string),
+		VariableExprs:    make(map[string]ast.Expr),
+		MapAdditions:     make(map[string][]MapKeyAdd),
+		SliceAppendExprs: make(map[string]ast.Expr),
 	}
 
 	// Extract API description from comments
@@ -822,6 +824,21 @@ func (p *ASTParser) trackVariableAssignment(assign *ast.AssignStmt, handlerInfo 
 			}
 			// Always store the RHS expression so we can analyze map literals later
 			handlerInfo.VariableExprs[ident.Name] = rhs
+
+			// Track append() calls: varName = append(varName, itemExpr)
+			// This captures the item expression being appended to a slice variable
+			if handlerInfo.SliceAppendExprs != nil {
+				if callExpr, ok := rhs.(*ast.CallExpr); ok {
+					if fnIdent, ok := callExpr.Fun.(*ast.Ident); ok && fnIdent.Name == "append" {
+						if len(callExpr.Args) == 2 {
+							// Verify first arg is the same variable (append(varName, item))
+							if argIdent, ok := callExpr.Args[0].(*ast.Ident); ok && argIdent.Name == ident.Name {
+								handlerInfo.SliceAppendExprs[ident.Name] = callExpr.Args[1]
+							}
+						}
+					}
+				}
+			}
 		}
 
 		// Track dynamic map key additions: mapVar["key"] = value
@@ -868,6 +885,45 @@ func (p *ASTParser) mergeMapAdditions(schema *OpenAPISchema, varName string, han
 			schema.Properties[add.Key] = valueSchema
 		}
 	}
+}
+
+// enrichArraySchemaFromAppend checks if an array schema has generic items (no properties)
+// and tries to resolve richer items from tracked append() patterns.
+// For example, when a handler does:
+//
+//	entries := make([]map[string]any, 0)
+//	for _, r := range records {
+//	    entry := map[string]any{"name": r.GetString("name"), ...}
+//	    entries = append(entries, entry)
+//	}
+//
+// The make() produces a generic {type:"array", items:{type:"object", additionalProperties:true}}.
+// This method replaces the items with the resolved schema from the appended expression (entry).
+func (p *ASTParser) enrichArraySchemaFromAppend(schema *OpenAPISchema, varName string, handlerInfo *ASTHandlerInfo) *OpenAPISchema {
+	// Only enrich arrays with generic items
+	if schema.Type != "array" || schema.Items == nil {
+		return schema
+	}
+	if len(schema.Items.Properties) > 0 || schema.Items.Ref != "" {
+		return schema // items already have rich schema
+	}
+
+	if handlerInfo.SliceAppendExprs == nil {
+		return schema
+	}
+
+	appendExpr, exists := handlerInfo.SliceAppendExprs[varName]
+	if !exists {
+		return schema
+	}
+
+	// The appended expression might be a variable (e.g., "entry") — resolve it
+	itemSchema := p.analyzeValueExpression(appendExpr, handlerInfo)
+	if itemSchema != nil && itemSchema.Type != "string" && (len(itemSchema.Properties) > 0 || itemSchema.Ref != "") {
+		schema.Items = itemSchema
+	}
+
+	return schema
 }
 
 // inferTypeFromExpression infers type from expressions (generic approach)
@@ -1456,6 +1512,8 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 					if schema := p.analyzeValueExpression(inner, handlerInfo); schema != nil && schema.Type != "string" {
 						// Merge dynamic map additions for this variable
 						p.mergeMapAdditions(schema, e.Name, handlerInfo)
+						// If this is a generic array, try to resolve items from append() patterns
+						schema = p.enrichArraySchemaFromAppend(schema, e.Name, handlerInfo)
 						return schema
 					}
 				}
@@ -1464,6 +1522,8 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 					if schema := p.resolveTypeToSchema(varType); schema != nil {
 						// Merge dynamic map additions for this variable
 						p.mergeMapAdditions(schema, e.Name, handlerInfo)
+						// If this is a generic array, try to resolve items from append() patterns
+						schema = p.enrichArraySchemaFromAppend(schema, e.Name, handlerInfo)
 						return schema
 					}
 				}
@@ -1546,6 +1606,31 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 				}
 			}
 		}
+	case *ast.IndexExpr:
+		// Handle map index expressions: mapVar["key"]
+		// If mapVar was assigned from a function call whose body schema is known,
+		// look up the key's type from that schema.
+		if ident, ok := e.X.(*ast.Ident); ok && handlerInfo != nil {
+			if keyLit, ok := e.Index.(*ast.BasicLit); ok && keyLit.Kind == token.STRING {
+				key := strings.Trim(keyLit.Value, `"`)
+				// Try to resolve mapVar to a funcBodySchemas entry via its traced expression
+				if tracedExpr, exists := handlerInfo.VariableExprs[ident.Name]; exists {
+					if callExpr, ok := tracedExpr.(*ast.CallExpr); ok {
+						if fnIdent, ok := callExpr.Fun.(*ast.Ident); ok {
+							if bodySchema, ok := p.funcBodySchemas[fnIdent.Name]; ok {
+								if bodySchema.Properties != nil {
+									if propSchema, ok := bodySchema.Properties[key]; ok {
+										return p.deepCopySchema(propSchema)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		// Fall through to generic handling — we can't determine type from map[string]any index
+		return &OpenAPISchema{Type: "string"}
 	case *ast.SelectorExpr:
 		// Handle req.Field access — try to resolve the field type from struct definitions
 		if ident, ok := e.X.(*ast.Ident); ok && handlerInfo != nil {

@@ -144,6 +144,24 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 			}
 		}
 
+		// Build slice append expressions info
+		var sliceAppends map[string]any
+		if len(h.SliceAppendExprs) > 0 {
+			sliceAppends = make(map[string]any, len(h.SliceAppendExprs))
+			for varName, appendExpr := range h.SliceAppendExprs {
+				entry := map[string]any{"expr_type": fmt.Sprintf("%T", appendExpr)}
+				var sb strings.Builder
+				if err := printer.Fprint(&sb, parser.fileSet, appendExpr); err == nil {
+					src := sb.String()
+					if len(src) > 200 {
+						src = src[:200] + "..."
+					}
+					entry["expr_source"] = src
+				}
+				sliceAppends[varName] = entry
+			}
+		}
+
 		handlersOut[name] = map[string]any{
 			"name":             h.Name,
 			"api_description":  h.APIDescription,
@@ -155,6 +173,7 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 			"parameters":       h.Parameters,
 			"variables":        vars,
 			"map_additions":    mapAdds,
+			"slice_appends":    sliceAppends,
 			"requires_auth":    h.RequiresAuth,
 			"auth_type":        h.AuthType,
 			"uses_bind_body":   h.UsesBindBody,
