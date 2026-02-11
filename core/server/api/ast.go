@@ -153,9 +153,13 @@ func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructTy
 				p.logger.Error("Failed to extract type for field '%s' in struct '%s'", name.Name, structInfo.Name)
 			}
 
+			// Detect pointer types before extractTypeName unwraps them
+			_, isPointer := field.Type.(*ast.StarExpr)
+
 			fieldInfo := &FieldInfo{
-				Name: name.Name,
-				Type: fieldType,
+				Name:      name.Name,
+				Type:      fieldType,
+				IsPointer: isPointer,
 			}
 
 			// Parse JSON tags
@@ -175,13 +179,20 @@ func (p *ASTParser) parseStruct(typeSpec *ast.TypeSpec, structType *ast.StructTy
 	return structInfo
 }
 
-// parseJSONTag parses JSON struct tags
+// parseJSONTag parses JSON struct tags including omitempty
 func (p *ASTParser) parseJSONTag(tagValue string, fieldInfo *FieldInfo) {
 	tagValue = strings.Trim(tagValue, "`")
 	if jsonTag := p.extractTag(tagValue, "json"); jsonTag != "" {
 		parts := strings.Split(jsonTag, ",")
 		if len(parts) > 0 && parts[0] != "" && parts[0] != "-" {
 			fieldInfo.JSONName = parts[0]
+		}
+		// Check for omitempty option
+		for _, opt := range parts[1:] {
+			if strings.TrimSpace(opt) == "omitempty" {
+				fieldInfo.JSONOmitEmpty = true
+				break
+			}
 		}
 	}
 }
@@ -233,6 +244,7 @@ func (p *ASTParser) analyzePocketBaseHandler(funcDecl *ast.FuncDecl) *ASTHandler
 		Name:          funcDecl.Name.Name,
 		Variables:     make(map[string]string),
 		VariableExprs: make(map[string]ast.Expr),
+		MapAdditions:  make(map[string][]MapKeyAdd),
 	}
 
 	// Extract API description from comments
@@ -368,10 +380,14 @@ func (p *ASTParser) handleJSONResponse(call *ast.CallExpr, handlerInfo *ASTHandl
 
 		// Try composite literal analysis on each candidate expression
 		for _, candidate := range exprsToAnalyze {
-			if schema := p.analyzeMapLiteralSchema(candidate); schema != nil {
+			if schema := p.analyzeMapLiteralSchema(candidate, handlerInfo); schema != nil {
 				// Also set ResponseType for metadata if we can infer it
 				if responseType := p.inferTypeFromExpression(candidate, handlerInfo); responseType != "" {
 					handlerInfo.ResponseType = responseType
+				}
+				// Merge dynamic map key additions (e.g., result["key"] = value)
+				if ident, ok := arg.(*ast.Ident); ok {
+					p.mergeMapAdditions(schema, ident.Name, handlerInfo)
 				}
 				handlerInfo.ResponseSchema = schema
 				return
@@ -462,6 +478,50 @@ func (p *ASTParser) trackVariableAssignment(assign *ast.AssignStmt, handlerInfo 
 			// Always store the RHS expression so we can analyze map literals later
 			handlerInfo.VariableExprs[ident.Name] = rhs
 		}
+
+		// Track dynamic map key additions: mapVar["key"] = value
+		if indexExpr, ok := lhs.(*ast.IndexExpr); ok {
+			if ident, ok := indexExpr.X.(*ast.Ident); ok {
+				// Extract the string key from the index expression
+				if basicLit, ok := indexExpr.Index.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
+					key := strings.Trim(basicLit.Value, `"`)
+					var valueExpr ast.Expr
+					if i < len(assign.Rhs) {
+						valueExpr = assign.Rhs[i]
+					} else if len(assign.Rhs) == 1 {
+						valueExpr = assign.Rhs[0]
+					}
+					if valueExpr != nil {
+						handlerInfo.MapAdditions[ident.Name] = append(
+							handlerInfo.MapAdditions[ident.Name],
+							MapKeyAdd{Key: key, Value: valueExpr},
+						)
+					}
+				}
+			}
+		}
+	}
+}
+
+// mergeMapAdditions merges dynamically added map keys into an existing object schema
+// This handles patterns like: result["computed_at"] = time.Now().Format(...)
+func (p *ASTParser) mergeMapAdditions(schema *OpenAPISchema, varName string, handlerInfo *ASTHandlerInfo) {
+	additions, exists := handlerInfo.MapAdditions[varName]
+	if !exists || len(additions) == 0 {
+		return
+	}
+	if schema.Properties == nil {
+		schema.Properties = make(map[string]*OpenAPISchema)
+	}
+	for _, add := range additions {
+		// Don't overwrite existing keys from the literal
+		if _, exists := schema.Properties[add.Key]; exists {
+			continue
+		}
+		valueSchema := p.analyzeValueExpression(add.Value, handlerInfo)
+		if valueSchema != nil {
+			schema.Properties[add.Key] = valueSchema
+		}
 	}
 }
 
@@ -497,6 +557,13 @@ func (p *ASTParser) inferTypeFromExpression(expr ast.Expr, handlerInfo *ASTHandl
 	case *ast.CallExpr:
 		// Handle constructor patterns generically
 		if ident, ok := e.Fun.(*ast.Ident); ok {
+			// Handle make() — extract type from first argument
+			if ident.Name == "make" && len(e.Args) > 0 {
+				typeName := p.extractTypeName(e.Args[0])
+				if typeName != "" {
+					return typeName
+				}
+			}
 			if strings.HasPrefix(ident.Name, "New") && len(ident.Name) > 3 {
 				return strings.TrimPrefix(ident.Name, "New")
 			}
@@ -588,7 +655,12 @@ func (p *ASTParser) generateStructSchema(structInfo *StructInfo) *OpenAPISchema 
 			fieldName = fieldInfo.Name
 		}
 
-		schema.Properties[fieldName] = p.generateFieldSchema(fieldInfo.Type)
+		fieldSchema := p.generateFieldSchema(fieldInfo.Type)
+		// Mark pointer fields as nullable in OpenAPI 3.0
+		if fieldInfo.IsPointer && fieldSchema != nil && fieldSchema.Ref == "" {
+			fieldSchema.Nullable = boolPtr(true)
+		}
+		schema.Properties[fieldName] = fieldSchema
 	}
 
 	return schema
@@ -932,15 +1004,19 @@ func (p *ASTParser) ClearCache() {
 
 // analyzeMapLiteralSchema analyzes composite literals (map, struct, slice) to generate schemas
 // Returns nil if the expression is not a composite literal, so callers can fall through to other checks
-func (p *ASTParser) analyzeMapLiteralSchema(expr ast.Expr) *OpenAPISchema {
+func (p *ASTParser) analyzeMapLiteralSchema(expr ast.Expr, handlerInfo ...*ASTHandlerInfo) *OpenAPISchema {
+	var hi *ASTHandlerInfo
+	if len(handlerInfo) > 0 {
+		hi = handlerInfo[0]
+	}
 	if compLit, ok := expr.(*ast.CompositeLit); ok {
-		return p.analyzeCompositeLitSchema(compLit)
+		return p.analyzeCompositeLitSchema(compLit, hi)
 	}
 	return nil
 }
 
 // parseMapLiteral parses a map literal and generates a JSON schema
-func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit) *OpenAPISchema {
+func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit, handlerInfo *ASTHandlerInfo) *OpenAPISchema {
 	schema := &OpenAPISchema{
 		Type:       "object",
 		Properties: make(map[string]*OpenAPISchema),
@@ -958,7 +1034,7 @@ func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit) *OpenAPISchema {
 
 			if keyName != "" {
 				// Analyze value type using generic inference
-				valueSchema := p.analyzeValueExpression(kv.Value)
+				valueSchema := p.analyzeValueExpression(kv.Value, handlerInfo)
 				if valueSchema != nil {
 					schema.Properties[keyName] = valueSchema
 					// Consider most fields required (can be refined later)
@@ -978,7 +1054,8 @@ func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit) *OpenAPISchema {
 }
 
 // analyzeValueExpression analyzes the value in a key-value pair to determine its schema
-func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
+// handlerInfo is optional — when provided, enables resolving variable and field references
+func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandlerInfo) *OpenAPISchema {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		switch e.Kind.String() {
@@ -1008,16 +1085,50 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
 		case "nil":
 			return &OpenAPISchema{Type: "object"}
 		default:
+			// Try to resolve the variable type from handler context
+			if handlerInfo != nil {
+				// First check if there's a traced expression we can analyze
+				if tracedExpr, exists := handlerInfo.VariableExprs[e.Name]; exists {
+					// Unwrap &expr
+					inner := tracedExpr
+					if unary, ok := inner.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+						inner = unary.X
+					}
+					// Try composite literal analysis (map/struct/slice literals)
+					if schema := p.analyzeMapLiteralSchema(inner, handlerInfo); schema != nil {
+						// Merge dynamic map additions for this variable
+						p.mergeMapAdditions(schema, e.Name, handlerInfo)
+						return schema
+					}
+					// Try full expression analysis (handles make(), function calls, etc.)
+					if schema := p.analyzeValueExpression(inner, handlerInfo); schema != nil && schema.Type != "string" {
+						// Merge dynamic map additions for this variable
+						p.mergeMapAdditions(schema, e.Name, handlerInfo)
+						return schema
+					}
+				}
+				// Then check the inferred type name
+				if varType, exists := handlerInfo.Variables[e.Name]; exists {
+					if schema := p.resolveTypeToSchema(varType); schema != nil {
+						// Merge dynamic map additions for this variable
+						p.mergeMapAdditions(schema, e.Name, handlerInfo)
+						return schema
+					}
+				}
+			}
 			// Default to string for identifiers we can't resolve
 			return &OpenAPISchema{Type: "string"}
 		}
 	case *ast.CompositeLit:
-		return p.analyzeCompositeLitSchema(e)
+		return p.analyzeCompositeLitSchema(e, handlerInfo)
 	case *ast.UnaryExpr:
 		// Handle &SomeStruct{...} — unwrap and analyze
 		if e.Op == token.AND {
-			return p.analyzeValueExpression(e.X)
+			return p.analyzeValueExpression(e.X, handlerInfo)
 		}
+	case *ast.StarExpr:
+		// Handle pointer dereference *expr — unwrap and analyze the inner expression
+		return p.analyzeValueExpression(e.X, handlerInfo)
 	case *ast.CallExpr:
 		// Handle method calls that return specific types
 		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
@@ -1054,6 +1165,12 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
 			case "len":
 				return &OpenAPISchema{Type: "integer", Minimum: floatPtr(0)}
 			case "make":
+				// Try to infer the type from the make() argument
+				if len(e.Args) > 0 {
+					if schema := p.schemaFromMakeArg(e.Args[0]); schema != nil {
+						return schema
+					}
+				}
 				return &OpenAPISchema{
 					Type:  "array",
 					Items: &OpenAPISchema{Type: "object"},
@@ -1069,13 +1186,22 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
 		}
 	case *ast.SelectorExpr:
 		// Handle req.Field access — try to resolve the field type from struct definitions
-		if ident, ok := e.X.(*ast.Ident); ok {
+		if ident, ok := e.X.(*ast.Ident); ok && handlerInfo != nil {
 			fieldName := e.Sel.Name
 			// Check if the receiver is a known variable with a known struct type
-			// We can't access handlerInfo here, but we can check struct field types
-			// by looking at the identifier name patterns
-			_ = ident
-			_ = fieldName
+			if varType, exists := handlerInfo.Variables[ident.Name]; exists {
+				// Strip pointer/slice prefixes to get the struct name
+				structName := strings.TrimPrefix(varType, "*")
+				structName = strings.TrimPrefix(structName, "[]")
+				if structInfo, exists := p.structs[structName]; exists {
+					// Look up the field in the struct
+					for _, fi := range structInfo.Fields {
+						if fi.Name == fieldName {
+							return p.resolveTypeToSchema(fi.Type)
+						}
+					}
+				}
+			}
 		}
 
 		// Handle method calls and property access generically
@@ -1113,8 +1239,96 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr) *OpenAPISchema {
 	return &OpenAPISchema{Type: "string"}
 }
 
+// resolveTypeToSchema converts a Go type name to an OpenAPI schema
+// Used for resolving variable and field types in map literal values
+func (p *ASTParser) resolveTypeToSchema(typeName string) *OpenAPISchema {
+	// Handle slice types
+	if strings.HasPrefix(typeName, "[]") {
+		elemType := strings.TrimPrefix(typeName, "[]")
+		elemSchema := p.resolveTypeToSchema(elemType)
+		if elemSchema != nil {
+			return &OpenAPISchema{
+				Type:  "array",
+				Items: elemSchema,
+			}
+		}
+		return &OpenAPISchema{
+			Type:  "array",
+			Items: &OpenAPISchema{Type: "object"},
+		}
+	}
+
+	// Handle map types
+	if strings.HasPrefix(typeName, "map[") {
+		closeBracket := strings.Index(typeName, "]")
+		if closeBracket > 0 && closeBracket < len(typeName)-1 {
+			valueType := typeName[closeBracket+1:]
+			// map[string]any / map[string]interface{} → free-form object
+			if valueType == "any" || valueType == "interface{}" {
+				return &OpenAPISchema{
+					Type:                 "object",
+					AdditionalProperties: true,
+				}
+			}
+			valueSchema := p.resolveTypeToSchema(valueType)
+			if valueSchema != nil {
+				return &OpenAPISchema{
+					Type:                 "object",
+					AdditionalProperties: valueSchema,
+				}
+			}
+		}
+		return &OpenAPISchema{
+			Type:                 "object",
+			AdditionalProperties: true,
+		}
+	}
+
+	// Handle pointer types
+	if strings.HasPrefix(typeName, "*") {
+		return p.resolveTypeToSchema(strings.TrimPrefix(typeName, "*"))
+	}
+
+	// Primitives
+	switch typeName {
+	case "string":
+		return &OpenAPISchema{Type: "string"}
+	case "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64":
+		return &OpenAPISchema{Type: "integer"}
+	case "float32", "float64":
+		return &OpenAPISchema{Type: "number"}
+	case "bool":
+		return &OpenAPISchema{Type: "boolean"}
+	case "time.Time", "Time":
+		return &OpenAPISchema{Type: "string", Format: "date-time"}
+	case "interface{}", "any":
+		return &OpenAPISchema{Type: "object", AdditionalProperties: true}
+	}
+
+	// Known struct → $ref
+	resolved, _ := p.resolveTypeAlias(typeName, nil)
+	if _, exists := p.structs[resolved]; exists {
+		return &OpenAPISchema{Ref: "#/components/schemas/" + resolved}
+	}
+	if _, exists := p.structs[typeName]; exists {
+		return &OpenAPISchema{Ref: "#/components/schemas/" + typeName}
+	}
+
+	return nil
+}
+
+// schemaFromMakeArg infers a schema from the type argument of make()
+func (p *ASTParser) schemaFromMakeArg(typeExpr ast.Expr) *OpenAPISchema {
+	typeName := p.extractTypeName(typeExpr)
+	if typeName == "" {
+		return nil
+	}
+	return p.resolveTypeToSchema(typeName)
+}
+
 // analyzeCompositeLitSchema analyzes a composite literal (struct, map, or slice) and returns a schema
-func (p *ASTParser) analyzeCompositeLitSchema(e *ast.CompositeLit) *OpenAPISchema {
+func (p *ASTParser) analyzeCompositeLitSchema(e *ast.CompositeLit, handlerInfo *ASTHandlerInfo) *OpenAPISchema {
 	if e.Type == nil {
 		// Bare composite literal inside a slice: []SomeType{ {field: val}, {field: val} }
 		// These appear as CompositeLit with nil Type — they inherit the type from parent
@@ -1138,7 +1352,7 @@ func (p *ASTParser) analyzeCompositeLitSchema(e *ast.CompositeLit) *OpenAPISchem
 							keyName = strings.Trim(basicLit.Value, `"`)
 						}
 						if keyName != "" {
-							schema.Properties[keyName] = p.analyzeValueExpression(kv.Value)
+							schema.Properties[keyName] = p.analyzeValueExpression(kv.Value, handlerInfo)
 						}
 					}
 				}
@@ -1150,7 +1364,7 @@ func (p *ASTParser) analyzeCompositeLitSchema(e *ast.CompositeLit) *OpenAPISchem
 
 	// Handle nested map literals: map[string]any{...}
 	if _, ok := e.Type.(*ast.MapType); ok {
-		return p.parseMapLiteral(e)
+		return p.parseMapLiteral(e, handlerInfo)
 	}
 
 	// Handle slice/array literals: []Type{...}
@@ -1167,7 +1381,7 @@ func (p *ASTParser) analyzeCompositeLitSchema(e *ast.CompositeLit) *OpenAPISchem
 			}
 		}
 		// Fallback: try to infer from first element
-		return p.parseArrayLiteral(e)
+		return p.parseArrayLiteral(e, handlerInfo)
 	}
 
 	// Handle struct composite literals: SomeStruct{...}
@@ -1195,7 +1409,7 @@ func (p *ASTParser) analyzeCompositeLitSchema(e *ast.CompositeLit) *OpenAPISchem
 }
 
 // parseArrayLiteral parses an array literal
-func (p *ASTParser) parseArrayLiteral(arrayLit *ast.CompositeLit) *OpenAPISchema {
+func (p *ASTParser) parseArrayLiteral(arrayLit *ast.CompositeLit, handlerInfo *ASTHandlerInfo) *OpenAPISchema {
 	schema := &OpenAPISchema{
 		Type:  "array",
 		Items: &OpenAPISchema{Type: "object"},
@@ -1203,7 +1417,7 @@ func (p *ASTParser) parseArrayLiteral(arrayLit *ast.CompositeLit) *OpenAPISchema
 
 	// Try to infer item type from first element
 	if len(arrayLit.Elts) > 0 {
-		if itemSchema := p.analyzeValueExpression(arrayLit.Elts[0]); itemSchema != nil {
+		if itemSchema := p.analyzeValueExpression(arrayLit.Elts[0], handlerInfo); itemSchema != nil {
 			schema.Items = itemSchema
 		}
 	}
@@ -1473,6 +1687,13 @@ func (p *ASTParser) generateSchemaFromType(typeName string, inline bool) *OpenAP
 		closeBracket := strings.Index(typeName, "]")
 		if closeBracket > 0 && closeBracket < len(typeName)-1 {
 			valueType := typeName[closeBracket+1:]
+			// map[string]any / map[string]interface{} → free-form object
+			if valueType == "any" || valueType == "interface{}" {
+				return &OpenAPISchema{
+					Type:                 "object",
+					AdditionalProperties: true,
+				}
+			}
 			// Generate schema for the value type recursively
 			valueSchema := p.generateSchemaFromType(valueType, false)
 			if valueSchema != nil {

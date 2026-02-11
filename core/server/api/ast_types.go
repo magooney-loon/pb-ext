@@ -89,25 +89,26 @@ type FieldInfo struct {
 
 // ASTHandlerInfo contains comprehensive handler information
 type ASTHandlerInfo struct {
-	Name           string              `json:"name"`
-	Package        string              `json:"package"`
-	RequestType    string              `json:"request_type"`
-	ResponseType   string              `json:"response_type"`
-	RequestSchema  *OpenAPISchema      `json:"request_schema,omitempty"`
-	ResponseSchema *OpenAPISchema      `json:"response_schema,omitempty"`
-	Parameters     []*ParamInfo        `json:"parameters,omitempty"`
-	UsesJSONDecode bool                `json:"uses_json_decode"`
-	UsesJSONReturn bool                `json:"uses_json_return"`
-	APIDescription string              `json:"api_description"`
-	APITags        []string            `json:"api_tags"`
-	HTTPMethods    []string            `json:"http_methods"`
-	RoutePath      string              `json:"route_path,omitempty"`
-	Middleware     []string            `json:"middleware,omitempty"`
-	Documentation  *Documentation      `json:"documentation,omitempty"`
-	Complexity     int                 `json:"complexity"`
-	SourceLocation *SourceLocation     `json:"source_location,omitempty"`
-	Variables      map[string]string   `json:"variables,omitempty"` // Track variable names to types
-	VariableExprs  map[string]ast.Expr `json:"-"`                   // Track variable names to RHS AST expressions
+	Name           string                 `json:"name"`
+	Package        string                 `json:"package"`
+	RequestType    string                 `json:"request_type"`
+	ResponseType   string                 `json:"response_type"`
+	RequestSchema  *OpenAPISchema         `json:"request_schema,omitempty"`
+	ResponseSchema *OpenAPISchema         `json:"response_schema,omitempty"`
+	Parameters     []*ParamInfo           `json:"parameters,omitempty"`
+	UsesJSONDecode bool                   `json:"uses_json_decode"`
+	UsesJSONReturn bool                   `json:"uses_json_return"`
+	APIDescription string                 `json:"api_description"`
+	APITags        []string               `json:"api_tags"`
+	HTTPMethods    []string               `json:"http_methods"`
+	RoutePath      string                 `json:"route_path,omitempty"`
+	Middleware     []string               `json:"middleware,omitempty"`
+	Documentation  *Documentation         `json:"documentation,omitempty"`
+	Complexity     int                    `json:"complexity"`
+	SourceLocation *SourceLocation        `json:"source_location,omitempty"`
+	Variables      map[string]string      `json:"variables,omitempty"` // Track variable names to types
+	VariableExprs  map[string]ast.Expr    `json:"-"`                   // Track variable names to RHS AST expressions
+	MapAdditions   map[string][]MapKeyAdd `json:"-"`                   // Track dynamic map[key]=value additions
 
 	// PocketBase-specific fields
 	RequiresAuth       bool     `json:"requires_auth"`
@@ -117,6 +118,12 @@ type ASTHandlerInfo struct {
 	AuthType           string   `json:"auth_type,omitempty"`
 	Collection         string   `json:"collection,omitempty"`
 	UsesEnrichRecords  bool     `json:"uses_enrich_records"`
+}
+
+// MapKeyAdd represents a dynamic map key addition: mapVar["key"] = value
+type MapKeyAdd struct {
+	Key   string   // The string key
+	Value ast.Expr // The value expression
 }
 
 // ParamInfo contains parameter information
