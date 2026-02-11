@@ -21,10 +21,11 @@ type ASTParser struct {
 	pocketbasePatterns *PocketBasePatterns
 	logger             Logger
 	parseErrors        []ParseError
-	typeAliases        map[string]string // Maps alias name to real type name
-	funcReturnTypes    map[string]string // Maps function name to inferred return type from signature
-	modulePath         string            // Go module path from go.mod (e.g., "github.com/magooney-loon/pb-ext")
-	parsedDirs         map[string]bool   // Track directories already parsed to avoid duplicates
+	typeAliases        map[string]string         // Maps alias name to real type name
+	funcReturnTypes    map[string]string         // Maps function name to inferred return type from signature
+	funcBodySchemas    map[string]*OpenAPISchema // Maps function name to resolved schema from body analysis (for map[string]any helpers)
+	modulePath         string                    // Go module path from go.mod (e.g., "github.com/magooney-loon/pb-ext")
+	parsedDirs         map[string]bool           // Track directories already parsed to avoid duplicates
 }
 
 // FileParseResult stores parsing results with metadata

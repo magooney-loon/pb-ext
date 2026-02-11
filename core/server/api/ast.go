@@ -48,6 +48,7 @@ func NewASTParser() *ASTParser {
 		parseErrors:        make([]ParseError, 0),
 		typeAliases:        make(map[string]string),
 		funcReturnTypes:    make(map[string]string),
+		funcBodySchemas:    make(map[string]*OpenAPISchema),
 		modulePath:         getModulePath(),
 		parsedDirs:         make(map[string]bool),
 	}
@@ -373,10 +374,110 @@ func (p *ASTParser) extractFuncReturnTypes(file *ast.File) {
 			typeName := p.extractTypeName(result.Type)
 			if typeName != "" && typeName != "error" {
 				p.funcReturnTypes[funcDecl.Name.Name] = typeName
+				// For functions returning map[string]any or []map[string]any,
+				// analyze the body to extract the actual map keys being set
+				if funcDecl.Body != nil && (typeName == "map[string]any" || typeName == "map[string]interface{}" ||
+					typeName == "[]map[string]any" || typeName == "[]map[string]interface{}") {
+					if schema := p.analyzeHelperFuncBody(funcDecl); schema != nil {
+						p.funcBodySchemas[funcDecl.Name.Name] = schema
+					}
+				}
 				break
 			}
 		}
 	}
+}
+
+// analyzeHelperFuncBody walks a helper function's body to find map[string]any composite
+// literals and extract their keys/value types. This enables rich schema generation for
+// functions like formatDivergences() that build response objects inside loops.
+func (p *ASTParser) analyzeHelperFuncBody(funcDecl *ast.FuncDecl) *OpenAPISchema {
+	// Build a temporary handler info to track variables and map additions within this function
+	tempInfo := &ASTHandlerInfo{
+		Variables:     make(map[string]string),
+		VariableExprs: make(map[string]ast.Expr),
+		MapAdditions:  make(map[string][]MapKeyAdd),
+	}
+
+	// Collect all map[string]any composite literals found in the body.
+	// Pick the one with the most keys — that's the primary response shape.
+	var bestSchema *OpenAPISchema
+	var bestVarName string
+	bestKeyCount := 0
+
+	ast.Inspect(funcDecl.Body, func(n ast.Node) bool {
+		// Track variable assignments so we can resolve map additions
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			p.trackVariableAssignment(assign, tempInfo)
+		}
+
+		// Look for map[string]any{...} composite literals
+		compLit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		mapType, ok := compLit.Type.(*ast.MapType)
+		if !ok {
+			return true
+		}
+		// Verify it's map[string]any or map[string]interface{}
+		keyType := p.extractTypeName(mapType.Key)
+		valType := p.extractTypeName(mapType.Value)
+		if keyType != "string" || (valType != "any" && valType != "interface{}") {
+			return true
+		}
+		// Parse the map literal
+		schema := p.parseMapLiteral(compLit, tempInfo)
+		if schema != nil && len(schema.Properties) > bestKeyCount {
+			bestSchema = schema
+			bestKeyCount = len(schema.Properties)
+			// Try to find which variable this literal is assigned to (for map additions)
+			bestVarName = p.findAssignedVariable(funcDecl.Body, compLit)
+		}
+		return true
+	})
+
+	if bestSchema == nil {
+		return nil
+	}
+
+	// Merge any dynamic map additions (e.g., entry["metadata"] = ...)
+	if bestVarName != "" {
+		p.mergeMapAdditions(bestSchema, bestVarName, tempInfo)
+	}
+
+	// If the function returns []map[string]any, wrap the item schema in an array
+	retType := p.funcReturnTypes[funcDecl.Name.Name]
+	if strings.HasPrefix(retType, "[]") {
+		return &OpenAPISchema{
+			Type:  "array",
+			Items: bestSchema,
+		}
+	}
+
+	return bestSchema
+}
+
+// findAssignedVariable finds the variable name a composite literal is assigned to
+// by scanning assignment statements in the given block.
+func (p *ASTParser) findAssignedVariable(body *ast.BlockStmt, target *ast.CompositeLit) string {
+	var result string
+	ast.Inspect(body, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for i, rhs := range assign.Rhs {
+			if rhs == target && i < len(assign.Lhs) {
+				if ident, ok := assign.Lhs[i].(*ast.Ident); ok {
+					result = ident.Name
+					return false
+				}
+			}
+		}
+		return true
+	})
+	return result
 }
 
 // extractQueryParameters detects query parameter usage patterns in handler bodies.
@@ -615,6 +716,21 @@ func (p *ASTParser) handleJSONResponse(call *ast.CallExpr, handlerInfo *ASTHandl
 					handlerInfo.ResponseType = responseType
 				}
 				// Merge dynamic map key additions (e.g., result["key"] = value)
+				if ident, ok := arg.(*ast.Ident); ok {
+					p.mergeMapAdditions(schema, ident.Name, handlerInfo)
+				}
+				handlerInfo.ResponseSchema = schema
+				return
+			}
+		}
+
+		// Try deep expression analysis (handles function calls → funcBodySchemas)
+		for _, candidate := range exprsToAnalyze {
+			if schema := p.analyzeValueExpression(candidate, handlerInfo); schema != nil &&
+				schema.Type != "string" && (len(schema.Properties) > 0 || schema.Items != nil) {
+				if responseType := p.inferTypeFromExpression(candidate, handlerInfo); responseType != "" {
+					handlerInfo.ResponseType = responseType
+				}
 				if ident, ok := arg.(*ast.Ident); ok {
 					p.mergeMapAdditions(schema, ident.Name, handlerInfo)
 				}
@@ -1234,6 +1350,7 @@ func (p *ASTParser) ClearCache() {
 	p.structs = make(map[string]*StructInfo)
 	p.handlers = make(map[string]*ASTHandlerInfo)
 	p.funcReturnTypes = make(map[string]string)
+	p.funcBodySchemas = make(map[string]*OpenAPISchema)
 	p.parsedDirs = make(map[string]bool)
 }
 
@@ -1411,7 +1528,11 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 					Items: &OpenAPISchema{Type: "object"},
 				}
 			default:
-				// Check if we know the return type from function signature analysis
+				// Check if we have a deep-analyzed schema from function body analysis
+				if bodySchema, ok := p.funcBodySchemas[ident.Name]; ok {
+					return p.deepCopySchema(bodySchema)
+				}
+				// Fall back to return type from function signature analysis
 				if retType, ok := p.funcReturnTypes[ident.Name]; ok {
 					if schema := p.resolveTypeToSchema(retType); schema != nil {
 						return schema

@@ -2033,6 +2033,118 @@ func getSummaryHandler(c *core.RequestEvent) error {
 	summary := buildSummary("test")
 	return c.JSON(http.StatusOK, summary)
 }
+
+// --- Helper functions for deep body schema analysis tests ---
+
+// formatCandles mimics a real-world helper that builds []map[string]any inside a loop
+func formatCandles(records []*core.Record) []map[string]any {
+	result := make([]map[string]any, 0, len(records))
+	for _, r := range records {
+		entry := map[string]any{
+			"t":      r.GetInt("unix_timestamp"),
+			"o":      r.GetFloat("open"),
+			"h":      r.GetFloat("high"),
+			"l":      r.GetFloat("low"),
+			"c":      r.GetFloat("close"),
+			"v":      r.GetFloat("volume"),
+			"trades": r.GetInt("trade_count"),
+		}
+		result = append(result, entry)
+	}
+	return result
+}
+
+// formatScoreItems mimics a helper with map additions after the literal
+func formatScoreItems(records []*core.Record) []map[string]any {
+	result := make([]map[string]any, 0, len(records))
+	for _, r := range records {
+		entry := map[string]any{
+			"t":     r.GetInt("unix_timestamp"),
+			"score": r.GetFloat("composite_score"),
+			"trend": r.GetString("trend_label"),
+		}
+		entry["momentum"] = r.GetFloat("momentum")
+		entry["volatility"] = r.GetFloat("volatility")
+		result = append(result, entry)
+	}
+	return result
+}
+
+// buildTokenDetail returns a single map[string]any (not a slice)
+func buildTokenDetail(r *core.Record) map[string]any {
+	return map[string]any{
+		"id":       r.GetString("id"),
+		"symbol":   r.GetString("symbol"),
+		"name":     r.GetString("name"),
+		"decimals": r.GetInt("decimals"),
+		"active":   r.GetBool("active"),
+	}
+}
+
+// emptyFormatFunc returns []map[string]any but has no map literals (edge case)
+func emptyFormatFunc(records []*core.Record) []map[string]any {
+	return make([]map[string]any, 0)
+}
+
+// multiMapFunc has multiple map literals — the largest should win
+func multiMapFunc(r *core.Record) map[string]any {
+	small := map[string]any{"x": 1}
+	_ = small
+	big := map[string]any{
+		"alpha":   r.GetString("a"),
+		"beta":    r.GetFloat("b"),
+		"gamma":   r.GetInt("c"),
+		"delta":   r.GetBool("d"),
+		"epsilon": r.GetString("e"),
+	}
+	return big
+}
+
+// 28. Handler using formatCandles helper (deep body schema resolution)
+// API_DESC Get candle data
+// API_TAGS Chart
+func getCandleDataHandler(c *core.RequestEvent) error {
+	records, _ := c.App.FindRecordsByFilter("candles", "1=1", "", 100, 0)
+	candles := formatCandles(records)
+	result := map[string]any{"candles": candles, "count": len(candles)}
+	return c.JSON(http.StatusOK, result)
+}
+
+// 29. Handler using formatScoreItems helper (with map additions)
+// API_DESC Get score items
+// API_TAGS Scoring
+func getScoreItemsHandler(c *core.RequestEvent) error {
+	records, _ := c.App.FindRecordsByFilter("scores", "1=1", "", 100, 0)
+	scores := formatScoreItems(records)
+	return c.JSON(http.StatusOK, map[string]any{"scores": scores})
+}
+
+// 30. Handler using buildTokenDetail helper (single map, not slice)
+// API_DESC Get token detail
+// API_TAGS Tokens
+func getTokenDetailHandler(c *core.RequestEvent) error {
+	record, _ := c.App.FindRecordById("tokens", "abc123")
+	detail := buildTokenDetail(record)
+	return c.JSON(http.StatusOK, detail)
+}
+
+// 31. Handler using multiMapFunc helper (largest map should win)
+// API_DESC Get multi map
+// API_TAGS Test
+func getMultiMapHandler(c *core.RequestEvent) error {
+	record, _ := c.App.FindRecordById("things", "xyz")
+	data := multiMapFunc(record)
+	return c.JSON(http.StatusOK, map[string]any{"data": data})
+}
+
+// 32. Handler using emptyFormatFunc helper (should fall back gracefully)
+// API_DESC Get empty format
+// API_TAGS Test
+func getEmptyFormatHandler(c *core.RequestEvent) error {
+	records, _ := c.App.FindRecordsByFilter("empty", "1=1", "", 10, 0)
+	items := emptyFormatFunc(records)
+	return c.JSON(http.StatusOK, map[string]any{"items": items})
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -2603,6 +2715,8 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getContactInfoHandler", "getActivityFeedHandler", "getDefaultPaymentHandler",
 		"getFormattedRecordsHandler", "searchWithFiltersHandler",
 		"getComputedTotalHandler", "getSummaryHandler",
+		"getCandleDataHandler", "getScoreItemsHandler",
+		"getTokenDetailHandler", "getMultiMapHandler", "getEmptyFormatHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -2767,10 +2881,322 @@ func TestHandlerScenario_FunctionReturnTypeMapResponse(t *testing.T) {
 		t.Fatal("Expected response schema")
 	}
 
-	// buildSummary returns map[string]any — the response variable holds this
-	// The schema should be an object (from map[string]any resolution)
+	// buildSummary returns map[string]any — with body analysis, we should now see the "name" key
 	if h.ResponseSchema.Type != "object" {
 		t.Errorf("Expected response type 'object', got %q", h.ResponseSchema.Type)
+	}
+	if nameSchema, ok := h.ResponseSchema.Properties["name"]; ok {
+		if nameSchema.Type != "string" {
+			t.Errorf("Expected 'name' type 'string', got %q", nameSchema.Type)
+		}
+	}
+}
+
+// =============================================================================
+// Helper Function Body Schema Analysis Tests (funcBodySchemas)
+// =============================================================================
+
+func TestFuncBodySchema_SliceMapHelper(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// formatCandles returns []map[string]any with keys: t, o, h, l, c, v, trades
+	schema, exists := parser.funcBodySchemas["formatCandles"]
+	if !exists {
+		t.Fatal("Expected funcBodySchemas entry for 'formatCandles'")
+	}
+
+	// Should be an array wrapping an object
+	if schema.Type != "array" {
+		t.Fatalf("Expected type 'array', got %q", schema.Type)
+	}
+	if schema.Items == nil {
+		t.Fatal("Expected Items schema on array")
+	}
+	if schema.Items.Type != "object" {
+		t.Fatalf("Expected items type 'object', got %q", schema.Items.Type)
+	}
+
+	expectedKeys := []string{"t", "o", "h", "l", "c", "v", "trades"}
+	for _, key := range expectedKeys {
+		prop, ok := schema.Items.Properties[key]
+		if !ok {
+			t.Errorf("Expected property %q in formatCandles item schema", key)
+			continue
+		}
+		// t and trades come from GetInt → "number", o/h/l/c/v from GetFloat → "number"
+		if prop.Type != "number" && prop.Type != "integer" {
+			t.Errorf("Property %q: expected numeric type, got %q", key, prop.Type)
+		}
+	}
+}
+
+func TestFuncBodySchema_WithMapAdditions(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// formatScoreItems has entry map literal + entry["momentum"] and entry["volatility"] additions
+	schema, exists := parser.funcBodySchemas["formatScoreItems"]
+	if !exists {
+		t.Fatal("Expected funcBodySchemas entry for 'formatScoreItems'")
+	}
+
+	if schema.Type != "array" {
+		t.Fatalf("Expected type 'array', got %q", schema.Type)
+	}
+	if schema.Items == nil {
+		t.Fatal("Expected Items schema")
+	}
+
+	// Keys from the literal
+	for _, key := range []string{"t", "score", "trend"} {
+		if _, ok := schema.Items.Properties[key]; !ok {
+			t.Errorf("Expected property %q from map literal", key)
+		}
+	}
+	// Keys from map additions
+	for _, key := range []string{"momentum", "volatility"} {
+		if _, ok := schema.Items.Properties[key]; !ok {
+			t.Errorf("Expected property %q from map additions", key)
+		}
+	}
+
+	// Verify types
+	if s := schema.Items.Properties["trend"]; s != nil && s.Type != "string" {
+		t.Errorf("Expected 'trend' type 'string', got %q", s.Type)
+	}
+	if s := schema.Items.Properties["score"]; s != nil && s.Type != "number" {
+		t.Errorf("Expected 'score' type 'number', got %q", s.Type)
+	}
+}
+
+func TestFuncBodySchema_SingleMapHelper(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// buildTokenDetail returns map[string]any (not a slice)
+	schema, exists := parser.funcBodySchemas["buildTokenDetail"]
+	if !exists {
+		t.Fatal("Expected funcBodySchemas entry for 'buildTokenDetail'")
+	}
+
+	// Should be an object directly (not wrapped in array)
+	if schema.Type != "object" {
+		t.Fatalf("Expected type 'object', got %q", schema.Type)
+	}
+
+	expectedKeys := map[string]string{
+		"id":       "string",
+		"symbol":   "string",
+		"name":     "string",
+		"decimals": "number",
+		"active":   "boolean",
+	}
+	for key, expectedType := range expectedKeys {
+		prop, ok := schema.Properties[key]
+		if !ok {
+			t.Errorf("Expected property %q in buildTokenDetail schema", key)
+			continue
+		}
+		if prop.Type != expectedType {
+			t.Errorf("Property %q: expected type %q, got %q", key, expectedType, prop.Type)
+		}
+	}
+}
+
+func TestFuncBodySchema_MultipleMapLiterals(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// multiMapFunc has two map literals: small (1 key) and big (5 keys) — big should win
+	schema, exists := parser.funcBodySchemas["multiMapFunc"]
+	if !exists {
+		t.Fatal("Expected funcBodySchemas entry for 'multiMapFunc'")
+	}
+
+	if schema.Type != "object" {
+		t.Fatalf("Expected type 'object', got %q", schema.Type)
+	}
+
+	// Should have 5 keys from the "big" map, not 1 from "small"
+	if len(schema.Properties) != 5 {
+		t.Errorf("Expected 5 properties (from largest map literal), got %d", len(schema.Properties))
+	}
+	for _, key := range []string{"alpha", "beta", "gamma", "delta", "epsilon"} {
+		if _, ok := schema.Properties[key]; !ok {
+			t.Errorf("Expected property %q from largest map literal", key)
+		}
+	}
+	// "x" from the small map should NOT be present
+	if _, ok := schema.Properties["x"]; ok {
+		t.Error("Property 'x' from small map should not be in schema (largest map wins)")
+	}
+}
+
+func TestFuncBodySchema_EmptyHelper(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// emptyFormatFunc has no map literals — should NOT have a funcBodySchemas entry
+	_, exists := parser.funcBodySchemas["emptyFormatFunc"]
+	if exists {
+		t.Error("emptyFormatFunc has no map literals, should not have a funcBodySchemas entry")
+	}
+}
+
+func TestFuncBodySchema_ExistingBuildSummary(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// buildSummary returns map[string]any{"name": name} — should be analyzed
+	schema, exists := parser.funcBodySchemas["buildSummary"]
+	if !exists {
+		t.Fatal("Expected funcBodySchemas entry for 'buildSummary'")
+	}
+
+	if schema.Type != "object" {
+		t.Fatalf("Expected type 'object', got %q", schema.Type)
+	}
+	if _, ok := schema.Properties["name"]; !ok {
+		t.Error("Expected property 'name' in buildSummary schema")
+	}
+}
+
+// =============================================================================
+// End-to-End: Handler Response Schema Resolution via Helper Body Analysis
+// =============================================================================
+
+func TestHandlerScenario_DeepHelperCandles(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getCandleDataHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// Response should be {candles: [...], count: int}
+	assertInlineObject(t, h.ResponseSchema, []string{"candles", "count"}, "response")
+
+	candlesSchema := h.ResponseSchema.Properties["candles"]
+	if candlesSchema == nil {
+		t.Fatal("Expected 'candles' property")
+	}
+	if candlesSchema.Type != "array" {
+		t.Fatalf("Expected 'candles' type 'array', got %q", candlesSchema.Type)
+	}
+	if candlesSchema.Items == nil {
+		t.Fatal("Expected Items on candles array")
+	}
+
+	// The items should have the actual keys from formatCandles, NOT generic additionalProperties
+	items := candlesSchema.Items
+	if items.Type != "object" {
+		t.Fatalf("Expected items type 'object', got %q", items.Type)
+	}
+	if len(items.Properties) == 0 {
+		t.Fatal("Expected items to have properties (deep schema resolution), got empty — still generic?")
+	}
+
+	for _, key := range []string{"t", "o", "h", "l", "c", "v", "trades"} {
+		if _, ok := items.Properties[key]; !ok {
+			t.Errorf("Expected property %q in candle item schema (from formatCandles body)", key)
+		}
+	}
+}
+
+func TestHandlerScenario_DeepHelperScoresWithAdditions(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getScoreItemsHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	scoresSchema := h.ResponseSchema.Properties["scores"]
+	if scoresSchema == nil {
+		t.Fatal("Expected 'scores' property")
+	}
+	if scoresSchema.Type != "array" {
+		t.Fatalf("Expected 'scores' type 'array', got %q", scoresSchema.Type)
+	}
+	if scoresSchema.Items == nil {
+		t.Fatal("Expected Items on scores array")
+	}
+
+	// Should include both literal keys AND map addition keys
+	for _, key := range []string{"t", "score", "trend", "momentum", "volatility"} {
+		if _, ok := scoresSchema.Items.Properties[key]; !ok {
+			t.Errorf("Expected property %q in score item schema", key)
+		}
+	}
+}
+
+func TestHandlerScenario_DeepHelperSingleMap(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getTokenDetailHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// buildTokenDetail returns map[string]any directly — response should have those keys
+	if h.ResponseSchema.Type != "object" {
+		t.Fatalf("Expected response type 'object', got %q", h.ResponseSchema.Type)
+	}
+
+	for _, key := range []string{"id", "symbol", "name", "decimals", "active"} {
+		prop, ok := h.ResponseSchema.Properties[key]
+		if !ok {
+			t.Errorf("Expected property %q in token detail response", key)
+			continue
+		}
+		_ = prop
+	}
+
+	// Verify specific types
+	if s := h.ResponseSchema.Properties["active"]; s != nil && s.Type != "boolean" {
+		t.Errorf("Expected 'active' type 'boolean', got %q", s.Type)
+	}
+	if s := h.ResponseSchema.Properties["decimals"]; s != nil && s.Type != "number" {
+		t.Errorf("Expected 'decimals' type 'number', got %q", s.Type)
+	}
+}
+
+func TestHandlerScenario_DeepHelperMultiMap(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getMultiMapHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// Response is map[string]any{"data": multiMapFunc(record)}
+	dataSchema := h.ResponseSchema.Properties["data"]
+	if dataSchema == nil {
+		t.Fatal("Expected 'data' property")
+	}
+	if dataSchema.Type != "object" {
+		t.Fatalf("Expected 'data' type 'object', got %q", dataSchema.Type)
+	}
+
+	// Should have 5 properties from the largest map literal in multiMapFunc
+	for _, key := range []string{"alpha", "beta", "gamma", "delta", "epsilon"} {
+		if _, ok := dataSchema.Properties[key]; !ok {
+			t.Errorf("Expected property %q in multiMapFunc result", key)
+		}
+	}
+}
+
+func TestHandlerScenario_DeepHelperEmptyFallback(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getEmptyFormatHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	// items comes from emptyFormatFunc which has no map literals
+	// Should gracefully fall back to array of generic objects
+	itemsSchema := h.ResponseSchema.Properties["items"]
+	if itemsSchema == nil {
+		t.Fatal("Expected 'items' property")
+	}
+	if itemsSchema.Type != "array" {
+		t.Fatalf("Expected 'items' type 'array', got %q", itemsSchema.Type)
 	}
 }
 

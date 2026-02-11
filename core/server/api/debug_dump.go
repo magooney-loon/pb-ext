@@ -67,6 +67,12 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 		funcRetTypes[k] = v
 	}
 
+	// Function body schemas (deep-analyzed helper functions)
+	funcBodySchemasOut := make(map[string]any, len(parser.funcBodySchemas))
+	for k, v := range parser.funcBodySchemas {
+		funcBodySchemasOut[k] = schemaDigest(v)
+	}
+
 	// Parsed directories
 	parsedDirsList := make([]string, 0, len(parser.parsedDirs))
 	for dir := range parser.parsedDirs {
@@ -80,6 +86,7 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 		"structs":           structsOut,
 		"type_aliases":      aliases,
 		"func_return_types": funcRetTypes,
+		"func_body_schemas": funcBodySchemasOut,
 		"module_path":       parser.modulePath,
 		"imported_packages": parsedDirsList,
 	}

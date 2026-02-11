@@ -34,6 +34,7 @@ ASTParser.DiscoverSourceFiles()
   |   ASTParser.ParseFile()  (for each API_SOURCE file)
   |     |-- extractStructs()            two-pass: register all structs, then generate JSONSchemas
   |     |-- extractFuncReturnTypes()    scan non-handler functions for return type signatures
+  |     |     \-- analyzeHelperFuncBody()  deep-analyze map[string]any helpers for key schemas
   |     |-- extractHandlers()           find func(c *core.RequestEvent) error
   |     |     |-- parseHandlerComments()   // API_DESC, // API_TAGS
   |     |     |-- analyzePocketBasePatterns()
@@ -91,7 +92,22 @@ Response detection: `c.JSON(status, expr)` — the second argument is analyzed:
 
 `extractFuncReturnTypes()` runs before handler analysis. It scans all non-handler function declarations in API_SOURCE files and extracts the first non-error return type from the function signature. Stored in `ASTParser.funcReturnTypes` as `map[string]string` (func name → Go type string).
 
-This enables `inferTypeFromExpression` and `analyzeValueExpression` to resolve variables assigned from helper function calls (e.g., `candles := formatCandlesFull(records)` → type `[]map[string]any` → schema `{type: "array", items: {type: "object", additionalProperties: true}}`).
+This enables `inferTypeFromExpression` and `analyzeValueExpression` to resolve variables assigned from helper function calls (e.g., `candles := formatCandlesFull(records)` → type `[]map[string]any`).
+
+### Helper Function Body Analysis (Deep Schema Resolution)
+
+When `extractFuncReturnTypes()` finds a function returning `map[string]any` or `[]map[string]any`, it calls `analyzeHelperFuncBody()` to walk the function body and extract the actual map keys being set. Results are stored in `ASTParser.funcBodySchemas` as `map[string]*OpenAPISchema`.
+
+**How it works:**
+1. Creates a temporary `ASTHandlerInfo` to track variables and map additions within the function
+2. Walks the function body with `ast.Inspect`, tracking variable assignments
+3. Finds all `map[string]any{...}` composite literals and parses them via `parseMapLiteral`
+4. Picks the literal with the most keys (the primary response shape)
+5. Uses `findAssignedVariable()` to find the variable name the literal was assigned to
+6. Merges any dynamic `mapVar["key"] = value` additions for that variable
+7. For `[]map[string]any` return types, wraps the item schema in an array schema
+
+**Consumption**: In `analyzeValueExpression`, when a `*ast.CallExpr` is encountered for a function with a `funcBodySchemas` entry, the deep schema is returned (via `deepCopySchema`) instead of the generic type-based schema from `resolveTypeToSchema`. This flows through the normal handler analysis — when a handler has `candles := formatCandlesFull(records)` and returns `map[string]any{"candles": candles}`, the `candles` value resolves to the array-of-objects schema with typed properties instead of `{type: "array", items: {type: "object", additionalProperties: true}}`.
 
 **Limitation**: Only covers functions defined in API_SOURCE files, not imported packages.
 
@@ -113,6 +129,7 @@ After all API_SOURCE files are parsed, `parseImportedPackages()` automatically r
 **Key fields on ASTParser:**
 - `modulePath string` — Go module path from go.mod (e.g., `github.com/magooney-loon/pb-ext`)
 - `parsedDirs map[string]bool` — tracks directories already parsed to avoid duplicates
+- `funcBodySchemas map[string]*OpenAPISchema` — deep-analyzed schemas from helper function bodies
 
 **Edge cases:**
 - No `go.mod` found → `modulePath` stays empty, feature silently disabled (falls back to current behavior)
@@ -170,6 +187,8 @@ Each API version (`v1`, `v2`, ...) gets its own isolated `ASTParser`, `SchemaGen
 - **Component pruning**: `GetDocsWithComponents()` walks all `$ref` targets recursively. If you add a new place where `$ref` can appear, make sure `collectRefsFromSchema` covers it.
 - **`extractFuncReturnTypes` ordering**: must run BEFORE `extractHandlers` in `ParseFile`, so that `inferTypeFromExpression` can resolve function call return types during handler body analysis.
 - **`funcReturnTypes` scope**: only covers functions in API_SOURCE files. Functions from imported packages won't be resolved — their call sites fall through to heuristic matching in `analyzeValueExpression`.
+- **`funcBodySchemas` resolution**: `analyzeHelperFuncBody` picks the map literal with the most keys. If a function builds multiple different map shapes (rare), the richest one wins. The temporary `ASTHandlerInfo` used for body analysis does NOT have access to handler-level variables — it only tracks variables within the helper function itself.
+- **`funcBodySchemas` ordering**: populated during `extractFuncReturnTypes`, which runs before `extractHandlers`. The schemas are consumed later in `analyzeValueExpression` during handler body analysis.
 - **Import following scope**: only resolves struct definitions from local imports. Handlers, func return types, and type aliases in imported packages are NOT extracted — only `extractStructs()` is called on imported directories.
 - **Duplicate struct names**: if an imported package defines a struct with the same name as one in an API_SOURCE file, last-parsed wins. No package-qualified naming yet.
 
