@@ -1263,6 +1263,13 @@ func (p *ASTParser) resolveTypeToSchema(typeName string) *OpenAPISchema {
 		closeBracket := strings.Index(typeName, "]")
 		if closeBracket > 0 && closeBracket < len(typeName)-1 {
 			valueType := typeName[closeBracket+1:]
+			// map[string]any / map[string]interface{} → free-form object
+			if valueType == "any" || valueType == "interface{}" {
+				return &OpenAPISchema{
+					Type:                 "object",
+					AdditionalProperties: true,
+				}
+			}
 			valueSchema := p.resolveTypeToSchema(valueType)
 			if valueSchema != nil {
 				return &OpenAPISchema{
@@ -1680,6 +1687,13 @@ func (p *ASTParser) generateSchemaFromType(typeName string, inline bool) *OpenAP
 		closeBracket := strings.Index(typeName, "]")
 		if closeBracket > 0 && closeBracket < len(typeName)-1 {
 			valueType := typeName[closeBracket+1:]
+			// map[string]any / map[string]interface{} → free-form object
+			if valueType == "any" || valueType == "interface{}" {
+				return &OpenAPISchema{
+					Type:                 "object",
+					AdditionalProperties: true,
+				}
+			}
 			// Generate schema for the value type recursively
 			valueSchema := p.generateSchemaFromType(valueType, false)
 			if valueSchema != nil {

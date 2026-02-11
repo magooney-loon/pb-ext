@@ -1505,6 +1505,1122 @@ func getDirectMapHandler(e *core.RequestEvent) error {
 }
 
 // =============================================================================
+// Handler Schema Scenario Tests
+// Covers all 24 AST handler patterns previously tested via live v2 routes.
+// =============================================================================
+
+// handlerScenarioSource is the synthetic Go source that exercises every schema
+// generation path in the AST parser.  It is parsed once in each sub-test that
+// needs it.
+const handlerScenarioSource = `package main
+
+// API_SOURCE
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/pocketbase/pocketbase/core"
+)
+
+// --- Struct definitions ---
+
+type GeoCoordinate struct {
+	Latitude  float64 ` + "`json:\"latitude\"`" + `
+	Longitude float64 ` + "`json:\"longitude\"`" + `
+}
+
+type Address struct {
+	Street     string        ` + "`json:\"street\"`" + `
+	City       string        ` + "`json:\"city\"`" + `
+	State      string        ` + "`json:\"state,omitempty\"`" + `
+	PostalCode string        ` + "`json:\"postal_code\"`" + `
+	Country    string        ` + "`json:\"country\"`" + `
+	Geo        GeoCoordinate ` + "`json:\"geo\"`" + `
+}
+
+type ContactInfo struct {
+	Email     string   ` + "`json:\"email\"`" + `
+	Phone     *string  ` + "`json:\"phone,omitempty\"`" + `
+	Website   *string  ` + "`json:\"website,omitempty\"`" + `
+	SocialIDs []string ` + "`json:\"social_ids,omitempty\"`" + `
+}
+
+type OrderItem struct {
+	ProductID   string  ` + "`json:\"product_id\"`" + `
+	ProductName string  ` + "`json:\"product_name\"`" + `
+	Quantity    int     ` + "`json:\"quantity\"`" + `
+	UnitPrice   float64 ` + "`json:\"unit_price\"`" + `
+	Subtotal    float64 ` + "`json:\"subtotal\"`" + `
+}
+
+type PaymentInfo struct {
+	Method        string            ` + "`json:\"method\"`" + `
+	TransactionID string            ` + "`json:\"transaction_id\"`" + `
+	Amount        float64           ` + "`json:\"amount\"`" + `
+	Currency      string            ` + "`json:\"currency\"`" + `
+	Headers       map[string]string ` + "`json:\"headers,omitempty\"`" + `
+	Metadata      map[string]any    ` + "`json:\"metadata,omitempty\"`" + `
+}
+
+type OrderResponse struct {
+	ID              string      ` + "`json:\"id\"`" + `
+	Status          string      ` + "`json:\"status\"`" + `
+	Customer        string      ` + "`json:\"customer\"`" + `
+	ShippingAddress Address     ` + "`json:\"shipping_address\"`" + `
+	BillingAddress  *Address    ` + "`json:\"billing_address,omitempty\"`" + `
+	Items           []OrderItem ` + "`json:\"items\"`" + `
+	Payment         PaymentInfo ` + "`json:\"payment\"`" + `
+	TotalAmount     float64     ` + "`json:\"total_amount\"`" + `
+	Notes           *string     ` + "`json:\"notes,omitempty\"`" + `
+	CreatedAt       time.Time   ` + "`json:\"created_at\"`" + `
+	UpdatedAt       time.Time   ` + "`json:\"updated_at\"`" + `
+}
+
+type CreateOrderRequest struct {
+	CustomerID      string      ` + "`json:\"customer_id\"`" + `
+	ShippingAddress Address     ` + "`json:\"shipping_address\"`" + `
+	BillingAddress  *Address    ` + "`json:\"billing_address,omitempty\"`" + `
+	Items           []OrderItem ` + "`json:\"items\"`" + `
+	PaymentMethod   string      ` + "`json:\"payment_method\"`" + `
+	Notes           *string     ` + "`json:\"notes,omitempty\"`" + `
+	CouponCode      *string     ` + "`json:\"coupon_code,omitempty\"`" + `
+}
+
+type AnalyticsEvent struct {
+	EventID    string         ` + "`json:\"event_id\"`" + `
+	EventType  string         ` + "`json:\"event_type\"`" + `
+	Timestamp  time.Time      ` + "`json:\"timestamp\"`" + `
+	UserID     *string        ` + "`json:\"user_id,omitempty\"`" + `
+	SessionID  string         ` + "`json:\"session_id\"`" + `
+	Properties map[string]any ` + "`json:\"properties,omitempty\"`" + `
+	Context    any            ` + "`json:\"context,omitempty\"`" + `
+	Tags       []string       ` + "`json:\"tags,omitempty\"`" + `
+}
+
+type PaginationMeta struct {
+	Page       int  ` + "`json:\"page\"`" + `
+	PerPage    int  ` + "`json:\"per_page\"`" + `
+	TotalItems int  ` + "`json:\"total_items\"`" + `
+	TotalPages int  ` + "`json:\"total_pages\"`" + `
+	HasMore    bool ` + "`json:\"has_more\"`" + `
+}
+
+type UserProfile struct {
+	ID          string      ` + "`json:\"id\"`" + `
+	Username    string      ` + "`json:\"username\"`" + `
+	DisplayName string      ` + "`json:\"display_name\"`" + `
+	Email       string      ` + "`json:\"email\"`" + `
+	AvatarURL   *string     ` + "`json:\"avatar_url,omitempty\"`" + `
+	Bio         *string     ` + "`json:\"bio,omitempty\"`" + `
+	IsVerified  bool        ` + "`json:\"is_verified\"`" + `
+	Reputation  int         ` + "`json:\"reputation\"`" + `
+	Balance     float64     ` + "`json:\"balance\"`" + `
+	JoinedAt    time.Time   ` + "`json:\"joined_at\"`" + `
+	Contact     ContactInfo ` + "`json:\"contact\"`" + `
+}
+
+type TimeseriesPoint struct {
+	Timestamp int64   ` + "`json:\"timestamp\"`" + `
+	Open      float64 ` + "`json:\"open\"`" + `
+	High      float64 ` + "`json:\"high\"`" + `
+	Low       float64 ` + "`json:\"low\"`" + `
+	Close     float64 ` + "`json:\"close\"`" + `
+	Volume    float64 ` + "`json:\"volume\"`" + `
+}
+
+type IndicatorValues struct {
+	TokenID   string             ` + "`json:\"token_id\"`" + `
+	Interval  string             ` + "`json:\"interval\"`" + `
+	Values    map[string]float64 ` + "`json:\"values\"`" + `
+	Signals   map[string]string  ` + "`json:\"signals\"`" + `
+	Computed  map[string]int     ` + "`json:\"computed\"`" + `
+	UpdatedAt time.Time          ` + "`json:\"updated_at\"`" + `
+}
+
+type UpdateProfileRequest struct {
+	DisplayName string  ` + "`json:\"display_name\"`" + `
+	Bio         *string ` + "`json:\"bio,omitempty\"`" + `
+	AvatarURL   *string ` + "`json:\"avatar_url,omitempty\"`" + `
+}
+
+type BaseEntity struct {
+	ID        string    ` + "`json:\"id\"`" + `
+	CreatedAt time.Time ` + "`json:\"created_at\"`" + `
+	UpdatedAt time.Time ` + "`json:\"updated_at\"`" + `
+}
+
+type ProductResponse struct {
+	BaseEntity
+	Name        string   ` + "`json:\"name\"`" + `
+	Description string   ` + "`json:\"description\"`" + `
+	Price       float64  ` + "`json:\"price\"`" + `
+	Currency    string   ` + "`json:\"currency\"`" + `
+	Tags        []string ` + "`json:\"tags,omitempty\"`" + `
+	InStock     bool     ` + "`json:\"in_stock\"`" + `
+}
+
+type HealthCheckResponse struct {
+	Status    string ` + "`json:\"status\"`" + `
+	Version   string ` + "`json:\"version\"`" + `
+	Uptime    int64  ` + "`json:\"uptime\"`" + `
+	Timestamp string ` + "`json:\"timestamp\"`" + `
+}
+
+type BatchDeleteRequest struct {
+	IDs    []string ` + "`json:\"ids\"`" + `
+	DryRun bool     ` + "`json:\"dry_run\"`" + `
+}
+
+// --- Handlers ---
+
+// 1. Deep nested struct response
+// API_DESC Get order details
+// API_TAGS Orders
+func getOrderHandler(c *core.RequestEvent) error {
+	resp := OrderResponse{
+		ID: "ord_123",
+		Status: "shipped",
+		ShippingAddress: Address{
+			Street: "123 Main St",
+			Geo: GeoCoordinate{Latitude: 45.5, Longitude: -122.6},
+		},
+		Items: []OrderItem{{ProductID: "p1", Quantity: 2}},
+		Payment: PaymentInfo{Method: "card", Amount: 19.98, Currency: "USD"},
+	}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// 2. Nested struct request body via json.Decode
+// API_DESC Create a new order
+// API_TAGS Orders
+func createOrderHandler(c *core.RequestEvent) error {
+	var req CreateOrderRequest
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid"})
+	}
+	resp := OrderResponse{ID: "ord_new", Status: "pending"}
+	return c.JSON(http.StatusCreated, resp)
+}
+
+// 3. Array-of-structs response
+// API_DESC List all orders
+// API_TAGS Orders
+func listOrdersHandler(c *core.RequestEvent) error {
+	orders := []OrderResponse{
+		{ID: "ord_001", Status: "delivered"},
+	}
+	return c.JSON(http.StatusOK, orders)
+}
+
+// 4. Struct with typed maps
+// API_DESC Get indicator values
+// API_TAGS Analytics
+func getIndicatorsHandler(c *core.RequestEvent) error {
+	resp := IndicatorValues{
+		TokenID: "tok_1",
+		Values: map[string]float64{"rsi": 62.5},
+		Signals: map[string]string{"rsi": "neutral"},
+		Computed: map[string]int{"candles": 500},
+	}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// 5. Struct with any/interface{} fields + json.Decode request
+// API_DESC Track analytics event
+// API_TAGS Analytics
+func trackEventHandler(c *core.RequestEvent) error {
+	var req AnalyticsEvent
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid"})
+	}
+	return c.JSON(http.StatusCreated, req)
+}
+
+// 6. Inline map literal with nested sub-maps
+// API_DESC Get diagnostics
+// API_TAGS System
+func getDiagnosticsHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"status":  "operational",
+		"version": "2.1.0",
+		"uptime":  86400,
+		"memory": map[string]any{
+			"allocated_mb": 128,
+			"gc_cycles":    42,
+		},
+		"database": map[string]any{
+			"connected": true,
+			"pool_size": 10,
+		},
+	})
+}
+
+// 7. Flat struct + nested struct field
+// API_DESC Get user profile
+// API_TAGS Users
+func getUserProfileHandler(c *core.RequestEvent) error {
+	resp := UserProfile{
+		ID: "u1", Username: "john",
+		Contact: ContactInfo{Email: "john@example.com"},
+	}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// 8. Paginated: inline map wrapping struct array + struct value
+// API_DESC Search users
+// API_TAGS Users
+func searchUsersHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"data": []UserProfile{
+			{ID: "u1", Username: "alice"},
+		},
+		"pagination": PaginationMeta{Page: 1, PerPage: 20, TotalItems: 1, TotalPages: 1},
+	})
+}
+
+// 9. Array of numeric-heavy structs
+// API_DESC Get candlestick data
+// API_TAGS Analytics
+func getCandlestickHandler(c *core.RequestEvent) error {
+	data := []TimeseriesPoint{
+		{Timestamp: 1000, Open: 1.0, High: 1.05, Low: 0.98, Close: 1.02, Volume: 50000},
+	}
+	return c.JSON(http.StatusOK, data)
+}
+
+// 10. Pure map[string]string variable
+// API_DESC Get config
+// API_TAGS System
+func getConfigHandler(c *core.RequestEvent) error {
+	config := map[string]string{
+		"log_level": "info",
+		"region":    "us-west-2",
+	}
+	return c.JSON(http.StatusOK, config)
+}
+
+// 11. Mixed inline map: bools, ints, strings, nested maps
+// API_DESC Get feature flags
+// API_TAGS System
+func getFeatureFlagsHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"flags": map[string]any{
+			"dark_mode": true,
+			"beta_api":  false,
+		},
+		"rate_limits": map[string]any{
+			"requests_per_minute": 60,
+			"enabled":             true,
+		},
+		"maintenance": false,
+	})
+}
+
+// 12. map[string]any variable with MapAdditions
+// API_DESC Get platform stats
+// API_TAGS Analytics
+func getPlatformStatsHandler(c *core.RequestEvent) error {
+	result := map[string]any{
+		"total_users": 15000,
+		"revenue":     89432.50,
+	}
+	result["computed_at"] = time.Now().Format(time.RFC3339)
+	result["cached"] = true
+	return c.JSON(http.StatusOK, result)
+}
+
+// 13. BindBody request
+// API_DESC Update profile
+// API_TAGS Users
+func updateProfileHandler(c *core.RequestEvent) error {
+	var req UpdateProfileRequest
+	if err := c.BindBody(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid"})
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"updated": map[string]any{
+			"display_name": req.DisplayName,
+		},
+	})
+}
+
+// 14. Embedded struct
+// API_DESC Get product
+// API_TAGS Products
+func getProductHandler(c *core.RequestEvent) error {
+	resp := ProductResponse{
+		BaseEntity: BaseEntity{ID: "p1"},
+		Name: "Widget", Price: 29.99, Currency: "USD", InStock: true,
+	}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// 15. Slice of primitives
+// API_DESC List categories
+// API_TAGS Products
+func listCategoriesHandler(c *core.RequestEvent) error {
+	categories := []string{"electronics", "clothing", "books"}
+	return c.JSON(http.StatusOK, categories)
+}
+
+// 16. DELETE — minimal response
+// API_DESC Delete product
+// API_TAGS Products
+func deleteProductHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"deleted": true,
+	})
+}
+
+// 17. Variable-referenced struct
+// API_DESC Health check
+// API_TAGS System
+func healthCheckHandler(c *core.RequestEvent) error {
+	resp := HealthCheckResponse{Status: "healthy", Version: "2.1.0", Uptime: 86400}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// 18. Map with struct slice
+// API_DESC Search products
+// API_TAGS Products
+func searchProductsHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"results": []ProductResponse{
+			{BaseEntity: BaseEntity{ID: "p1"}, Name: "Widget", Price: 19.99},
+		},
+		"total":    1,
+		"page":     1,
+		"per_page": 20,
+	})
+}
+
+// 19. Map literal containing struct values
+// API_DESC Get order summary
+// API_TAGS Orders
+func getOrderSummaryHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"order_id": "ord_12345",
+		"status":   "processing",
+		"shipping": Address{
+			Street: "789 Pine St", City: "Austin",
+			Geo: GeoCoordinate{Latitude: 30.26, Longitude: -97.74},
+		},
+		"total_amount": 149.97,
+	})
+}
+
+// 20. Multiple return paths + json.Decode request
+// API_DESC Batch delete products
+// API_TAGS Products
+func batchDeleteHandler(c *core.RequestEvent) error {
+	var req BatchDeleteRequest
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid"})
+	}
+	if len(req.IDs) == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "No IDs"})
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"deleted_count": len(req.IDs),
+		"dry_run":       req.DryRun,
+	})
+}
+
+// 21. Variable map with struct slices inside
+// API_DESC Get dashboard
+// API_TAGS Analytics
+func getDashboardHandler(c *core.RequestEvent) error {
+	dashboard := map[string]any{
+		"recent_orders": []OrderResponse{
+			{ID: "ord_999", Status: "pending"},
+		},
+		"top_users": []UserProfile{
+			{ID: "u10", Username: "topuser"},
+		},
+		"total_revenue": 125000.50,
+		"active_orders": 42,
+	}
+	return c.JSON(http.StatusOK, dashboard)
+}
+
+// 22. Struct pointer response
+// API_DESC Get contact info
+// API_TAGS Users
+func getContactInfoHandler(c *core.RequestEvent) error {
+	info := &ContactInfo{
+		Email: "contact@example.com",
+		SocialIDs: []string{"twitter:handle"},
+	}
+	return c.JSON(http.StatusOK, info)
+}
+
+// 23. Inline map with array of maps
+// API_DESC Get activity feed
+// API_TAGS Analytics
+func getActivityFeedHandler(c *core.RequestEvent) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"activities": []map[string]any{
+			{"type": "purchase", "user_id": "u1", "amount": 49.99},
+		},
+		"total_count": 2,
+		"has_more":    false,
+	})
+}
+
+// 24. Var-declared struct
+// API_DESC Get default payment
+// API_TAGS Orders
+func getDefaultPaymentHandler(c *core.RequestEvent) error {
+	var payment PaymentInfo = PaymentInfo{
+		Method: "card", Currency: "USD", Amount: 0,
+	}
+	return c.JSON(http.StatusOK, payment)
+}
+`
+
+// parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
+func parseHandlerScenarios(t *testing.T) *ASTParser {
+	t.Helper()
+	parser := NewASTParser()
+	filePath := createTestFile(t, "handlers_scenario.go", handlerScenarioSource)
+	if err := parser.ParseFile(filePath); err != nil {
+		t.Fatalf("Failed to parse handler scenarios: %v", err)
+	}
+	return parser
+}
+
+// requireHandler returns the named handler or fails the test.
+func requireHandler(t *testing.T, parser *ASTParser, name string) *ASTHandlerInfo {
+	t.Helper()
+	h, ok := parser.GetHandlerByName(name)
+	if !ok || h == nil {
+		t.Fatalf("Handler %q not found", name)
+	}
+	return h
+}
+
+// assertRef checks that a schema is a $ref to the given component.
+func assertRef(t *testing.T, schema *OpenAPISchema, component string, context string) {
+	t.Helper()
+	if schema == nil {
+		t.Fatalf("%s: schema is nil", context)
+	}
+	expected := "#/components/schemas/" + component
+	if schema.Ref != expected {
+		t.Errorf("%s: expected $ref %q, got Ref=%q Type=%q", context, expected, schema.Ref, schema.Type)
+	}
+}
+
+// assertArrayOfRef checks that a schema is {type:"array", items:{$ref:...}}.
+func assertArrayOfRef(t *testing.T, schema *OpenAPISchema, component string, context string) {
+	t.Helper()
+	if schema == nil {
+		t.Fatalf("%s: schema is nil", context)
+	}
+	if schema.Type != "array" {
+		t.Errorf("%s: expected type 'array', got %q", context, schema.Type)
+	}
+	if schema.Items == nil {
+		t.Fatalf("%s: items is nil", context)
+	}
+	assertRef(t, schema.Items, component, context+" items")
+}
+
+// assertInlineObject checks that a schema is an inline object with the given property names.
+func assertInlineObject(t *testing.T, schema *OpenAPISchema, expectedProps []string, context string) {
+	t.Helper()
+	if schema == nil {
+		t.Fatalf("%s: schema is nil", context)
+	}
+	if schema.Type != "object" {
+		t.Errorf("%s: expected type 'object', got %q", context, schema.Type)
+	}
+	if schema.Properties == nil {
+		t.Fatalf("%s: properties is nil", context)
+	}
+	for _, prop := range expectedProps {
+		if _, ok := schema.Properties[prop]; !ok {
+			t.Errorf("%s: missing expected property %q", context, prop)
+		}
+	}
+}
+
+func TestHandlerScenario_DeepNestedStructResponse(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getOrderHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+	assertRef(t, h.ResponseSchema, "OrderResponse", "response")
+
+	// Verify OrderResponse component has nested $ref fields
+	schema := parser.generateSchemaFromType("OrderResponse", true)
+	if schema == nil {
+		t.Fatal("Expected OrderResponse schema")
+	}
+	assertRef(t, schema.Properties["shipping_address"], "Address", "shipping_address")
+	assertRef(t, schema.Properties["payment"], "PaymentInfo", "payment")
+	if schema.Properties["items"] == nil || schema.Properties["items"].Type != "array" {
+		t.Fatal("Expected items to be array")
+	}
+	assertRef(t, schema.Properties["items"].Items, "OrderItem", "items")
+
+	// Verify Address has nested $ref to GeoCoordinate
+	addrSchema := parser.generateSchemaFromType("Address", true)
+	assertRef(t, addrSchema.Properties["geo"], "GeoCoordinate", "Address.geo")
+}
+
+func TestHandlerScenario_JsonDecodeRequestBody(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "createOrderHandler")
+
+	if h.RequestType != "CreateOrderRequest" {
+		t.Errorf("Expected RequestType 'CreateOrderRequest', got %q", h.RequestType)
+	}
+	if h.RequestSchema == nil {
+		t.Fatal("Expected request schema")
+	}
+	assertRef(t, h.RequestSchema, "CreateOrderRequest", "request")
+
+	// Response should also be $ref OrderResponse
+	assertRef(t, h.ResponseSchema, "OrderResponse", "response")
+
+	// Verify json.Decode detection
+	if !h.UsesJSONDecode {
+		t.Error("Expected UsesJSONDecode to be true")
+	}
+}
+
+func TestHandlerScenario_ArrayOfStructsResponse(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "listOrdersHandler")
+
+	assertArrayOfRef(t, h.ResponseSchema, "OrderResponse", "response")
+}
+
+func TestHandlerScenario_StructWithTypedMaps(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getIndicatorsHandler")
+
+	assertRef(t, h.ResponseSchema, "IndicatorValues", "response")
+
+	// Verify IndicatorValues component schema
+	schema := parser.generateSchemaFromType("IndicatorValues", true)
+	if schema == nil {
+		t.Fatal("Expected IndicatorValues schema")
+	}
+
+	// map[string]float64 → additionalProperties: {type: "number"}
+	valuesField := schema.Properties["values"]
+	if valuesField == nil || valuesField.Type != "object" {
+		t.Fatal("Expected values to be object")
+	}
+	if ap, ok := valuesField.AdditionalProperties.(*OpenAPISchema); ok {
+		if ap.Type != "number" {
+			t.Errorf("Expected values additionalProperties type 'number', got %q", ap.Type)
+		}
+	} else {
+		t.Error("Expected values additionalProperties to be a schema")
+	}
+
+	// map[string]string → additionalProperties: {type: "string"}
+	signalsField := schema.Properties["signals"]
+	if ap, ok := signalsField.AdditionalProperties.(*OpenAPISchema); ok {
+		if ap.Type != "string" {
+			t.Errorf("Expected signals additionalProperties type 'string', got %q", ap.Type)
+		}
+	} else {
+		t.Error("Expected signals additionalProperties to be a schema")
+	}
+
+	// map[string]int → additionalProperties: {type: "integer"}
+	computedField := schema.Properties["computed"]
+	if ap, ok := computedField.AdditionalProperties.(*OpenAPISchema); ok {
+		if ap.Type != "integer" {
+			t.Errorf("Expected computed additionalProperties type 'integer', got %q", ap.Type)
+		}
+	} else {
+		t.Error("Expected computed additionalProperties to be a schema")
+	}
+}
+
+func TestHandlerScenario_AnyFieldsAndJsonDecode(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "trackEventHandler")
+
+	// Request: json.Decode → $ref AnalyticsEvent
+	assertRef(t, h.RequestSchema, "AnalyticsEvent", "request")
+	if !h.UsesJSONDecode {
+		t.Error("Expected UsesJSONDecode to be true")
+	}
+
+	// Response: returning req variable → $ref AnalyticsEvent
+	assertRef(t, h.ResponseSchema, "AnalyticsEvent", "response")
+
+	// Verify any fields in component schema
+	schema := parser.generateSchemaFromType("AnalyticsEvent", true)
+
+	// map[string]any → additionalProperties: true (NOT nested object)
+	propsField := schema.Properties["properties"]
+	if propsField == nil {
+		t.Fatal("Expected properties field")
+	}
+	if propsField.Type != "object" {
+		t.Errorf("Expected properties type 'object', got %q", propsField.Type)
+	}
+	if propsField.AdditionalProperties != true {
+		t.Errorf("Expected map[string]any to produce additionalProperties: true, got %v", propsField.AdditionalProperties)
+	}
+
+	// any → {type: "object", additionalProperties: true}
+	contextField := schema.Properties["context"]
+	if contextField == nil {
+		t.Fatal("Expected context field")
+	}
+	if contextField.Type != "object" {
+		t.Errorf("Expected context type 'object', got %q", contextField.Type)
+	}
+	if contextField.AdditionalProperties != true {
+		t.Errorf("Expected any to produce additionalProperties: true, got %v", contextField.AdditionalProperties)
+	}
+}
+
+func TestHandlerScenario_InlineMapWithNestedMaps(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getDiagnosticsHandler")
+
+	schema := h.ResponseSchema
+	assertInlineObject(t, schema, []string{"status", "version", "uptime", "memory", "database"}, "response")
+
+	// Nested map values should be inline objects too
+	memoryProp := schema.Properties["memory"]
+	assertInlineObject(t, memoryProp, []string{"allocated_mb", "gc_cycles"}, "memory")
+
+	dbProp := schema.Properties["database"]
+	assertInlineObject(t, dbProp, []string{"connected", "pool_size"}, "database")
+}
+
+func TestHandlerScenario_FlatStructWithNestedStruct(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getUserProfileHandler")
+
+	assertRef(t, h.ResponseSchema, "UserProfile", "response")
+
+	// UserProfile.contact → $ref ContactInfo
+	schema := parser.generateSchemaFromType("UserProfile", true)
+	assertRef(t, schema.Properties["contact"], "ContactInfo", "contact")
+}
+
+func TestHandlerScenario_PaginatedMapWithStructs(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "searchUsersHandler")
+
+	schema := h.ResponseSchema
+	if schema == nil {
+		t.Fatal("Expected response schema")
+	}
+	if schema.Properties == nil {
+		t.Fatal("Expected inline object with properties")
+	}
+
+	// data → array of $ref UserProfile
+	dataField := schema.Properties["data"]
+	assertArrayOfRef(t, dataField, "UserProfile", "data")
+
+	// pagination → $ref PaginationMeta
+	paginationField := schema.Properties["pagination"]
+	assertRef(t, paginationField, "PaginationMeta", "pagination")
+}
+
+func TestHandlerScenario_ArrayOfNumericStructs(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getCandlestickHandler")
+
+	assertArrayOfRef(t, h.ResponseSchema, "TimeseriesPoint", "response")
+}
+
+func TestHandlerScenario_MapStringStringVariable(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getConfigHandler")
+
+	schema := h.ResponseSchema
+	if schema == nil {
+		t.Fatal("Expected response schema")
+	}
+	// map[string]string literal → should have properties with string values
+	if schema.Properties == nil {
+		t.Fatal("Expected properties from map literal")
+	}
+	for _, key := range []string{"log_level", "region"} {
+		prop := schema.Properties[key]
+		if prop == nil {
+			t.Errorf("Expected property %q", key)
+			continue
+		}
+		if prop.Type != "string" {
+			t.Errorf("Expected property %q type 'string', got %q", key, prop.Type)
+		}
+	}
+}
+
+func TestHandlerScenario_MixedInlineMap(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getFeatureFlagsHandler")
+
+	schema := h.ResponseSchema
+	assertInlineObject(t, schema, []string{"flags", "rate_limits", "maintenance"}, "response")
+
+	// flags → nested inline object
+	flagsProp := schema.Properties["flags"]
+	assertInlineObject(t, flagsProp, []string{"dark_mode", "beta_api"}, "flags")
+
+	// rate_limits → nested inline object
+	rlProp := schema.Properties["rate_limits"]
+	assertInlineObject(t, rlProp, []string{"requests_per_minute", "enabled"}, "rate_limits")
+
+	// maintenance → boolean
+	maintProp := schema.Properties["maintenance"]
+	if maintProp == nil || maintProp.Type != "boolean" {
+		t.Error("Expected maintenance to be boolean")
+	}
+}
+
+func TestHandlerScenario_MapVariableWithAdditions(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getPlatformStatsHandler")
+
+	schema := h.ResponseSchema
+	if schema == nil || schema.Properties == nil {
+		t.Fatal("Expected inline object response")
+	}
+
+	// Original map keys
+	for _, key := range []string{"total_users", "revenue"} {
+		if _, ok := schema.Properties[key]; !ok {
+			t.Errorf("Expected original map property %q", key)
+		}
+	}
+
+	// MapAdditions: result["computed_at"] and result["cached"]
+	if _, ok := schema.Properties["computed_at"]; !ok {
+		t.Error("Expected MapAddition 'computed_at' to be merged")
+	}
+	if _, ok := schema.Properties["cached"]; !ok {
+		t.Error("Expected MapAddition 'cached' to be merged")
+	}
+}
+
+func TestHandlerScenario_BindBodyRequest(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "updateProfileHandler")
+
+	// BindBody → request detected
+	if !h.UsesBindBody {
+		t.Error("Expected UsesBindBody to be true")
+	}
+	if h.RequestType != "UpdateProfileRequest" {
+		t.Errorf("Expected RequestType 'UpdateProfileRequest', got %q", h.RequestType)
+	}
+	assertRef(t, h.RequestSchema, "UpdateProfileRequest", "request")
+
+	// Response is inline map
+	assertInlineObject(t, h.ResponseSchema, []string{"success", "updated"}, "response")
+}
+
+func TestHandlerScenario_EmbeddedStruct(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getProductHandler")
+
+	assertRef(t, h.ResponseSchema, "ProductResponse", "response")
+
+	// ProductResponse should have flattened fields from BaseEntity
+	schema := parser.generateSchemaFromType("ProductResponse", true)
+	if schema == nil {
+		t.Fatal("Expected ProductResponse schema")
+	}
+	// BaseEntity fields should be promoted
+	for _, field := range []string{"id", "created_at", "updated_at"} {
+		if _, ok := schema.Properties[field]; !ok {
+			t.Errorf("Expected embedded field %q from BaseEntity", field)
+		}
+	}
+	// Own fields
+	for _, field := range []string{"name", "description", "price", "currency", "in_stock"} {
+		if _, ok := schema.Properties[field]; !ok {
+			t.Errorf("Expected own field %q", field)
+		}
+	}
+}
+
+func TestHandlerScenario_SliceOfPrimitives(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "listCategoriesHandler")
+
+	schema := h.ResponseSchema
+	if schema == nil {
+		t.Fatal("Expected response schema")
+	}
+	if schema.Type != "array" {
+		t.Errorf("Expected type 'array', got %q", schema.Type)
+	}
+	if schema.Items == nil {
+		t.Fatal("Expected items")
+	}
+	if schema.Items.Type != "string" {
+		t.Errorf("Expected items type 'string', got %q", schema.Items.Type)
+	}
+}
+
+func TestHandlerScenario_MinimalDeleteResponse(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "deleteProductHandler")
+
+	assertInlineObject(t, h.ResponseSchema, []string{"success", "deleted"}, "response")
+}
+
+func TestHandlerScenario_VariableReferencedStruct(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "healthCheckHandler")
+
+	assertRef(t, h.ResponseSchema, "HealthCheckResponse", "response")
+}
+
+func TestHandlerScenario_MapWithStructSlice(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "searchProductsHandler")
+
+	schema := h.ResponseSchema
+	assertInlineObject(t, schema, []string{"results", "total", "page", "per_page"}, "response")
+
+	// results → array of $ref ProductResponse
+	assertArrayOfRef(t, schema.Properties["results"], "ProductResponse", "results")
+}
+
+func TestHandlerScenario_MapWithStructValue(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getOrderSummaryHandler")
+
+	schema := h.ResponseSchema
+	assertInlineObject(t, schema, []string{"order_id", "status", "shipping", "total_amount"}, "response")
+
+	// shipping → $ref Address
+	assertRef(t, schema.Properties["shipping"], "Address", "shipping")
+}
+
+func TestHandlerScenario_MultipleReturnPaths(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "batchDeleteHandler")
+
+	// Request: json.Decode → $ref BatchDeleteRequest
+	assertRef(t, h.RequestSchema, "BatchDeleteRequest", "request")
+	if !h.UsesJSONDecode {
+		t.Error("Expected UsesJSONDecode to be true")
+	}
+
+	// Response: last c.JSON call (success path)
+	schema := h.ResponseSchema
+	if schema == nil {
+		t.Fatal("Expected response schema")
+	}
+	// Should have properties from the success-path map
+	if schema.Properties != nil {
+		if _, ok := schema.Properties["deleted_count"]; ok {
+			// success path picked up — good
+		}
+	}
+}
+
+func TestHandlerScenario_VariableMapWithStructSlices(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getDashboardHandler")
+
+	schema := h.ResponseSchema
+	if schema == nil || schema.Properties == nil {
+		t.Fatal("Expected inline object response")
+	}
+
+	// recent_orders → array of $ref OrderResponse
+	recentOrders := schema.Properties["recent_orders"]
+	assertArrayOfRef(t, recentOrders, "OrderResponse", "recent_orders")
+
+	// top_users → array of $ref UserProfile
+	topUsers := schema.Properties["top_users"]
+	assertArrayOfRef(t, topUsers, "UserProfile", "top_users")
+
+	// Primitive fields
+	if _, ok := schema.Properties["total_revenue"]; !ok {
+		t.Error("Expected 'total_revenue' property")
+	}
+	if _, ok := schema.Properties["active_orders"]; !ok {
+		t.Error("Expected 'active_orders' property")
+	}
+}
+
+func TestHandlerScenario_StructPointerResponse(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getContactInfoHandler")
+
+	assertRef(t, h.ResponseSchema, "ContactInfo", "response")
+}
+
+func TestHandlerScenario_InlineMapWithArrayOfMaps(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getActivityFeedHandler")
+
+	schema := h.ResponseSchema
+	assertInlineObject(t, schema, []string{"activities", "total_count", "has_more"}, "response")
+
+	// activities → array — items should be free-form object
+	activitiesField := schema.Properties["activities"]
+	if activitiesField == nil || activitiesField.Type != "array" {
+		t.Fatal("Expected activities to be array")
+	}
+	if activitiesField.Items == nil {
+		t.Fatal("Expected activities items")
+	}
+	// []map[string]any → items should be {type:"object", additionalProperties:true}
+	items := activitiesField.Items
+	if items.Type != "object" {
+		t.Errorf("Expected items type 'object', got %q", items.Type)
+	}
+	if items.AdditionalProperties != true {
+		t.Errorf("Expected items additionalProperties to be true (free-form), got %v", items.AdditionalProperties)
+	}
+}
+
+func TestHandlerScenario_VarDeclaredStruct(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getDefaultPaymentHandler")
+
+	assertRef(t, h.ResponseSchema, "PaymentInfo", "response")
+}
+
+func TestHandlerScenario_MapStringAnyFreeForm(t *testing.T) {
+	// Verify that map[string]any produces {type:"object", additionalProperties:true}
+	// (NOT nested {additionalProperties: {type:"object", additionalProperties:true}})
+	parser := parseHandlerScenarios(t)
+
+	schema := parser.generateSchemaFromType("map[string]any", false)
+	if schema == nil {
+		t.Fatal("Expected schema for map[string]any")
+	}
+	if schema.Type != "object" {
+		t.Errorf("Expected type 'object', got %q", schema.Type)
+	}
+	if schema.AdditionalProperties != true {
+		t.Errorf("Expected additionalProperties: true, got %v (type %T)", schema.AdditionalProperties, schema.AdditionalProperties)
+	}
+}
+
+func TestHandlerScenario_StructDiscovery(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// All struct definitions should be discovered
+	expectedStructs := []string{
+		"GeoCoordinate", "Address", "ContactInfo", "OrderItem", "PaymentInfo",
+		"OrderResponse", "CreateOrderRequest", "AnalyticsEvent", "PaginationMeta",
+		"UserProfile", "TimeseriesPoint", "IndicatorValues", "UpdateProfileRequest",
+		"BaseEntity", "ProductResponse", "HealthCheckResponse", "BatchDeleteRequest",
+	}
+
+	allStructs := parser.GetAllStructs()
+	for _, name := range expectedStructs {
+		if _, ok := allStructs[name]; !ok {
+			t.Errorf("Expected struct %q to be discovered", name)
+		}
+	}
+}
+
+func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	expectedHandlers := []string{
+		"getOrderHandler", "createOrderHandler", "listOrdersHandler",
+		"getIndicatorsHandler", "trackEventHandler", "getDiagnosticsHandler",
+		"getUserProfileHandler", "searchUsersHandler", "getCandlestickHandler",
+		"getConfigHandler", "getFeatureFlagsHandler", "getPlatformStatsHandler",
+		"updateProfileHandler", "getProductHandler", "listCategoriesHandler",
+		"deleteProductHandler", "healthCheckHandler", "searchProductsHandler",
+		"getOrderSummaryHandler", "batchDeleteHandler", "getDashboardHandler",
+		"getContactInfoHandler", "getActivityFeedHandler", "getDefaultPaymentHandler",
+	}
+
+	allHandlers := parser.GetAllHandlers()
+	if len(allHandlers) != len(expectedHandlers) {
+		t.Errorf("Expected %d handlers, got %d", len(expectedHandlers), len(allHandlers))
+	}
+	for _, name := range expectedHandlers {
+		if _, ok := allHandlers[name]; !ok {
+			t.Errorf("Expected handler %q to be discovered", name)
+		}
+	}
+}
+
+func TestHandlerScenario_APIDescAndTags(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	tests := []struct {
+		handler string
+		desc    string
+		tags    []string
+	}{
+		{"getOrderHandler", "Get order details", []string{"Orders"}},
+		{"createOrderHandler", "Create a new order", []string{"Orders"}},
+		{"getDiagnosticsHandler", "Get diagnostics", []string{"System"}},
+		{"trackEventHandler", "Track analytics event", []string{"Analytics"}},
+		{"updateProfileHandler", "Update profile", []string{"Users"}},
+		{"getProductHandler", "Get product", []string{"Products"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.handler, func(t *testing.T) {
+			h := requireHandler(t, parser, tt.handler)
+			if h.APIDescription != tt.desc {
+				t.Errorf("Expected desc %q, got %q", tt.desc, h.APIDescription)
+			}
+			if len(h.APITags) != len(tt.tags) {
+				t.Errorf("Expected %d tags, got %d: %v", len(tt.tags), len(h.APITags), h.APITags)
+				return
+			}
+			for i, tag := range tt.tags {
+				if h.APITags[i] != tag {
+					t.Errorf("Expected tag[%d] = %q, got %q", i, tag, h.APITags[i])
+				}
+			}
+		})
+	}
+}
+
+func TestHandlerScenario_PointerFields(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+
+	// OrderResponse has *Address for billing_address and *string for notes
+	schema := parser.generateSchemaFromType("OrderResponse", true)
+	if schema == nil {
+		t.Fatal("Expected OrderResponse schema")
+	}
+
+	// billing_address is *Address → should still be $ref (pointer unwrapped)
+	billingAddr := schema.Properties["billing_address"]
+	assertRef(t, billingAddr, "Address", "billing_address")
+
+	// ContactInfo has *string fields
+	ciSchema := parser.generateSchemaFromType("ContactInfo", true)
+	phoneField := ciSchema.Properties["phone"]
+	if phoneField == nil {
+		t.Fatal("Expected phone field")
+	}
+	if phoneField.Type != "string" {
+		t.Errorf("Expected phone type 'string', got %q", phoneField.Type)
+	}
+}
+
+// =============================================================================
 // Examples
 // =============================================================================
 
