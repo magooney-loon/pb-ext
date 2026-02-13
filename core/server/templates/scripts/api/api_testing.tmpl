@@ -785,6 +785,15 @@
                 this._eventCleanup.push(cleanup);
             });
 
+            // Schema-defined query parameter input listeners (update URL preview)
+            const queryInputs = container.querySelectorAll('input[name*="queryParams"]');
+            queryInputs.forEach(input => {
+                const cleanup = this._addInputListener(input, () => {
+                    this._updateUrlDisplay(this._currentEndpoint);
+                });
+                this._eventCleanup.push(cleanup);
+            });
+
             // Add query parameter button
             const addQueryBtn = container.querySelector('.add-query-param-btn');
             if (addQueryBtn) {
@@ -959,6 +968,7 @@
                     method: this._currentEndpoint.method,
                     headers: {
                         'Content-Type': 'application/json',
+                        ...formData.headers,
                         ...this._getAuthHeaders(authMode)
                     }
                 };
@@ -1005,6 +1015,7 @@
             const formData = {
                 pathParams: {},
                 queryParams: {},
+                headers: {},
                 requestBody: {}
             };
 
@@ -1017,13 +1028,31 @@
                 }
             });
 
-            // Collect custom query parameters
+            // Collect schema-defined query parameters
+            const queryInputs = document.querySelectorAll('input[name*="queryParams"]');
+            queryInputs.forEach(input => {
+                const paramName = input.name.match(/\[([^\]]+)\]/)?.[1];
+                if (paramName && input.value.trim()) {
+                    formData.queryParams[paramName] = input.value;
+                }
+            });
+
+            // Collect custom query parameters from the optional section
             const queryRows = document.querySelectorAll('#query-params-list > div');
             queryRows.forEach(row => {
                 const nameInput = row.querySelector('.query-param-name');
                 const valueInput = row.querySelector('.query-param-value');
                 if (nameInput && valueInput && nameInput.value && valueInput.value) {
                     formData.queryParams[nameInput.value] = valueInput.value;
+                }
+            });
+
+            // Collect schema-defined header parameters
+            const headerInputs = document.querySelectorAll('input[name*="headers"]');
+            headerInputs.forEach(input => {
+                const headerName = input.name.match(/\[([^\]]+)\]/)?.[1];
+                if (headerName && input.value.trim()) {
+                    formData.headers[headerName] = input.value;
                 }
             });
 
@@ -1309,9 +1338,23 @@
                         }
                     });
 
+                    // Add schema-defined query parameters to URL display
+                    const allQueryParams = new URLSearchParams();
+                    const schemaQueryInputs = document.querySelectorAll('input[name*="queryParams"]');
+                    schemaQueryInputs.forEach(input => {
+                        const paramName = input.name.match(/\[([^\]]+)\]/)?.[1];
+                        if (paramName && input.value.trim()) {
+                            allQueryParams.append(paramName, input.value);
+                        }
+                    });
+
                     // Add custom query parameters to URL display
                     const customQueryParams = this._getCustomQueryParams();
-                    const queryString = new URLSearchParams(customQueryParams).toString();
+                    Object.entries(customQueryParams).forEach(([key, value]) => {
+                        allQueryParams.append(key, value);
+                    });
+
+                    const queryString = allQueryParams.toString();
                     if (queryString) {
                         url += '?' + queryString;
                     }
