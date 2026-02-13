@@ -481,42 +481,116 @@ func (p *ASTParser) findAssignedVariable(body *ast.BlockStmt, target *ast.Compos
 	return result
 }
 
-// extractQueryParameters detects query parameter usage patterns in handler bodies.
-// It tracks variables assigned from URL.Query() and finds q.Get("paramName") calls.
+// extractQueryParameters detects query, header, and path parameter usage patterns in handler bodies.
+// Supported patterns:
+//   - q := e.Request.URL.Query(); q.Get("param")
+//   - e.Request.URL.Query().Get("param")
+//   - e.Request.URL.Query()["param"]
+//   - info.Query["param"]         (via e.RequestInfo())
+//   - e.Request.Header.Get("name")
+//   - info.Headers["name"]        (via e.RequestInfo())
+//   - e.Request.PathValue("id")
 func (p *ASTParser) extractQueryParameters(body *ast.BlockStmt, handlerInfo *ASTHandlerInfo) {
 	queryVarNames := map[string]bool{}
+	requestInfoVars := map[string]bool{}
 
 	ast.Inspect(body, func(n ast.Node) bool {
-		// Track: q := e.Request.URL.Query()
+		// ── Track variable assignments ──────────────────────────────────
 		if assign, ok := n.(*ast.AssignStmt); ok {
 			for i, rhs := range assign.Rhs {
+				if i >= len(assign.Lhs) {
+					continue
+				}
+				ident, ok := assign.Lhs[i].(*ast.Ident)
+				if !ok {
+					continue
+				}
 				if isURLQueryCall(rhs) {
-					if i < len(assign.Lhs) {
-						if ident, ok := assign.Lhs[i].(*ast.Ident); ok {
-							queryVarNames[ident.Name] = true
+					queryVarNames[ident.Name] = true
+				}
+				if isRequestInfoCall(rhs) {
+					requestInfoVars[ident.Name] = true
+				}
+			}
+		}
+
+		// ── Detect method calls: .Get("param"), .PathValue("param") ────
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				switch sel.Sel.Name {
+				case "Get":
+					if paramName, ok := firstStringArg(call); ok {
+						// q.Get("param") where q is a tracked URL.Query() variable
+						if ident, ok := sel.X.(*ast.Ident); ok && queryVarNames[ident.Name] {
+							handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+								Name:   paramName,
+								Type:   "string",
+								Source: "query",
+							})
 						}
+						// e.Request.URL.Query().Get("param") — direct inline
+						if isURLQueryCall(sel.X) {
+							handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+								Name:   paramName,
+								Type:   "string",
+								Source: "query",
+							})
+						}
+						// e.Request.Header.Get("name")
+						if isRequestHeaderSelector(sel.X) {
+							handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+								Name:   paramName,
+								Type:   "string",
+								Source: "header",
+							})
+						}
+					}
+				case "PathValue":
+					// e.Request.PathValue("id")
+					if paramName, ok := firstStringArg(call); ok {
+						handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+							Name:     paramName,
+							Type:     "string",
+							Source:   "path",
+							Required: true,
+						})
 					}
 				}
 			}
 		}
-		// Detect: q.Get("paramName")
-		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Get" {
-				if ident, ok := sel.X.(*ast.Ident); ok && queryVarNames[ident.Name] {
-					if len(call.Args) > 0 {
-						if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-							paramName := strings.Trim(lit.Value, `"`)
+
+		// ── Detect index expressions: info.Query["param"], info.Headers["key"], q["param"] ──
+		if indexExpr, ok := n.(*ast.IndexExpr); ok {
+			if paramName, ok := stringLiteralValue(indexExpr.Index); ok {
+				if sel, ok := indexExpr.X.(*ast.SelectorExpr); ok {
+					if ident, ok := sel.X.(*ast.Ident); ok && requestInfoVars[ident.Name] {
+						switch sel.Sel.Name {
+						case "Query":
 							handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
-								Name:     paramName,
-								Type:     "string",
-								Source:   "query",
-								Required: false,
+								Name:   paramName,
+								Type:   "string",
+								Source: "query",
+							})
+						case "Headers":
+							handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+								Name:   paramName,
+								Type:   "string",
+								Source: "header",
 							})
 						}
 					}
 				}
+				// q["param"] where q is a tracked URL.Query() variable
+				if ident, ok := indexExpr.X.(*ast.Ident); ok && queryVarNames[ident.Name] {
+					handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+						Name:   paramName,
+						Type:   "string",
+						Source: "query",
+					})
+				}
 			}
 		}
+
 		return true
 	})
 }
@@ -538,10 +612,52 @@ func isURLQueryCall(expr ast.Expr) bool {
 	return false
 }
 
-// appendParamIfNew appends a ParamInfo to the slice if no param with the same name exists
+// isRequestInfoCall checks if an expression is a call to e.RequestInfo()
+func isRequestInfoCall(expr ast.Expr) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	return sel.Sel.Name == "RequestInfo"
+}
+
+// isRequestHeaderSelector checks if an expression matches e.Request.Header
+func isRequestHeaderSelector(expr ast.Expr) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Header" {
+		return false
+	}
+	if innerSel, ok := sel.X.(*ast.SelectorExpr); ok {
+		return innerSel.Sel.Name == "Request"
+	}
+	return false
+}
+
+// firstStringArg extracts the first string literal argument from a call expression
+func firstStringArg(call *ast.CallExpr) (string, bool) {
+	if len(call.Args) == 0 {
+		return "", false
+	}
+	return stringLiteralValue(call.Args[0])
+}
+
+// stringLiteralValue extracts the string value from a BasicLit string expression
+func stringLiteralValue(expr ast.Expr) (string, bool) {
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	return strings.Trim(lit.Value, `"`), true
+}
+
+// appendParamIfNew appends a ParamInfo to the slice if no param with the same name and source exists
 func appendParamIfNew(params []*ParamInfo, param *ParamInfo) []*ParamInfo {
 	for _, p := range params {
-		if p.Name == param.Name {
+		if p.Name == param.Name && p.Source == param.Source {
 			return params
 		}
 	}
@@ -1297,6 +1413,11 @@ func (p *ASTParser) EnhanceEndpoint(endpoint *APIEndpoint) error {
 			}
 			if handlerInfo.ResponseSchema != nil {
 				endpoint.Response = handlerInfo.ResponseSchema
+			}
+
+			// Set AST-detected parameters (query, header, path from code analysis)
+			if len(handlerInfo.Parameters) > 0 {
+				endpoint.Parameters = handlerInfo.Parameters
 			}
 
 			// Store enhanced data in handler info for later use

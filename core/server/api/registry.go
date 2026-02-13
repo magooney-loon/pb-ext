@@ -428,6 +428,11 @@ func (r *APIRegistry) enhanceEndpointWithAST(endpoint *APIEndpoint) {
 					endpoint.Response = handlerInfo.ResponseSchema
 				}
 
+				// Set AST-detected parameters (query, header, path from code analysis)
+				if len(handlerInfo.Parameters) > 0 {
+					endpoint.Parameters = handlerInfo.Parameters
+				}
+
 				enhanced = true
 				break
 			}
@@ -594,8 +599,23 @@ func (r *APIRegistry) endpointToOperation(endpoint APIEndpoint) *OpenAPIOperatio
 		Responses:   make(map[string]*OpenAPIResponse),
 	}
 
-	// Extract path parameters
+	// Extract path parameters from URL pattern
 	operation.Parameters = r.extractPathParameters(endpoint.Path)
+
+	// Append AST-detected parameters (query, header, additional path params)
+	if len(endpoint.Parameters) > 0 {
+		existingNames := make(map[string]bool)
+		for _, p := range operation.Parameters {
+			existingNames[p.In+":"+p.Name] = true
+		}
+		for _, paramInfo := range endpoint.Parameters {
+			key := paramInfo.Source + ":" + paramInfo.Name
+			if !existingNames[key] {
+				operation.Parameters = append(operation.Parameters, ConvertParamInfoToOpenAPIParameter(paramInfo))
+				existingNames[key] = true
+			}
+		}
+	}
 
 	// Add request body if present
 	if endpoint.Request != nil {

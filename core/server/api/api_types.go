@@ -14,6 +14,7 @@ type APIEndpoint struct {
 	Auth        *AuthInfo      `json:"auth,omitempty"`
 	Tags        []string       `json:"tags,omitempty"`
 	Handler     string         `json:"handler_name,omitempty"`
+	Parameters  []*ParamInfo   `json:"parameters,omitempty"`
 }
 
 // AuthInfo represents detailed authentication requirements for an API endpoint

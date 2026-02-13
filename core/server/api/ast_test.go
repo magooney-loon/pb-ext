@@ -2257,6 +2257,63 @@ func getLatestSummaryHandler(c *core.RequestEvent) error {
 	summary := fetchLatestSummary("tok123")
 	return c.JSON(http.StatusOK, summary)
 }
+
+// 37. Handler with inline e.Request.URL.Query().Get() (no intermediate variable)
+// API_DESC Get items with inline query
+// API_TAGS Items
+func getItemsInlineQueryHandler(c *core.RequestEvent) error {
+	sort := c.Request.URL.Query().Get("sort")
+	limit := c.Request.URL.Query().Get("limit")
+	_ = sort
+	_ = limit
+	return c.JSON(http.StatusOK, map[string]any{"items": []string{}})
+}
+
+// 38. Handler using e.RequestInfo() for query and header params
+// API_DESC Get items via request info
+// API_TAGS Items
+func getItemsRequestInfoHandler(c *core.RequestEvent) error {
+	info, _ := c.RequestInfo()
+	search := info.Query["search"]
+	token := info.Headers["authorization"]
+	_ = search
+	_ = token
+	return c.JSON(http.StatusOK, map[string]any{"items": []string{}})
+}
+
+// 39. Handler using e.Request.Header.Get()
+// API_DESC Get with custom header
+// API_TAGS Items
+func getWithHeaderHandler(c *core.RequestEvent) error {
+	apiKey := c.Request.Header.Get("X-API-Key")
+	_ = apiKey
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+// 40. Handler using e.Request.PathValue()
+// API_DESC Get item by ID
+// API_TAGS Items
+func getItemByPathValueHandler(c *core.RequestEvent) error {
+	id := c.Request.PathValue("id")
+	_ = id
+	return c.JSON(http.StatusOK, map[string]any{"id": id})
+}
+
+// 41. Handler with mixed parameter sources
+// API_DESC Get filtered items
+// API_TAGS Items
+func getMixedParamsHandler(c *core.RequestEvent) error {
+	id := c.Request.PathValue("id")
+	q := c.Request.URL.Query()
+	interval := q.Get("interval")
+	format := c.Request.URL.Query().Get("format")
+	info, _ := c.RequestInfo()
+	locale := info.Query["locale"]
+	auth := info.Headers["x_auth_token"]
+	custom := c.Request.Header.Get("X-Custom")
+	_, _, _, _, _, _ = id, interval, format, locale, auth, custom
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -2831,6 +2888,8 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getTokenDetailHandler", "getMultiMapHandler", "getEmptyFormatHandler",
 		"listNetworksHandler", "listTokensHandler", "getObservationsHandler",
 		"getLatestSummaryHandler", "listInlineAppendHandler",
+		"getItemsInlineQueryHandler", "getItemsRequestInfoHandler",
+		"getWithHeaderHandler", "getItemByPathValueHandler", "getMixedParamsHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -3619,6 +3678,103 @@ func TestHandlerScenario_NoQueryParamsOnSimpleHandler(t *testing.T) {
 
 	if len(h.Parameters) > 0 {
 		t.Errorf("Expected no parameters on healthCheckHandler, got %d", len(h.Parameters))
+	}
+}
+
+func TestHandlerScenario_InlineQueryGet(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getItemsInlineQueryHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected query parameters from inline URL.Query().Get()")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "sort", "query", "string")
+	assertParam(t, params, "limit", "query", "string")
+}
+
+func TestHandlerScenario_RequestInfoQueryAndHeaders(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getItemsRequestInfoHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected parameters from RequestInfo() access")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "search", "query", "string")
+	assertParam(t, params, "authorization", "header", "string")
+}
+
+func TestHandlerScenario_HeaderGet(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getWithHeaderHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected header parameter from Request.Header.Get()")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "X-API-Key", "header", "string")
+}
+
+func TestHandlerScenario_PathValue(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getItemByPathValueHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected path parameter from Request.PathValue()")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "id", "path", "string")
+
+	// Path parameters should be required
+	for _, p := range h.Parameters {
+		if p.Source == "path" && !p.Required {
+			t.Errorf("Expected path parameter %q to be required", p.Name)
+		}
+	}
+}
+
+func TestHandlerScenario_MixedParameterSources(t *testing.T) {
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getMixedParamsHandler")
+
+	if len(h.Parameters) < 6 {
+		t.Fatalf("Expected at least 6 parameters from mixed sources, got %d", len(h.Parameters))
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "id", "path", "string")
+	assertParam(t, params, "interval", "query", "string")
+	assertParam(t, params, "format", "query", "string")
+	assertParam(t, params, "locale", "query", "string")
+	assertParam(t, params, "x_auth_token", "header", "string")
+	assertParam(t, params, "X-Custom", "header", "string")
+}
+
+// paramMap builds a lookup map from a slice of ParamInfo keyed by "source:name".
+func paramMap(params []*ParamInfo) map[string]*ParamInfo {
+	m := make(map[string]*ParamInfo, len(params))
+	for _, p := range params {
+		m[p.Source+":"+p.Name] = p
+	}
+	return m
+}
+
+// assertParam checks that a parameter with the given source and name exists and has the expected type.
+func assertParam(t *testing.T, params map[string]*ParamInfo, name, source, typ string) {
+	t.Helper()
+	key := source + ":" + name
+	p, ok := params[key]
+	if !ok {
+		t.Errorf("Expected %s parameter %q to be detected", source, name)
+		return
+	}
+	if p.Type != typ {
+		t.Errorf("Expected %s parameter %q type %q, got %q", source, name, typ, p.Type)
 	}
 }
 

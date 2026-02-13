@@ -190,7 +190,7 @@ func (sg *SchemaGenerator) GetOpenAPIEndpointSchema(endpoint *APIEndpoint) (*Ope
 		operation.OperationId = generateOperationId(endpoint.Handler)
 	}
 
-	// Extract path parameters
+	// Extract path parameters from URL pattern
 	pathParams := extractPathParameters(endpoint.Path)
 	if len(pathParams) > 0 {
 		operation.Parameters = make([]*OpenAPIParameter, len(pathParams))
@@ -203,6 +203,21 @@ func (sg *SchemaGenerator) GetOpenAPIEndpointSchema(endpoint *APIEndpoint) (*Ope
 				Schema: &OpenAPISchema{
 					Type: "string",
 				},
+			}
+		}
+	}
+
+	// Append AST-detected parameters (query, header, additional path params)
+	if len(endpoint.Parameters) > 0 {
+		existingNames := make(map[string]bool)
+		for _, p := range operation.Parameters {
+			existingNames[p.In+":"+p.Name] = true
+		}
+		for _, paramInfo := range endpoint.Parameters {
+			key := paramInfo.Source + ":" + paramInfo.Name
+			if !existingNames[key] {
+				operation.Parameters = append(operation.Parameters, ConvertParamInfoToOpenAPIParameter(paramInfo))
+				existingNames[key] = true
 			}
 		}
 	}
