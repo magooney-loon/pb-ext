@@ -97,14 +97,29 @@ type HandlerInfo struct {
 
 // APIDocsConfig holds configuration for the API documentation system
 type APIDocsConfig struct {
-	Title         string `json:"title"`
-	Version       string `json:"version"`
-	Description   string `json:"description"`
-	Status        string `json:"status,omitempty"` // "stable", "development", "deprecated", "beta", etc.
-	BaseURL       string `json:"base_url"`
-	Enabled       bool   `json:"enabled"`
-	ContactName   string `json:"contact_name,omitempty"`   // Contact name shown in the OpenAPI spec (default: "API Support")
-	PublicSwagger bool   `json:"public_swagger,omitempty"` // If true, serves Swagger UI publicly at /api/docs/{version}/swagger
+	Title       string `json:"title"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Status      string `json:"status,omitempty"` // "stable", "development", "deprecated", "beta", etc.
+	BaseURL     string `json:"base_url"`
+	Enabled     bool   `json:"enabled"`
+
+	// Contact info shown in the OpenAPI spec
+	ContactName  string `json:"contact_name,omitempty"`  // default: "API Support"
+	ContactEmail string `json:"contact_email,omitempty"` // e.g. "support@example.com"
+	ContactURL   string `json:"contact_url,omitempty"`   // e.g. "https://example.com/support"
+
+	// License info shown in the OpenAPI spec
+	LicenseName string `json:"license_name,omitempty"` // e.g. "Apache 2.0"
+	LicenseURL  string `json:"license_url,omitempty"`  // e.g. "https://www.apache.org/licenses/LICENSE-2.0.html"
+
+	// Additional OpenAPI info fields
+	TermsOfService   string `json:"terms_of_service,omitempty"`   // URL to Terms of Service
+	ExternalDocsURL  string `json:"external_docs_url,omitempty"`  // URL for external documentation
+	ExternalDocsDesc string `json:"external_docs_desc,omitempty"` // Description for external docs link
+
+	// Swagger UI visibility
+	PublicSwagger bool `json:"public_swagger,omitempty"` // If true, serves Swagger UI publicly at /api/docs/{version}/swagger
 }
 
 // DefaultAPIDocsConfig returns a default configuration

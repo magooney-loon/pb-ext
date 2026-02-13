@@ -21,29 +21,57 @@ type APIRegistry struct {
 	pathPrefix      string // prefix to strip from paths (derived from server URL)
 }
 
+// buildOpenAPIInfo builds an OpenAPIInfo and optional ExternalDocs from an APIDocsConfig.
+func buildOpenAPIInfo(config *APIDocsConfig) (*OpenAPIInfo, *OpenAPIExternalDocs) {
+	contactName := config.ContactName
+	if contactName == "" {
+		contactName = "API Support"
+	}
+
+	info := &OpenAPIInfo{
+		Title:          config.Title,
+		Version:        config.Version,
+		Description:    config.Description,
+		TermsOfService: config.TermsOfService,
+		Contact: &OpenAPIContact{
+			Name:  contactName,
+			Email: config.ContactEmail,
+			URL:   config.ContactURL,
+		},
+	}
+
+	if config.LicenseName != "" {
+		info.License = &OpenAPILicense{
+			Name: config.LicenseName,
+			URL:  config.LicenseURL,
+		}
+	}
+
+	var externalDocs *OpenAPIExternalDocs
+	if config.ExternalDocsURL != "" {
+		externalDocs = &OpenAPIExternalDocs{
+			URL:         config.ExternalDocsURL,
+			Description: config.ExternalDocsDesc,
+		}
+	}
+
+	return info, externalDocs
+}
+
 // NewAPIRegistry creates a new API documentation registry with dependency injection
 func NewAPIRegistry(config *APIDocsConfig, astParser ASTParserInterface, schemaGenerator SchemaGeneratorInterface) *APIRegistry {
 	if config == nil {
 		config = DefaultAPIDocsConfig()
 	}
 
-	contactName := config.ContactName
-	if contactName == "" {
-		contactName = "API Support"
-	}
+	info, externalDocs := buildOpenAPIInfo(config)
 
 	registry := &APIRegistry{
 		config: config,
 		docs: &APIDocs{
-			OpenAPI: "3.0.3",
-			Info: &OpenAPIInfo{
-				Title:       config.Title,
-				Version:     config.Version,
-				Description: config.Description,
-				Contact: &OpenAPIContact{
-					Name: contactName,
-				},
-			},
+			OpenAPI:      "3.0.3",
+			Info:         info,
+			ExternalDocs: externalDocs,
 			Servers: []*OpenAPIServer{
 				{
 					URL:         config.BaseURL,
@@ -323,18 +351,9 @@ func (r *APIRegistry) UpdateConfig(config *APIDocsConfig) {
 	defer r.mu.Unlock()
 
 	r.config = config
-	contactName := config.ContactName
-	if contactName == "" {
-		contactName = "API Support"
-	}
-	r.docs.Info = &OpenAPIInfo{
-		Title:       config.Title,
-		Version:     config.Version,
-		Description: config.Description,
-		Contact: &OpenAPIContact{
-			Name: contactName,
-		},
-	}
+	info, externalDocs := buildOpenAPIInfo(config)
+	r.docs.Info = info
+	r.docs.ExternalDocs = externalDocs
 	r.docs.Servers = []*OpenAPIServer{
 		{
 			URL:         config.BaseURL,
