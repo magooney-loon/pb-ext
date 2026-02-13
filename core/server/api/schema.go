@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode"
 )
 
 // =============================================================================
@@ -235,13 +237,21 @@ func (sg *SchemaGenerator) GetOpenAPIEndpointSchema(endpoint *APIEndpoint) (*Ope
 		}
 	}
 
-	// Analyze response schema
+	// Analyze response schema — use $ref for promotable response schemas
 	if responseSchema, err := sg.AnalyzeResponseSchema(endpoint); err == nil && responseSchema != nil {
+		finalSchema := responseSchema
+		if finalSchema.Ref == "" && isPromotableSchema(finalSchema) && endpoint.Handler != "" {
+			if name := handlerResponseSchemaName(endpoint.Handler); name != "" {
+				finalSchema = &OpenAPISchema{
+					Ref: "#/components/schemas/" + name,
+				}
+			}
+		}
 		operation.Responses["200"] = &OpenAPIResponse{
 			Description: "Successful response",
 			Content: map[string]*OpenAPIMediaType{
 				"application/json": {
-					Schema: responseSchema,
+					Schema: finalSchema,
 				},
 			},
 		}
@@ -331,11 +341,93 @@ func (sg *SchemaGenerator) generateStructSchemas() map[string]*OpenAPISchema {
 		}
 	}
 
+	// Promote handler response schemas to named components
+	sg.promoteHandlerResponseSchemas(schemas)
+
 	// Add PocketBase common schemas
 	schemas["PocketBaseRecord"] = PocketBaseRecordSchema
 	schemas["Error"] = ErrorResponseSchema
 
 	return schemas
+}
+
+// promoteHandlerResponseSchemas iterates all AST handlers and promotes non-trivial
+// inline response schemas to named component schemas. The handler's ResponseSchema
+// is replaced with a $ref so the schema appears in Swagger UI's "Schemas" section.
+func (sg *SchemaGenerator) promoteHandlerResponseSchemas(schemas map[string]*OpenAPISchema) {
+	if sg.astParser == nil {
+		return
+	}
+
+	handlers := sg.astParser.GetAllHandlers()
+	for _, handlerInfo := range handlers {
+		schema := handlerInfo.ResponseSchema
+		if schema == nil || schema.Ref != "" {
+			// nil or already a $ref to a struct — skip
+			continue
+		}
+
+		// Only promote schemas that carry meaningful structure
+		promotable := false
+		if schema.Type == "object" && len(schema.Properties) > 0 {
+			promotable = true
+		}
+		if schema.Type == "array" && schema.Items != nil {
+			promotable = true
+		}
+		if !promotable {
+			continue
+		}
+
+		name := handlerResponseSchemaName(handlerInfo.Name)
+		if name == "" || schemas[name] != nil {
+			continue
+		}
+
+		// Add the full schema to components and replace the handler's schema with a $ref
+		schemas[name] = schema
+		handlerInfo.ResponseSchema = &OpenAPISchema{
+			Ref: "#/components/schemas/" + name,
+		}
+	}
+}
+
+// handlerResponseSchemaName derives a PascalCase schema name from a handler function name.
+// e.g. "getOrderHandler" → "GetOrderResponse", "listCategories" → "ListCategoriesResponse"
+func handlerResponseSchemaName(handlerName string) string {
+	// Strip package prefix
+	if idx := strings.LastIndex(handlerName, "."); idx >= 0 {
+		handlerName = handlerName[idx+1:]
+	}
+	// Strip common suffixes
+	for _, suffix := range []string{"Handler", "Func", "API", "Endpoint"} {
+		if strings.HasSuffix(handlerName, suffix) && len(handlerName) > len(suffix) {
+			handlerName = strings.TrimSuffix(handlerName, suffix)
+			break
+		}
+	}
+	if handlerName == "" {
+		return ""
+	}
+	// Uppercase first letter for PascalCase
+	runes := []rune(handlerName)
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes) + "Response"
+}
+
+// isPromotableSchema returns true if a schema has enough structure to be worth
+// promoting to a named component schema (rather than being inlined).
+func isPromotableSchema(schema *OpenAPISchema) bool {
+	if schema == nil {
+		return false
+	}
+	if schema.Type == "object" && len(schema.Properties) > 0 {
+		return true
+	}
+	if schema.Type == "array" && schema.Items != nil {
+		return true
+	}
+	return false
 }
 
 // generateCommonResponses generates common response schemas

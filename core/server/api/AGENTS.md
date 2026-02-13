@@ -8,12 +8,12 @@ This package (`core/server/api/`) is the OpenAPI documentation engine for pb-ext
 |---|---|
 | `ast.go` | `ASTParser` — core pipeline: file discovery, struct extraction (two-pass), handler analysis, map literal / variable / expression analysis, schema generation from Go types |
 | `ast_types.go` | All AST data structures: `ASTParser`, `StructInfo`, `FieldInfo`, `ASTHandlerInfo`, `MapKeyAdd`, `ParamInfo`, interfaces (`ASTParserInterface`) |
-| `api_types.go` | `APIEndpoint`, `APIDocs`, `APIDocsConfig`, `AuthInfo`, `HandlerInfo` — the route/endpoint model |
+| `api_types.go` | `APIEndpoint` (includes `Parameters []*ParamInfo`), `APIDocs`, `APIDocsConfig`, `AuthInfo`, `HandlerInfo` — the route/endpoint model |
 | `openapi_schema_types.go` | Full OpenAPI 3.0 type hierarchy: `OpenAPISchema`, `OpenAPIPathItem`, `OpenAPIOperation`, `OpenAPIComponents`, etc. |
 | `schema_types.go` | `SchemaGenerator` type, `SchemaAnalysisResult`, `SchemaConfig`, `SchemaGeneratorInterface` |
 | `common_types.go` | `Logger` interface, `DefaultLogger` |
 | `registry.go` | `APIRegistry` — coordinates endpoints, AST parser, schema generator; builds final OpenAPI paths and components; prunes `$ref` targets to only referenced schemas |
-| `schema.go` | `SchemaGenerator` implementation — request/response schema inference, component schema collection, fallback patterns |
+| `schema.go` | `SchemaGenerator` implementation — request/response schema inference, component schema collection, response schema promotion to named components, fallback patterns |
 | `schema_conversion.go` | Go type to OpenAPI conversion, validation tag parsing, struct-to-schema conversion |
 | `discovery.go` | `RouteAnalyzer`, `MiddlewareAnalyzer`, `PathAnalyzer` — runtime route analysis utilities |
 | `version_manager.go` | `APIVersionManager`, `VersionedAPIRouter`, `VersionedRouteChain` — multi-version routing and per-version registries |
@@ -42,7 +42,7 @@ ASTParser.DiscoverSourceFiles()
   |     |     |     |-- trackVariableAssignment()   vars + map["key"]=value additions + append() tracking
   |     |     |     \-- auth / database operation detection
   |     |     |-- extractLocalVariables()
-  |     |     \-- extractQueryParameters()  detect q := URL.Query(); q.Get("param") patterns
+  |     |     \-- extractQueryParameters()  detect query, header, and path params (see section below)
   |     \-- marks directory in parsedDirs
   |
   |-- Phase 2: Follow local imports (zero-config)
@@ -56,10 +56,22 @@ ASTParser.DiscoverSourceFiles()
 APIRegistry.RegisterRoute(method, path, handler, middlewares)
   |-- RouteAnalyzer: handler name, auth, path params, tags
   |-- enhanceEndpointWithAST(): match handler name -> ASTHandlerInfo
+  |     |-- copies description, tags, auth, request/response schemas
+  |     |-- copies AST-detected Parameters (query/header/path) to endpoint
   |     priority: AST data > SchemaGenerator fallback
   \-- RegisterEndpoint() -> rebuild paths + tags
   v
+endpointToOperation()
+  |-- extract path params from URL pattern ({id} etc.)
+  |-- append AST-detected params (query, header) from endpoint.Parameters (deduplicated)
+  |-- promote inline response schemas to $ref (handlerResponseSchemaName)
+  \-- build OpenAPIOperation with parameters, request body, responses, security
+  v
 GetDocsWithComponents()
+  |-- GenerateComponentSchemas()
+  |     |-- struct schemas from AST
+  |     |-- promoteHandlerResponseSchemas(): inline response → named component + $ref
+  |     \-- PocketBaseRecord, Error always included
   |-- collect all $ref targets from paths (recursive)
   |-- prune component schemas to only referenced ones
   \-- return OpenAPI 3.0.3 spec
@@ -144,9 +156,27 @@ When a helper function reads values from another helper's return value via index
 
 This means `summary["price"]` where `summary = fetchIntervalSummary(id)` resolves to `{type: "number"}` instead of generic `{type: "string"}`.
 
-### Query Parameter Detection
+### Parameter Detection (Query, Header, Path)
 
-`extractQueryParameters()` detects `q := e.Request.URL.Query()` variable assignments and subsequent `q.Get("paramName")` calls. Detected parameters are added to `handlerInfo.Parameters` as `ParamInfo` entries with `Source: "query"`. The conversion pipeline in `schema_conversion.go` already handles `ParamInfo` → `OpenAPIParameter`.
+`extractQueryParameters()` detects query, header, and path parameter usage in handler bodies. It tracks two kinds of variable assignments — `URL.Query()` return values and `RequestInfo()` return values — then detects all access patterns on those variables.
+
+**Supported patterns:**
+
+| Pattern | Source | Example |
+|---|---|---|
+| `q := e.Request.URL.Query(); q.Get("param")` | query | Variable-based query access |
+| `e.Request.URL.Query().Get("param")` | query | Inline query access |
+| `e.Request.URL.Query()["param"]` | query | Index-based query access |
+| `info.Query["param"]` | query | Via `e.RequestInfo()` |
+| `e.Request.Header.Get("name")` | header | Direct header access |
+| `info.Headers["name"]` | header | Via `e.RequestInfo()` |
+| `e.Request.PathValue("id")` | path | Path parameter access |
+
+**Helpers:** `isURLQueryCall()`, `isRequestInfoCall()`, `isRequestHeaderSelector()`, `firstStringArg()`, `stringLiteralValue()`
+
+Detected parameters are stored as `ParamInfo` entries on `handlerInfo.Parameters` with `Source` set to `"query"`, `"header"`, or `"path"`. Path parameters are marked `Required: true`. Deduplication is by name+source via `appendParamIfNew()`.
+
+**Pipeline flow:** `handlerInfo.Parameters` → `endpoint.Parameters` (via `enhanceEndpointWithAST` / `EnhanceEndpoint`) → `endpointToOperation` appends them after URL-pattern path params (deduplicated by `in:name` key) → `ConvertParamInfoToOpenAPIParameter()` produces `OpenAPIParameter` objects.
 
 ### Auto-Import Following (Cross-Package Struct Resolution)
 
@@ -190,6 +220,26 @@ The `handlerInfo` parameter is threaded through the entire chain: `analyzeMapLit
 
 `generateSchemaFromType(typeName, inline)` controls whether structs are inlined or referenced.
 
+### Response Schema Promotion
+
+Handlers that return inline `map[string]any{...}` responses (rather than typed structs) produce anonymous schemas that won't appear in Swagger UI's "Schemas" section. The promotion system lifts these into named component schemas.
+
+**How it works (two-part):**
+
+1. **`promoteHandlerResponseSchemas()`** (schema.go) — called during `GenerateComponentSchemas`. Iterates all AST handlers. For handlers with a promotable response schema (object with properties, or array with items, and NOT already a `$ref`), derives a name via `handlerResponseSchemaName()` and adds the full schema to `components/schemas`. Replaces the handler's `ResponseSchema` with a `$ref`.
+
+2. **`endpointToOperation()`** (registry.go) — since endpoints bake response schemas at registration time (before `GenerateComponentSchemas` runs), this also derives the same deterministic name and replaces inline responses with `$ref`s. The pruning logic in `GetDocsWithComponents` keeps only schemas that are actually referenced.
+
+**Naming convention:** `handlerResponseSchemaName()` strips package prefix and common suffixes (`Handler`, `Func`, `API`, `Endpoint`), uppercases the first letter, and appends `Response`:
+- `getOrderHandler` → `GetOrderResponse`
+- `pkg.listCategoriesHandler` → `ListCategoriesResponse`
+
+**What qualifies:** `isPromotableSchema()` returns true for:
+- `{type: "object"}` with at least one property
+- `{type: "array"}` with non-nil items
+
+Schemas that are already `$ref`s (struct-based responses) are skipped.
+
 ## Versioning System
 
 Each API version (`v1`, `v2`, ...) gets its own isolated `ASTParser`, `SchemaGenerator`, and `APIRegistry`. `APIVersionManager` coordinates them.
@@ -218,6 +268,9 @@ Each API version (`v1`, `v2`, ...) gets its own isolated `ASTParser`, `SchemaGen
 - **`$ref` vs inline**: endpoint-level schemas use `$ref` via `generateSchemaForEndpoint`. Nested types in struct fields use `$ref` via `generateFieldSchema` -> `generateSchemaFromType(type, inline=false)`. Map literal values use inline schemas from `analyzeValueExpression`.
 - **Type aliases**: resolved via `resolveTypeAlias()` with cycle detection. Qualified types (`pkg.Type`) are resolved to simple names.
 - **Component pruning**: `GetDocsWithComponents()` walks all `$ref` targets recursively. If you add a new place where `$ref` can appear, make sure `collectRefsFromSchema` covers it.
+- **Response schema promotion naming**: `handlerResponseSchemaName()` must produce the same name in both `promoteHandlerResponseSchemas()` (schema.go) and `endpointToOperation()` (registry.go). If the naming logic changes, update both call sites.
+- **Parameter deduplication**: `appendParamIfNew` deduplicates by name+source (not just name). A query param `id` and path param `id` can coexist. `endpointToOperation` also deduplicates when merging URL-pattern path params with AST-detected params using `in:name` keys.
+- **Adding new parameter patterns**: new PocketBase access patterns go in `extractQueryParameters()` in `ast.go`. Track any new variable assignment patterns (like `RequestInfo()` variables) in the assignment tracking block at the top of the function.
 - **`extractFuncReturnTypes` ordering**: must run BEFORE `extractHandlers` in `ParseFile`, so that `inferTypeFromExpression` can resolve function call return types during handler body analysis.
 - **`funcReturnTypes` scope**: only covers functions in API_SOURCE files. Functions from imported packages won't be resolved — their call sites fall through to heuristic matching in `analyzeValueExpression`.
 - **`funcBodySchemas` resolution**: `analyzeHelperFuncBody` picks the map literal with the most keys. If a function builds multiple different map shapes (rare), the richest one wins. The temporary `ASTHandlerInfo` used for body analysis does NOT have access to handler-level variables — it only tracks variables within the helper function itself.

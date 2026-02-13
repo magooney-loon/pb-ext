@@ -848,3 +848,98 @@ func ExampleSchemaGenerator_GenerateComponentSchemas() {
 	println("Generated", len(components.Responses), "response components")
 	println("Generated", len(components.Parameters), "parameter components")
 }
+
+// =============================================================================
+// Response Schema Promotion Tests
+// =============================================================================
+
+func TestHandlerResponseSchemaName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"getOrderHandler", "GetOrderResponse"},
+		{"listCategoriesHandler", "ListCategoriesResponse"},
+		{"healthCheck", "HealthCheckResponse"},
+		{"pkg.getItemsHandler", "GetItemsResponse"},
+		{"getDataFunc", "GetDataResponse"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := handlerResponseSchemaName(tt.input)
+		if got != tt.expected {
+			t.Errorf("handlerResponseSchemaName(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestIsPromotableSchema(t *testing.T) {
+	if isPromotableSchema(nil) {
+		t.Error("nil schema should not be promotable")
+	}
+	if isPromotableSchema(&OpenAPISchema{Type: "string"}) {
+		t.Error("string schema should not be promotable")
+	}
+	if isPromotableSchema(&OpenAPISchema{Type: "object"}) {
+		t.Error("empty object schema should not be promotable")
+	}
+	if !isPromotableSchema(&OpenAPISchema{Type: "object", Properties: map[string]*OpenAPISchema{"id": {Type: "string"}}}) {
+		t.Error("object with properties should be promotable")
+	}
+	if !isPromotableSchema(&OpenAPISchema{Type: "array", Items: &OpenAPISchema{Type: "string"}}) {
+		t.Error("array with items should be promotable")
+	}
+}
+
+func TestPromoteHandlerResponseSchemas(t *testing.T) {
+	astParser := NewMockASTParserForSchema()
+	schemaGen := NewSchemaGenerator(astParser)
+
+	// Handler with promotable inline response
+	astParser.AddMockHandler("getOrderHandler", &ASTHandlerInfo{
+		Name: "getOrderHandler",
+		ResponseSchema: &OpenAPISchema{
+			Type: "object",
+			Properties: map[string]*OpenAPISchema{
+				"id":     {Type: "string"},
+				"status": {Type: "string"},
+			},
+		},
+	})
+
+	// Handler with $ref response — should NOT be promoted again
+	astParser.AddMockHandler("getUserHandler", &ASTHandlerInfo{
+		Name: "getUserHandler",
+		ResponseSchema: &OpenAPISchema{
+			Ref: "#/components/schemas/User",
+		},
+	})
+
+	// Handler with no response schema
+	astParser.AddMockHandler("deleteHandler", &ASTHandlerInfo{
+		Name: "deleteHandler",
+	})
+
+	components := schemaGen.GenerateComponentSchemas()
+
+	// "GetOrderResponse" should be in component schemas
+	if _, ok := components.Schemas["GetOrderResponse"]; !ok {
+		t.Error("Expected GetOrderResponse in component schemas")
+	}
+
+	// The handler's schema should now be a $ref
+	h, _ := astParser.GetHandlerByName("getOrderHandler")
+	if h.ResponseSchema.Ref != "#/components/schemas/GetOrderResponse" {
+		t.Errorf("Expected handler response to be $ref, got Ref=%q Type=%q", h.ResponseSchema.Ref, h.ResponseSchema.Type)
+	}
+
+	// getUserHandler should NOT have a promoted schema (it was already $ref)
+	if _, ok := components.Schemas["GetUserResponse"]; ok {
+		t.Error("getUserHandler was already $ref, should not be promoted separately")
+	}
+
+	// deleteHandler should NOT have a promoted schema (nil response)
+	if _, ok := components.Schemas["DeleteResponse"]; ok {
+		t.Error("deleteHandler had nil response, should not be promoted")
+	}
+}

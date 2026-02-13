@@ -630,13 +630,21 @@ func (r *APIRegistry) endpointToOperation(endpoint APIEndpoint) *OpenAPIOperatio
 		}
 	}
 
-	// Add response
+	// Add response — use $ref for promotable response schemas
 	if endpoint.Response != nil {
+		responseSchema := endpoint.Response
+		if responseSchema.Ref == "" && isPromotableSchema(responseSchema) && endpoint.Handler != "" {
+			if name := handlerResponseSchemaName(endpoint.Handler); name != "" {
+				responseSchema = &OpenAPISchema{
+					Ref: "#/components/schemas/" + name,
+				}
+			}
+		}
 		operation.Responses["200"] = &OpenAPIResponse{
 			Description: "Successful response",
 			Content: map[string]*OpenAPIMediaType{
 				"application/json": {
-					Schema: endpoint.Response,
+					Schema: responseSchema,
 				},
 			},
 		}
