@@ -538,6 +538,21 @@ func (vm *APIVersionManager) RegisterWithServer(app core.App) {
 			e.Router.GET(schemaConfigPath, func(c *core.RequestEvent) error {
 				return vm.GetVersionSchemaConfig(c, version)
 			}).Bind(apis.RequireSuperuserAuth())
+
+			// Public Swagger UI endpoints (if enabled for this version)
+			if cfg, err := vm.GetVersionConfig(version); err == nil && cfg.PublicSwagger {
+				// Public OpenAPI spec JSON
+				specPath := fmt.Sprintf("/api/docs/%s/spec", version)
+				e.Router.GET(specPath, func(c *core.RequestEvent) error {
+					return vm.GetVersionOpenAPIPublic(c, version)
+				})
+
+				// Public Swagger UI
+				swaggerPath := fmt.Sprintf("/api/docs/%s/swagger", version)
+				e.Router.GET(swaggerPath, func(c *core.RequestEvent) error {
+					return vm.ServeSwaggerUI(c, version)
+				})
+			}
 		}
 
 		return e.Next()
@@ -607,6 +622,70 @@ func (vm *APIVersionManager) GetVersionSchemaConfig(c *core.RequestEvent, versio
 		"message": "Schema config disabled - using exact AST data only",
 		"success": true,
 	})
+}
+
+// GetVersionOpenAPIPublic returns the OpenAPI spec without requiring authentication
+func (vm *APIVersionManager) GetVersionOpenAPIPublic(c *core.RequestEvent, version string) error {
+	registry, err := vm.GetVersionRegistry(version)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": fmt.Sprintf("Version %s not found", version),
+		})
+	}
+
+	docs := registry.GetDocsWithComponents()
+	return c.JSON(http.StatusOK, docs)
+}
+
+// ServeSwaggerUI serves the Swagger UI HTML page for the given API version
+func (vm *APIVersionManager) ServeSwaggerUI(c *core.RequestEvent, version string) error {
+	config, err := vm.GetVersionConfig(version)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": fmt.Sprintf("Version %s not found", version),
+		})
+	}
+
+	specURL := fmt.Sprintf("/api/docs/%s/spec", version)
+
+	title := config.Title
+	if title == "" {
+		title = "API Documentation"
+	}
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="%s" />
+  <title>%s — %s</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js" crossorigin></script>
+<script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js" crossorigin></script>
+<script>
+  window.onload = () => {
+    window.ui = SwaggerUIBundle({
+      url: '%s',
+      dom_id: '#swagger-ui',
+      presets: [
+        SwaggerUIBundle.presets.apis,
+        SwaggerUIStandalonePreset
+      ],
+      layout: "StandaloneLayout",
+    });
+  };
+</script>
+</body>
+</html>`, title, title, version, specURL)
+
+	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	c.Response.WriteHeader(http.StatusOK)
+	_, writeErr := c.Response.Write([]byte(html))
+	return writeErr
 }
 
 // GetSystemFields disabled - no system fields added

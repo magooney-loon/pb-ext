@@ -27,6 +27,11 @@ func NewAPIRegistry(config *APIDocsConfig, astParser ASTParserInterface, schemaG
 		config = DefaultAPIDocsConfig()
 	}
 
+	contactName := config.ContactName
+	if contactName == "" {
+		contactName = "API Support"
+	}
+
 	registry := &APIRegistry{
 		config: config,
 		docs: &APIDocs{
@@ -36,7 +41,7 @@ func NewAPIRegistry(config *APIDocsConfig, astParser ASTParserInterface, schemaG
 				Version:     config.Version,
 				Description: config.Description,
 				Contact: &OpenAPIContact{
-					Name: "API Support",
+					Name: contactName,
 				},
 			},
 			Servers: []*OpenAPIServer{
@@ -318,12 +323,16 @@ func (r *APIRegistry) UpdateConfig(config *APIDocsConfig) {
 	defer r.mu.Unlock()
 
 	r.config = config
+	contactName := config.ContactName
+	if contactName == "" {
+		contactName = "API Support"
+	}
 	r.docs.Info = &OpenAPIInfo{
 		Title:       config.Title,
 		Version:     config.Version,
 		Description: config.Description,
 		Contact: &OpenAPIContact{
-			Name: "API Support",
+			Name: contactName,
 		},
 	}
 	r.docs.Servers = []*OpenAPIServer{

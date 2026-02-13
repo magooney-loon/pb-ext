@@ -97,12 +97,14 @@ type HandlerInfo struct {
 
 // APIDocsConfig holds configuration for the API documentation system
 type APIDocsConfig struct {
-	Title       string `json:"title"`
-	Version     string `json:"version"`
-	Description string `json:"description"`
-	Status      string `json:"status,omitempty"` // "stable", "development", "deprecated", "beta", etc.
-	BaseURL     string `json:"base_url"`
-	Enabled     bool   `json:"enabled"`
+	Title         string `json:"title"`
+	Version       string `json:"version"`
+	Description   string `json:"description"`
+	Status        string `json:"status,omitempty"` // "stable", "development", "deprecated", "beta", etc.
+	BaseURL       string `json:"base_url"`
+	Enabled       bool   `json:"enabled"`
+	ContactName   string `json:"contact_name,omitempty"`   // Contact name shown in the OpenAPI spec (default: "API Support")
+	PublicSwagger bool   `json:"public_swagger,omitempty"` // If true, serves Swagger UI publicly at /api/docs/{version}/swagger
 }
 
 // DefaultAPIDocsConfig returns a default configuration

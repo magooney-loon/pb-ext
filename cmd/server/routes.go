@@ -41,10 +41,12 @@ func registerRoutes(app core.App) {
 // createAPIVersions creates version configurations with reduced duplication
 func createAPIVersions() map[string]*api.APIDocsConfig {
 	baseConfig := &api.APIDocsConfig{
-		Title:       "pb-ext demo api",
-		Description: "Hello world",
-		BaseURL:     "http://127.0.0.1:8090/",
-		Enabled:     true,
+		Title:         "pb-ext demo api",
+		Description:   "Hello world",
+		BaseURL:       "http://127.0.0.1:8090/",
+		Enabled:       true,
+		ContactName:   "pb-ext Team",
+		PublicSwagger: true,
 	}
 
 	// Create v1 config

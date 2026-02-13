@@ -17,9 +17,19 @@
 
     <!-- Version Details -->
     <div id="version-details" class="version-info" style="display: none;">
-        <div class="flex align-center justify-between txt-sm txt-hint">
-            <span id="version-description">Loading description...</span>
-            <span id="version-base-url">Loading base URL...</span>
+        <div class="txt-sm txt-hint" style="display:flex; flex-direction:column; gap:4px;">
+            <div id="version-description">Loading description...</div>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+                <span id="version-base-url" class="txt-xs" style="opacity:0.7;"></span>
+                <span id="swagger-link" style="display: none;">
+                    <a href="#" target="_blank" class="txt-xs" style="text-decoration:none; color:var(--successColor); display:inline-flex; align-items:center; gap:3px;">
+                        <i class="ri-external-link-line"></i> Open Swagger UI
+                    </a>
+                </span>
+                <span id="swagger-status-private" style="display: none;" class="txt-xs" style="opacity:0.7;">
+                    <i class="ri-lock-line"></i> Swagger UI not public
+                </span>
+            </div>
         </div>
     </div>
     <div class="api-details-container">

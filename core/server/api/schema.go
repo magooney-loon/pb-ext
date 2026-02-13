@@ -361,9 +361,12 @@ func (sg *SchemaGenerator) promoteHandlerResponseSchemas(schemas map[string]*Ope
 
 	handlers := sg.astParser.GetAllHandlers()
 	for _, handlerInfo := range handlers {
+		// Use the preserved original if the schema was already promoted to a $ref
 		schema := handlerInfo.ResponseSchema
+		if schema != nil && schema.Ref != "" && handlerInfo.OriginalResponseSchema != nil {
+			schema = handlerInfo.OriginalResponseSchema
+		}
 		if schema == nil || schema.Ref != "" {
-			// nil or already a $ref to a struct — skip
 			continue
 		}
 
@@ -380,14 +383,19 @@ func (sg *SchemaGenerator) promoteHandlerResponseSchemas(schemas map[string]*Ope
 		}
 
 		name := handlerResponseSchemaName(handlerInfo.Name)
-		if name == "" || schemas[name] != nil {
+		if name == "" {
 			continue
 		}
 
-		// Add the full schema to components and replace the handler's schema with a $ref
+		// Always add the full schema to components
 		schemas[name] = schema
-		handlerInfo.ResponseSchema = &OpenAPISchema{
-			Ref: "#/components/schemas/" + name,
+
+		// Replace the handler's schema with a $ref (first call only)
+		if handlerInfo.OriginalResponseSchema == nil {
+			handlerInfo.OriginalResponseSchema = schema
+			handlerInfo.ResponseSchema = &OpenAPISchema{
+				Ref: "#/components/schemas/" + name,
+			}
 		}
 	}
 }

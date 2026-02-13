@@ -810,6 +810,24 @@
                 descriptionEl.textContent = description;
                 baseUrlEl.textContent = baseUrl;
                 detailsContainer.style.display = 'block';
+
+                // Update Swagger UI link visibility
+                const swaggerLinkEl = document.getElementById('swagger-link');
+                const swaggerPrivateEl = document.getElementById('swagger-status-private');
+                if (swaggerLinkEl && swaggerPrivateEl) {
+                    if (config.public_swagger) {
+                        const swaggerUrl = `/api/docs/${currentVersion}/swagger`;
+                        const linkAnchor = swaggerLinkEl.querySelector('a');
+                        if (linkAnchor) {
+                            linkAnchor.href = swaggerUrl;
+                        }
+                        swaggerLinkEl.style.display = 'inline';
+                        swaggerPrivateEl.style.display = 'none';
+                    } else {
+                        swaggerLinkEl.style.display = 'none';
+                        swaggerPrivateEl.style.display = 'inline';
+                    }
+                }
             } else {
                 console.error('Required DOM elements not found for version details');
             }
