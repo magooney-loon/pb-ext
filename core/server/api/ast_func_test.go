@@ -813,6 +813,119 @@ func getMixedParamsHandler(c *core.RequestEvent) error {
 	_, _, _, _, _, _ = id, interval, format, locale, auth, custom
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
+
+// =============================================================================
+// Indirect parameter extraction — helper functions
+// =============================================================================
+
+// timeParams is the result type returned by parseTimeParams.
+type timeParams struct {
+	Interval string
+	From     string
+	After    string
+	To       string
+	Limit    string
+}
+
+// parseTimeParams is a domain helper that extracts a fixed set of time-related query params.
+// Pattern: q := e.Request.URL.Query(); q.Get("name")
+func parseTimeParams(e *core.RequestEvent) timeParams {
+	q := e.Request.URL.Query()
+	return timeParams{
+		Interval: q.Get("interval"),
+		From:     q.Get("from"),
+		After:    q.Get("after"),
+		To:       q.Get("to"),
+		Limit:    q.Get("limit"),
+	}
+}
+
+// parseIntParam is a generic helper: the param name comes from the caller.
+// Pattern: q.Get(name) where name is a string variable, not a literal.
+func parseIntParam(e *core.RequestEvent, name string, defaultVal int) int {
+	q := e.Request.URL.Query()
+	v := q.Get(name)
+	if v == "" {
+		return defaultVal
+	}
+	return 0
+}
+
+// parseBoolParam is a generic helper similar to parseIntParam.
+func parseBoolParam(e *core.RequestEvent, name string) bool {
+	q := e.Request.URL.Query()
+	return q.Get(name) == "true"
+}
+
+// parseHeaderParam is a generic helper that reads from a request header.
+func parseHeaderParam(e *core.RequestEvent, name string) string {
+	return e.Request.Header.Get(name)
+}
+
+// parseRequestInfoParam is a generic helper that reads a query param via RequestInfo.
+func parseRequestInfoParam(e *core.RequestEvent, name string) string {
+	info, _ := e.RequestInfo()
+	return info.Query[name]
+}
+
+// 42. Handler that delegates entirely to parseTimeParams (domain helper)
+// API_DESC Get chart data
+// API_TAGS Charts
+func getChartHandler(c *core.RequestEvent) error {
+	tp := parseTimeParams(c)
+	_ = tp
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+// 43. Handler that calls a generic int-param helper with literal name
+// API_DESC List paginated items
+// API_TAGS Items
+func getPaginatedItemsHandler(c *core.RequestEvent) error {
+	page := parseIntParam(c, "page", 1)
+	pageSize := parseIntParam(c, "page_size", 20)
+	_, _ = page, pageSize
+	return c.JSON(http.StatusOK, map[string]any{"items": []string{}})
+}
+
+// 44. Handler that calls a generic bool-param helper with literal name
+// API_DESC Get verbose data
+// API_TAGS Items
+func getVerboseDataHandler(c *core.RequestEvent) error {
+	verbose := parseBoolParam(c, "verbose")
+	debug := parseBoolParam(c, "debug")
+	_, _ = verbose, debug
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+// 45. Handler calling multiple helpers (domain + generic)
+// API_DESC Get chart with pagination
+// API_TAGS Charts
+func getChartPaginatedHandler(c *core.RequestEvent) error {
+	tp := parseTimeParams(c)
+	page := parseIntParam(c, "page", 0)
+	_ = tp
+	_ = page
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+// 46. Handler calling a generic header helper
+// API_DESC Get data with auth header
+// API_TAGS Items
+func getWithAuthHeaderHandler(c *core.RequestEvent) error {
+	token := parseHeaderParam(c, "Authorization")
+	_ = token
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+// 47. Handler that mixes direct params and indirect helper params
+// API_DESC Get chart with extra direct param
+// API_TAGS Charts
+func getChartWithDirectParamHandler(c *core.RequestEvent) error {
+	tp := parseTimeParams(c)
+	sort := c.Request.URL.Query().Get("sort")
+	_, _ = tp, sort
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -1389,6 +1502,9 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getLatestSummaryHandler", "listInlineAppendHandler",
 		"getItemsInlineQueryHandler", "getItemsRequestInfoHandler",
 		"getWithHeaderHandler", "getItemByPathValueHandler", "getMixedParamsHandler",
+		// Indirect param extraction handlers (42-47)
+		"getChartHandler", "getPaginatedItemsHandler", "getVerboseDataHandler",
+		"getChartPaginatedHandler", "getWithAuthHeaderHandler", "getChartWithDirectParamHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -2274,5 +2390,171 @@ func assertParam(t *testing.T, params map[string]*ParamInfo, name, source, typ s
 	}
 	if p.Type != typ {
 		t.Errorf("Expected %s parameter %q type %q, got %q", source, name, typ, p.Type)
+	}
+}
+
+// =============================================================================
+// Indirect Parameter Extraction Tests
+// =============================================================================
+
+func TestHandlerScenario_IndirectParams_DomainHelper(t *testing.T) {
+	// getChartHandler calls parseTimeParams(c) which internally reads:
+	// interval, from, after, to, limit via q.Get(...)
+	// All 5 params should be inherited on the handler.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getChartHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected indirect query parameters from domain helper parseTimeParams, got none")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "interval", "query", "string")
+	assertParam(t, params, "from", "query", "string")
+	assertParam(t, params, "after", "query", "string")
+	assertParam(t, params, "to", "query", "string")
+	assertParam(t, params, "limit", "query", "string")
+}
+
+func TestHandlerScenario_IndirectParams_GenericIntHelper(t *testing.T) {
+	// getPaginatedItemsHandler calls:
+	//   parseIntParam(c, "page", 1)
+	//   parseIntParam(c, "page_size", 20)
+	// The param name comes from the 2nd argument at the call site.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getPaginatedItemsHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected query parameters from generic helper parseIntParam call sites, got none")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "page", "query", "string")
+	assertParam(t, params, "page_size", "query", "string")
+}
+
+func TestHandlerScenario_IndirectParams_GenericBoolHelper(t *testing.T) {
+	// getVerboseDataHandler calls:
+	//   parseBoolParam(c, "verbose")
+	//   parseBoolParam(c, "debug")
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getVerboseDataHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected query parameters from generic helper parseBoolParam call sites, got none")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "verbose", "query", "string")
+	assertParam(t, params, "debug", "query", "string")
+}
+
+func TestHandlerScenario_IndirectParams_MultipleHelpers(t *testing.T) {
+	// getChartPaginatedHandler calls both parseTimeParams(c) and parseIntParam(c, "page", 0).
+	// Should get all 5 time params + page.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getChartPaginatedHandler")
+
+	if len(h.Parameters) < 6 {
+		t.Fatalf("Expected ≥6 parameters from multiple helpers, got %d", len(h.Parameters))
+	}
+
+	params := paramMap(h.Parameters)
+	// From parseTimeParams
+	assertParam(t, params, "interval", "query", "string")
+	assertParam(t, params, "from", "query", "string")
+	assertParam(t, params, "after", "query", "string")
+	assertParam(t, params, "to", "query", "string")
+	assertParam(t, params, "limit", "query", "string")
+	// From parseIntParam call site
+	assertParam(t, params, "page", "query", "string")
+}
+
+func TestHandlerScenario_IndirectParams_GenericHeaderHelper(t *testing.T) {
+	// getWithAuthHeaderHandler calls parseHeaderParam(c, "Authorization").
+	// Should detect "Authorization" as a header param.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getWithAuthHeaderHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected header parameter from generic helper parseHeaderParam, got none")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "Authorization", "header", "string")
+}
+
+func TestHandlerScenario_IndirectParams_MixedDirectAndIndirect(t *testing.T) {
+	// getChartWithDirectParamHandler calls parseTimeParams(c) AND directly reads "sort".
+	// Should detect all 5 time params + "sort".
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getChartWithDirectParamHandler")
+
+	if len(h.Parameters) < 6 {
+		t.Fatalf("Expected ≥6 parameters (5 indirect + 1 direct), got %d", len(h.Parameters))
+	}
+
+	params := paramMap(h.Parameters)
+	// Indirect via parseTimeParams
+	assertParam(t, params, "interval", "query", "string")
+	assertParam(t, params, "from", "query", "string")
+	assertParam(t, params, "after", "query", "string")
+	assertParam(t, params, "to", "query", "string")
+	assertParam(t, params, "limit", "query", "string")
+	// Direct
+	assertParam(t, params, "sort", "query", "string")
+}
+
+func TestHandlerScenario_IndirectParams_HelperRegistered(t *testing.T) {
+	// Verify that the helper functions are correctly registered in funcParamSchemas.
+	parser := parseHandlerScenarios(t)
+
+	// parseTimeParams should have 5 literal params
+	tp, ok := parser.funcParamSchemas["parseTimeParams"]
+	if !ok {
+		t.Fatal("Expected parseTimeParams to be registered in funcParamSchemas")
+	}
+	if len(tp) != 5 {
+		t.Errorf("Expected 5 params for parseTimeParams, got %d", len(tp))
+	}
+	names := make(map[string]bool)
+	for _, p := range tp {
+		names[p.Name] = true
+	}
+	for _, want := range []string{"interval", "from", "after", "to", "limit"} {
+		if !names[want] {
+			t.Errorf("Expected parseTimeParams to have param %q", want)
+		}
+	}
+
+	// parseIntParam should be registered as a sentinel (entries with Name="", Source="query")
+	// because its body uses a variable param name, not a literal.
+	ip, ok := parser.funcParamSchemas["parseIntParam"]
+	if !ok {
+		t.Fatal("Expected parseIntParam to be registered in funcParamSchemas as sentinel")
+	}
+	namedIP := 0
+	for _, p := range ip {
+		if p.Name != "" {
+			namedIP++
+		}
+	}
+	if namedIP != 0 {
+		t.Errorf("Expected parseIntParam to have 0 named params (sentinel only), got %d", namedIP)
+	}
+
+	// parseBoolParam — same generic pattern
+	bp, ok := parser.funcParamSchemas["parseBoolParam"]
+	if !ok {
+		t.Fatal("Expected parseBoolParam to be registered in funcParamSchemas as sentinel")
+	}
+	namedBP := 0
+	for _, p := range bp {
+		if p.Name != "" {
+			namedBP++
+		}
+	}
+	if namedBP != 0 {
+		t.Errorf("Expected parseBoolParam to have 0 named params (sentinel only), got %d", namedBP)
 	}
 }

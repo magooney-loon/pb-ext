@@ -56,6 +56,261 @@ func (p *ASTParser) extractFuncReturnTypes(file *ast.File) {
 	}
 }
 
+// extractHelperFuncParams analyzes non-handler functions that accept *core.RequestEvent and
+// extracts the query/header/path parameters they read. Results are stored in p.funcParamSchemas
+// so that handlers calling those helpers automatically inherit the detected parameters.
+//
+// This covers patterns like:
+//
+//	func parseTimeParams(e *core.RequestEvent) timeParams {
+//	    q := e.Request.URL.Query()
+//	    q.Get("interval") ...
+//	}
+//
+//	func parseIntParam(e *core.RequestEvent, name string, def int) int {
+//	    e.Request.URL.Query().Get(name)   // ← name is a variable, handled via second-arg detection
+//	}
+func (p *ASTParser) extractHelperFuncParams(file *ast.File) {
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Body == nil || funcDecl.Recv != nil {
+			continue
+		}
+		// Skip handlers — they're processed separately
+		if p.isPocketBaseHandler(funcDecl) {
+			continue
+		}
+		// Must accept at least one *core.RequestEvent parameter
+		if !hasRequestEventParam(funcDecl) {
+			continue
+		}
+
+		// Collect the name(s) of the *core.RequestEvent parameter(s)
+		eventParamNames := requestEventParamNames(funcDecl)
+
+		// Collect the name(s) of plain string parameters (for generic helpers like parseIntParam)
+		stringParamNames := stringParamNames(funcDecl)
+
+		params := p.extractParamsFromBody(funcDecl.Body, eventParamNames, stringParamNames)
+		if len(params) > 0 {
+			// Store params (may include sentinel entries with Name="" for generic helpers)
+			p.funcParamSchemas[funcDecl.Name.Name] = params
+		} else if len(stringParamNames) > 0 {
+			// Generic helper whose body uses only variable param names with no detectable source context
+			// (e.g. the receiver is not a known URL.Query or Header selector). Register a default
+			// "query" sentinel so the call-site can still extract the literal from the 2nd arg.
+			p.funcParamSchemas[funcDecl.Name.Name] = []*ParamInfo{{Name: "", Type: "string", Source: "query"}}
+		}
+	}
+}
+
+// extractParamsFromBody is the core walker used by both handler and helper extraction.
+// eventParamNames: identifiers bound to *core.RequestEvent (e.g. "e", "c")
+// stringParamNames: identifiers that hold a query/header param name as a string variable
+// (used for generic helpers like parseIntParam(e, name, default) where name is a variable)
+func (p *ASTParser) extractParamsFromBody(body *ast.BlockStmt, eventParamNames map[string]bool, stringParamNames map[string]bool) []*ParamInfo {
+	queryVarNames := map[string]bool{}
+	requestInfoVars := map[string]bool{}
+	var params []*ParamInfo
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		// Track q := e.Request.URL.Query() and info, _ := e.RequestInfo()
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			for i, rhs := range assign.Rhs {
+				if i >= len(assign.Lhs) {
+					continue
+				}
+				ident, ok := assign.Lhs[i].(*ast.Ident)
+				if !ok {
+					continue
+				}
+				if isURLQueryCallForEvent(rhs, eventParamNames) || isURLQueryCall(rhs) {
+					queryVarNames[ident.Name] = true
+				}
+				if isRequestInfoCallForEvent(rhs, eventParamNames) || isRequestInfoCall(rhs) {
+					requestInfoVars[ident.Name] = true
+				}
+			}
+		}
+
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				switch sel.Sel.Name {
+				case "Get":
+					if paramName, paramOK := firstStringArg(call); paramOK {
+						// q.Get("name") where q is a URL.Query() var
+						if ident, ok := sel.X.(*ast.Ident); ok && queryVarNames[ident.Name] {
+							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "query"})
+						}
+						// e.Request.URL.Query().Get("name") inline
+						if isURLQueryCall(sel.X) || isURLQueryCallForEvent(sel.X, eventParamNames) {
+							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "query"})
+						}
+						// e.Request.Header.Get("name")
+						if isRequestHeaderSelector(sel.X) || isRequestHeaderSelectorForEvent(sel.X, eventParamNames) {
+							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "header"})
+						}
+					} else if len(call.Args) > 0 {
+						// Generic: varName is a known string param variable — record source via sentinel.
+						if ident, ok := call.Args[0].(*ast.Ident); ok && stringParamNames[ident.Name] {
+							if (isRequestHeaderSelector(sel.X) || isRequestHeaderSelectorForEvent(sel.X, eventParamNames)) {
+								// e.Request.Header.Get(name) — sentinel with source="header", name=""
+								params = appendParamIfNew(params, &ParamInfo{Name: "", Type: "string", Source: "header"})
+							} else if recv, ok := sel.X.(*ast.Ident); ok && queryVarNames[recv.Name] {
+								// q.Get(name) — sentinel with source="query", name=""
+								params = appendParamIfNew(params, &ParamInfo{Name: "", Type: "string", Source: "query"})
+								_ = recv
+							} else if isURLQueryCall(sel.X) || isURLQueryCallForEvent(sel.X, eventParamNames) {
+								// e.Request.URL.Query().Get(name) — sentinel with source="query", name=""
+								params = appendParamIfNew(params, &ParamInfo{Name: "", Type: "string", Source: "query"})
+							}
+						}
+					}
+				case "PathValue":
+					if paramName, ok := firstStringArg(call); ok {
+						params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "path", Required: true})
+					}
+				}
+			}
+		}
+
+		// info.Query["name"] and info.Headers["name"]
+		if indexExpr, ok := n.(*ast.IndexExpr); ok {
+			if paramName, ok := stringLiteralValue(indexExpr.Index); ok {
+				if sel, ok := indexExpr.X.(*ast.SelectorExpr); ok {
+					if ident, ok := sel.X.(*ast.Ident); ok && requestInfoVars[ident.Name] {
+						switch sel.Sel.Name {
+						case "Query":
+							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "query"})
+						case "Headers":
+							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "header"})
+						}
+					}
+				}
+				// q["name"] where q is a URL.Query() var
+				if ident, ok := indexExpr.X.(*ast.Ident); ok && queryVarNames[ident.Name] {
+					params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "query"})
+				}
+			}
+		}
+
+		return true
+	})
+
+	return params
+}
+
+// hasRequestEventParam returns true if funcDecl has at least one *core.RequestEvent parameter.
+func hasRequestEventParam(funcDecl *ast.FuncDecl) bool {
+	if funcDecl.Type.Params == nil {
+		return false
+	}
+	for _, field := range funcDecl.Type.Params.List {
+		if star, ok := field.Type.(*ast.StarExpr); ok {
+			if sel, ok := star.X.(*ast.SelectorExpr); ok {
+				if sel.Sel.Name == "RequestEvent" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// requestEventParamNames returns a set of parameter names bound to *core.RequestEvent.
+func requestEventParamNames(funcDecl *ast.FuncDecl) map[string]bool {
+	names := map[string]bool{}
+	if funcDecl.Type.Params == nil {
+		return names
+	}
+	for _, field := range funcDecl.Type.Params.List {
+		if star, ok := field.Type.(*ast.StarExpr); ok {
+			if sel, ok := star.X.(*ast.SelectorExpr); ok {
+				if sel.Sel.Name == "RequestEvent" {
+					for _, name := range field.Names {
+						names[name.Name] = true
+					}
+				}
+			}
+		}
+	}
+	return names
+}
+
+// stringParamNames returns a set of parameter names that are plain strings
+// (used for generic helpers like parseIntParam(e, name string, def int)).
+func stringParamNames(funcDecl *ast.FuncDecl) map[string]bool {
+	names := map[string]bool{}
+	if funcDecl.Type.Params == nil {
+		return names
+	}
+	for _, field := range funcDecl.Type.Params.List {
+		if ident, ok := field.Type.(*ast.Ident); ok && ident.Name == "string" {
+			for _, name := range field.Names {
+				names[name.Name] = true
+			}
+		}
+	}
+	return names
+}
+
+// isURLQueryCallForEvent is like isURLQueryCall but also matches e.Request.URL.Query()
+// when the receiver matches one of the known event param names.
+func isURLQueryCallForEvent(expr ast.Expr, eventParams map[string]bool) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Query" {
+		return false
+	}
+	urlSel, ok := sel.X.(*ast.SelectorExpr)
+	if !ok || urlSel.Sel.Name != "URL" {
+		return false
+	}
+	reqSel, ok := urlSel.X.(*ast.SelectorExpr)
+	if !ok || reqSel.Sel.Name != "Request" {
+		return false
+	}
+	if ident, ok := reqSel.X.(*ast.Ident); ok {
+		return eventParams[ident.Name]
+	}
+	return false
+}
+
+// isRequestInfoCallForEvent matches e.RequestInfo() for known event param names.
+func isRequestInfoCallForEvent(expr ast.Expr, eventParams map[string]bool) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "RequestInfo" {
+		return false
+	}
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		return eventParams[ident.Name]
+	}
+	return false
+}
+
+// isRequestHeaderSelectorForEvent matches e.Request.Header for known event param names.
+func isRequestHeaderSelectorForEvent(expr ast.Expr, eventParams map[string]bool) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Header" {
+		return false
+	}
+	reqSel, ok := sel.X.(*ast.SelectorExpr)
+	if !ok || reqSel.Sel.Name != "Request" {
+		return false
+	}
+	if ident, ok := reqSel.X.(*ast.Ident); ok {
+		return eventParams[ident.Name]
+	}
+	return false
+}
+
 // analyzeHelperFuncBody walks a helper function's body to find map[string]any composite
 // literals and extract their keys/value types.
 func (p *ASTParser) analyzeHelperFuncBody(funcDecl *ast.FuncDecl) *OpenAPISchema {
@@ -233,6 +488,57 @@ func (p *ASTParser) extractQueryParameters(body *ast.BlockStmt, handlerInfo *AST
 
 		return true
 	})
+
+	// Merge params from known helper functions called in this handler body.
+	// Two patterns:
+	//   1. Domain helper:   parseTimeParams(e)          → merge all params stored in funcParamSchemas
+	//   2. Generic helper:  parseIntParam(e, "page", 0) → extract param name from 2nd string-literal arg
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := call.Fun.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		if helperParams, exists := p.funcParamSchemas[ident.Name]; exists {
+			// Separate literal params (Name != "") from sentinel params (Name == "").
+			// Sentinels encode which source type a generic helper reads (query vs header).
+			var literalParams []*ParamInfo
+			sentinelSource := "query" // default if no sentinel found
+			for _, param := range helperParams {
+				if param.Name == "" {
+					sentinelSource = param.Source
+				} else {
+					literalParams = append(literalParams, param)
+				}
+			}
+
+			if len(literalParams) > 0 {
+				// Domain helper: all params were statically resolved in the helper body
+				for _, param := range literalParams {
+					handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, param)
+				}
+			} else {
+				// Generic helper: try to extract param name from 2nd string-literal arg at the call site.
+				// e.g. parseIntParam(e, "page", 0)      → "page" query param
+				//      parseHeaderParam(e, "Authorization") → "Authorization" header param
+				if len(call.Args) >= 2 {
+					if paramName, ok := stringLiteralValue(call.Args[1]); ok {
+						handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+							Name:   paramName,
+							Type:   "string",
+							Source: sentinelSource,
+						})
+					}
+				}
+			}
+		}
+
+		return true
+	})
 }
 
 // isURLQueryCall checks if an expression is a call to .URL.Query()
@@ -303,7 +609,9 @@ func appendParamIfNew(params []*ParamInfo, param *ParamInfo) []*ParamInfo {
 	return append(params, param)
 }
 
-// isPocketBaseHandler checks if a function is a PocketBase handler
+// isPocketBaseHandler checks if a function is a PocketBase handler.
+// A handler has the signature: func(c *core.RequestEvent) error
+// (exactly one *core.RequestEvent param and returns error).
 func (p *ASTParser) isPocketBaseHandler(funcDecl *ast.FuncDecl) bool {
 	if funcDecl.Type.Params == nil || len(funcDecl.Type.Params.List) != 1 {
 		return false
@@ -312,10 +620,24 @@ func (p *ASTParser) isPocketBaseHandler(funcDecl *ast.FuncDecl) bool {
 	param := funcDecl.Type.Params.List[0]
 	if star, ok := param.Type.(*ast.StarExpr); ok {
 		if sel, ok := star.X.(*ast.SelectorExpr); ok {
-			return sel.Sel.Name == "RequestEvent"
+			if sel.Sel.Name != "RequestEvent" {
+				return false
+			}
+		} else {
+			return false
 		}
+	} else {
+		return false
 	}
 
+	// Must return exactly one value: the built-in `error` type.
+	results := funcDecl.Type.Results
+	if results == nil || len(results.List) != 1 {
+		return false
+	}
+	if ident, ok := results.List[0].Type.(*ast.Ident); ok {
+		return ident.Name == "error"
+	}
 	return false
 }
 

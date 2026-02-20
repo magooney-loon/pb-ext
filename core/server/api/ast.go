@@ -25,6 +25,7 @@ func NewASTParser() *ASTParser {
 		typeAliases:        make(map[string]string),
 		funcReturnTypes:    make(map[string]string),
 		funcBodySchemas:    make(map[string]*OpenAPISchema),
+		funcParamSchemas:   make(map[string][]*ParamInfo),
 		modulePath:         getModulePath(),
 		parsedDirs:         make(map[string]bool),
 	}
@@ -114,6 +115,10 @@ func (p *ASTParser) ParseFile(filename string) error {
 	// Extract return types from non-handler functions BEFORE handler analysis,
 	// so that inferTypeFromExpression can resolve function call return types
 	p.extractFuncReturnTypes(file)
+
+	// Extract query/header/path params from helper functions that accept *core.RequestEvent
+	// so that handlers calling those helpers get their params merged in
+	p.extractHelperFuncParams(file)
 
 	// Extract handlers
 	p.extractHandlers(file)
@@ -271,5 +276,6 @@ func (p *ASTParser) ClearCache() {
 	p.handlers = make(map[string]*ASTHandlerInfo)
 	p.funcReturnTypes = make(map[string]string)
 	p.funcBodySchemas = make(map[string]*OpenAPISchema)
+	p.funcParamSchemas = make(map[string][]*ParamInfo)
 	p.parsedDirs = make(map[string]bool)
 }
