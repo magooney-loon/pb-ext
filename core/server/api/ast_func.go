@@ -56,9 +56,10 @@ func (p *ASTParser) extractFuncReturnTypes(file *ast.File) {
 	}
 }
 
-// extractHelperFuncParams analyzes non-handler functions that accept *core.RequestEvent and
-// extracts the query/header/path parameters they read. Results are stored in p.funcParamSchemas
-// so that handlers calling those helpers automatically inherit the detected parameters.
+// extractHelperFuncParams analyzes non-handler functions that accept *core.RequestEvent
+// or *http.Request and extracts the query/header/path parameters they read. Results are
+// stored in p.funcParamSchemas so that handlers calling those helpers automatically
+// inherit the detected parameters.
 //
 // This covers patterns like:
 //
@@ -70,6 +71,10 @@ func (p *ASTParser) extractFuncReturnTypes(file *ast.File) {
 //	func parseIntParam(e *core.RequestEvent, name string, def int) int {
 //	    e.Request.URL.Query().Get(name)   // ← name is a variable, handled via second-arg detection
 //	}
+//
+//	func getAuthHeader(r *http.Request) string {
+//	    return r.Header.Get("Authorization")
+//	}
 func (p *ASTParser) extractHelperFuncParams(file *ast.File) {
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
@@ -80,18 +85,25 @@ func (p *ASTParser) extractHelperFuncParams(file *ast.File) {
 		if p.isPocketBaseHandler(funcDecl) {
 			continue
 		}
-		// Must accept at least one *core.RequestEvent parameter
-		if !hasRequestEventParam(funcDecl) {
+
+		// Accept helpers that take *core.RequestEvent OR *http.Request
+		hasEvent := hasRequestEventParam(funcDecl)
+		hasHTTPReq := hasHTTPRequestParam(funcDecl)
+		if !hasEvent && !hasHTTPReq {
 			continue
 		}
 
 		// Collect the name(s) of the *core.RequestEvent parameter(s)
 		eventParamNames := requestEventParamNames(funcDecl)
 
+		// Collect the name(s) of the *http.Request parameter(s).
+		// These are treated as additional event-like receivers for URL/header detection.
+		httpReqParamNames := httpRequestParamNames(funcDecl)
+
 		// Collect the name(s) of plain string parameters (for generic helpers like parseIntParam)
 		stringParamNames := stringParamNames(funcDecl)
 
-		params := p.extractParamsFromBody(funcDecl.Body, eventParamNames, stringParamNames)
+		params := p.extractParamsFromBody(funcDecl.Body, eventParamNames, stringParamNames, httpReqParamNames)
 		if len(params) > 0 {
 			// Store params (may include sentinel entries with Name="" for generic helpers)
 			p.funcParamSchemas[funcDecl.Name.Name] = params
@@ -108,13 +120,23 @@ func (p *ASTParser) extractHelperFuncParams(file *ast.File) {
 // eventParamNames: identifiers bound to *core.RequestEvent (e.g. "e", "c")
 // stringParamNames: identifiers that hold a query/header param name as a string variable
 // (used for generic helpers like parseIntParam(e, name, default) where name is a variable)
-func (p *ASTParser) extractParamsFromBody(body *ast.BlockStmt, eventParamNames map[string]bool, stringParamNames map[string]bool) []*ParamInfo {
+// httpReqParamNames: identifiers bound to *http.Request (e.g. "r", "req") — used for
+// helpers like func getAuthHeader(r *http.Request) that read r.Header.Get("name") directly.
+func (p *ASTParser) extractParamsFromBody(body *ast.BlockStmt, eventParamNames map[string]bool, stringParamNames map[string]bool, httpReqParamNames ...map[string]bool) []*ParamInfo {
 	queryVarNames := map[string]bool{}
 	requestInfoVars := map[string]bool{}
 	var params []*ParamInfo
 
+	// Merge optional http.Request param names into a single set for header detection
+	httpReqNames := map[string]bool{}
+	for _, m := range httpReqParamNames {
+		for k := range m {
+			httpReqNames[k] = true
+		}
+	}
+
 	ast.Inspect(body, func(n ast.Node) bool {
-		// Track q := e.Request.URL.Query() and info, _ := e.RequestInfo()
+		// Track q := e.Request.URL.Query() / r.URL.Query() and info, _ := e.RequestInfo()
 		if assign, ok := n.(*ast.AssignStmt); ok {
 			for i, rhs := range assign.Rhs {
 				if i >= len(assign.Lhs) {
@@ -142,19 +164,23 @@ func (p *ASTParser) extractParamsFromBody(body *ast.BlockStmt, eventParamNames m
 						if ident, ok := sel.X.(*ast.Ident); ok && queryVarNames[ident.Name] {
 							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "query"})
 						}
-						// e.Request.URL.Query().Get("name") inline
+						// e.Request.URL.Query().Get("name") / r.URL.Query().Get("name") inline
 						if isURLQueryCall(sel.X) || isURLQueryCallForEvent(sel.X, eventParamNames) {
 							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "query"})
 						}
-						// e.Request.Header.Get("name")
+						// e.Request.Header.Get("name") or e.Request.Header.Get("name")
 						if isRequestHeaderSelector(sel.X) || isRequestHeaderSelectorForEvent(sel.X, eventParamNames) {
+							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "header"})
+						}
+						// r.Header.Get("name") where r is a *http.Request param
+						if isHTTPRequestHeaderSelector(sel.X, httpReqNames) {
 							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "header"})
 						}
 					} else if len(call.Args) > 0 {
 						// Generic: varName is a known string param variable — record source via sentinel.
 						if ident, ok := call.Args[0].(*ast.Ident); ok && stringParamNames[ident.Name] {
-							if (isRequestHeaderSelector(sel.X) || isRequestHeaderSelectorForEvent(sel.X, eventParamNames)) {
-								// e.Request.Header.Get(name) — sentinel with source="header", name=""
+							if isRequestHeaderSelector(sel.X) || isRequestHeaderSelectorForEvent(sel.X, eventParamNames) || isHTTPRequestHeaderSelector(sel.X, httpReqNames) {
+								// e.Request.Header.Get(name) / r.Header.Get(name) — sentinel with source="header"
 								params = appendParamIfNew(params, &ParamInfo{Name: "", Type: "string", Source: "header"})
 							} else if recv, ok := sel.X.(*ast.Ident); ok && queryVarNames[recv.Name] {
 								// q.Get(name) — sentinel with source="query", name=""
@@ -252,6 +278,59 @@ func stringParamNames(funcDecl *ast.FuncDecl) map[string]bool {
 		}
 	}
 	return names
+}
+
+// hasHTTPRequestParam returns true if funcDecl has at least one *http.Request parameter.
+func hasHTTPRequestParam(funcDecl *ast.FuncDecl) bool {
+	if funcDecl.Type.Params == nil {
+		return false
+	}
+	for _, field := range funcDecl.Type.Params.List {
+		if star, ok := field.Type.(*ast.StarExpr); ok {
+			if sel, ok := star.X.(*ast.SelectorExpr); ok {
+				if sel.Sel.Name == "Request" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// httpRequestParamNames returns a set of parameter names bound to *http.Request.
+func httpRequestParamNames(funcDecl *ast.FuncDecl) map[string]bool {
+	names := map[string]bool{}
+	if funcDecl.Type.Params == nil {
+		return names
+	}
+	for _, field := range funcDecl.Type.Params.List {
+		if star, ok := field.Type.(*ast.StarExpr); ok {
+			if sel, ok := star.X.(*ast.SelectorExpr); ok {
+				if sel.Sel.Name == "Request" {
+					for _, name := range field.Names {
+						names[name.Name] = true
+					}
+				}
+			}
+		}
+	}
+	return names
+}
+
+// isHTTPRequestHeaderSelector checks if expr is r.Header where r is a known *http.Request param.
+// This matches r.Header.Get("name") patterns in helpers that receive *http.Request directly.
+func isHTTPRequestHeaderSelector(expr ast.Expr, httpReqParamNames map[string]bool) bool {
+	if len(httpReqParamNames) == 0 {
+		return false
+	}
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Header" {
+		return false
+	}
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		return httpReqParamNames[ident.Name]
+	}
+	return false
 }
 
 // isURLQueryCallForEvent is like isURLQueryCall but also matches e.Request.URL.Query()

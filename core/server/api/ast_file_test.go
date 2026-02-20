@@ -397,3 +397,445 @@ func useSharedHandler(c *core.RequestEvent) error {
 		t.Error("Expected 'shared' to be in parsedDirs")
 	}
 }
+
+// =============================================================================
+// Cross-File Helper Parameter Detection Tests
+// =============================================================================
+
+// TestSiblingFileHelperParams verifies that a domain helper (e.g. parseTimeParams)
+// defined in a sibling file WITHOUT // API_SOURCE still has its params registered
+// in funcParamSchemas and propagated to handlers that call it.
+func TestSiblingFileHelperParams_DomainHelper(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// helpers.go — no API_SOURCE directive
+	helpersContent := `package app
+
+import "github.com/pocketbase/pocketbase/core"
+
+type timeParams struct {
+	Interval string
+	From     string
+	To       string
+	Limit    string
+}
+
+func parseTimeParams(e *core.RequestEvent) timeParams {
+	q := e.Request.URL.Query()
+	return timeParams{
+		Interval: q.Get("interval"),
+		From:     q.Get("from"),
+		To:       q.Get("to"),
+		Limit:    q.Get("limit"),
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "helpers.go"), []byte(helpersContent), 0644); err != nil {
+		t.Fatalf("Failed to create helpers.go: %v", err)
+	}
+
+	// handlers.go — has API_SOURCE, calls the helper
+	handlersContent := `package app
+
+// API_SOURCE
+
+import "github.com/pocketbase/pocketbase/core"
+
+// API_DESC Get candles
+// API_TAGS Market
+func getCandlesHandler(c *core.RequestEvent) error {
+	p := parseTimeParams(c)
+	_ = p
+	return c.JSON(200, map[string]any{"ok": true})
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "handlers.go"), []byte(handlersContent), 0644); err != nil {
+		t.Fatalf("Failed to create handlers.go: %v", err)
+	}
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	parser := NewASTParser()
+	if err := parser.DiscoverSourceFiles(); err != nil {
+		t.Fatalf("DiscoverSourceFiles failed: %v", err)
+	}
+
+	// parseTimeParams should be registered in funcParamSchemas
+	tp, ok := parser.funcParamSchemas["parseTimeParams"]
+	if !ok {
+		t.Fatal("Expected parseTimeParams from sibling file to be registered in funcParamSchemas")
+	}
+	names := make(map[string]bool)
+	for _, p := range tp {
+		names[p.Name] = true
+	}
+	for _, want := range []string{"interval", "from", "to", "limit"} {
+		if !names[want] {
+			t.Errorf("Expected parseTimeParams to include param %q", want)
+		}
+	}
+
+	// getCandlesHandler should inherit all time params
+	h, ok := parser.GetHandlerByName("getCandlesHandler")
+	if !ok || h == nil {
+		t.Fatal("Expected getCandlesHandler to be discovered")
+	}
+	pm := paramMap(h.Parameters)
+	assertParam(t, pm, "interval", "query", "string")
+	assertParam(t, pm, "from", "query", "string")
+	assertParam(t, pm, "to", "query", "string")
+	assertParam(t, pm, "limit", "query", "string")
+}
+
+// TestSiblingFileHelperParams_GenericHelper verifies that a generic helper
+// (e.g. parseIntParam(e, name, default)) in a sibling non-API_SOURCE file
+// is registered as a sentinel and its params are resolved from the call site.
+func TestSiblingFileHelperParams_GenericHelper(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// helpers.go — no API_SOURCE
+	helpersContent := `package app
+
+import (
+	"strconv"
+	"github.com/pocketbase/pocketbase/core"
+)
+
+func parseIntParam(e *core.RequestEvent, name string, def int) int {
+	v := e.Request.URL.Query().Get(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "helpers.go"), []byte(helpersContent), 0644); err != nil {
+		t.Fatalf("Failed to create helpers.go: %v", err)
+	}
+
+	// handlers.go — has API_SOURCE
+	handlersContent := `package app
+
+// API_SOURCE
+
+import "github.com/pocketbase/pocketbase/core"
+
+// API_DESC List items paginated
+// API_TAGS Items
+func listItemsPaginatedHandler(c *core.RequestEvent) error {
+	page := parseIntParam(c, "page", 1)
+	size := parseIntParam(c, "page_size", 20)
+	_, _ = page, size
+	return c.JSON(200, map[string]any{"ok": true})
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "handlers.go"), []byte(handlersContent), 0644); err != nil {
+		t.Fatalf("Failed to create handlers.go: %v", err)
+	}
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	parser := NewASTParser()
+	if err := parser.DiscoverSourceFiles(); err != nil {
+		t.Fatalf("DiscoverSourceFiles failed: %v", err)
+	}
+
+	// parseIntParam should be registered as a sentinel
+	ip, ok := parser.funcParamSchemas["parseIntParam"]
+	if !ok {
+		t.Fatal("Expected parseIntParam from sibling file to be registered in funcParamSchemas")
+	}
+	hasSentinel := false
+	for _, p := range ip {
+		if p.Name == "" && p.Source == "query" {
+			hasSentinel = true
+		}
+	}
+	if !hasSentinel {
+		t.Error("Expected parseIntParam to have a query sentinel entry")
+	}
+
+	// listItemsPaginatedHandler should resolve params from call site string literals
+	h, ok := parser.GetHandlerByName("listItemsPaginatedHandler")
+	if !ok || h == nil {
+		t.Fatal("Expected listItemsPaginatedHandler to be discovered")
+	}
+	pm := paramMap(h.Parameters)
+	assertParam(t, pm, "page", "query", "string")
+	assertParam(t, pm, "page_size", "query", "string")
+}
+
+// TestSiblingFileHelperParams_MultipleHelperFiles verifies that helpers spread
+// across multiple sibling files are all discovered correctly.
+func TestSiblingFileHelperParams_MultipleHelperFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// time_helpers.go — parseTimeParams
+	timeHelpersContent := `package app
+
+import "github.com/pocketbase/pocketbase/core"
+
+type timeParams struct { Interval, From, To string }
+
+func parseTimeParams(e *core.RequestEvent) timeParams {
+	q := e.Request.URL.Query()
+	return timeParams{
+		Interval: q.Get("interval"),
+		From:     q.Get("from"),
+		To:       q.Get("to"),
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "time_helpers.go"), []byte(timeHelpersContent), 0644); err != nil {
+		t.Fatalf("Failed to create time_helpers.go: %v", err)
+	}
+
+	// bool_helpers.go — parseBoolParam
+	boolHelpersContent := `package app
+
+import (
+	"github.com/pocketbase/pocketbase/core"
+)
+
+func parseBoolParam(e *core.RequestEvent, name string) bool {
+	return e.Request.URL.Query().Get(name) == "true"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "bool_helpers.go"), []byte(boolHelpersContent), 0644); err != nil {
+		t.Fatalf("Failed to create bool_helpers.go: %v", err)
+	}
+
+	// handlers.go — API_SOURCE, calls both helpers
+	handlersContent := `package app
+
+// API_SOURCE
+
+import "github.com/pocketbase/pocketbase/core"
+
+// API_DESC Get chart
+// API_TAGS Chart
+func getChartFullHandler(c *core.RequestEvent) error {
+	p := parseTimeParams(c)
+	verbose := parseBoolParam(c, "verbose")
+	_, _ = p, verbose
+	return c.JSON(200, map[string]any{"ok": true})
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "handlers.go"), []byte(handlersContent), 0644); err != nil {
+		t.Fatalf("Failed to create handlers.go: %v", err)
+	}
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	parser := NewASTParser()
+	if err := parser.DiscoverSourceFiles(); err != nil {
+		t.Fatalf("DiscoverSourceFiles failed: %v", err)
+	}
+
+	h, ok := parser.GetHandlerByName("getChartFullHandler")
+	if !ok || h == nil {
+		t.Fatal("Expected getChartFullHandler to be discovered")
+	}
+
+	pm := paramMap(h.Parameters)
+	// From parseTimeParams
+	assertParam(t, pm, "interval", "query", "string")
+	assertParam(t, pm, "from", "query", "string")
+	assertParam(t, pm, "to", "query", "string")
+	// From parseBoolParam call site
+	assertParam(t, pm, "verbose", "query", "string")
+}
+
+// TestSiblingFileHelperParams_APISourceFileHelpersStillWork verifies that helpers
+// defined IN an API_SOURCE file (not siblings) still work correctly after the refactor.
+func TestSiblingFileHelperParams_APISourceFileHelpersStillWork(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Single file — API_SOURCE, has both helper and handler
+	content := `package app
+
+// API_SOURCE
+
+import "github.com/pocketbase/pocketbase/core"
+
+func parseQueryHelper(e *core.RequestEvent) string {
+	return e.Request.URL.Query().Get("q")
+}
+
+// API_DESC Search
+// API_TAGS Search
+func searchHandler(c *core.RequestEvent) error {
+	q := parseQueryHelper(c)
+	_ = q
+	return c.JSON(200, map[string]any{"ok": true})
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "api.go"), []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create api.go: %v", err)
+	}
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	parser := NewASTParser()
+	if err := parser.DiscoverSourceFiles(); err != nil {
+		t.Fatalf("DiscoverSourceFiles failed: %v", err)
+	}
+
+	h, ok := parser.GetHandlerByName("searchHandler")
+	if !ok || h == nil {
+		t.Fatal("Expected searchHandler to be discovered")
+	}
+
+	pm := paramMap(h.Parameters)
+	assertParam(t, pm, "q", "query", "string")
+}
+
+// =============================================================================
+// *http.Request Helper Detection Tests
+// =============================================================================
+
+// TestHTTPRequestHelper_HeaderGet verifies that a helper taking *http.Request directly
+// and using r.Header.Get("name") is detected and propagated to calling handlers.
+func TestHTTPRequestHelper_HeaderGet(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// helpers.go — takes *http.Request, not *core.RequestEvent
+	helpersContent := `package app
+
+import "net/http"
+
+func getAuthHeader(r *http.Request) string {
+	return r.Header.Get("Authorization")
+}
+
+func getPaymentSig(r *http.Request) string {
+	return r.Header.Get("PAYMENT-SIGNATURE")
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "helpers.go"), []byte(helpersContent), 0644); err != nil {
+		t.Fatalf("Failed to create helpers.go: %v", err)
+	}
+
+	// handlers.go — API_SOURCE, handler calls the helpers via e.Request
+	handlersContent := `package app
+
+// API_SOURCE
+
+import (
+	"net/http"
+	"github.com/pocketbase/pocketbase/core"
+)
+
+// API_DESC Purchase access
+// API_TAGS Access
+func purchaseHandler(c *core.RequestEvent) error {
+	auth := getAuthHeader(c.Request)
+	sig := getPaymentSig(c.Request)
+	_, _ = auth, sig
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "handlers.go"), []byte(handlersContent), 0644); err != nil {
+		t.Fatalf("Failed to create handlers.go: %v", err)
+	}
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	parser := NewASTParser()
+	if err := parser.DiscoverSourceFiles(); err != nil {
+		t.Fatalf("DiscoverSourceFiles failed: %v", err)
+	}
+
+	// Both helpers should be registered
+	if _, ok := parser.funcParamSchemas["getAuthHeader"]; !ok {
+		t.Error("Expected getAuthHeader to be registered in funcParamSchemas")
+	}
+	if _, ok := parser.funcParamSchemas["getPaymentSig"]; !ok {
+		t.Error("Expected getPaymentSig to be registered in funcParamSchemas")
+	}
+
+	// purchaseHandler should inherit both header params
+	h, ok := parser.GetHandlerByName("purchaseHandler")
+	if !ok || h == nil {
+		t.Fatal("Expected purchaseHandler to be discovered")
+	}
+	pm := paramMap(h.Parameters)
+	assertParam(t, pm, "Authorization", "header", "string")
+	assertParam(t, pm, "PAYMENT-SIGNATURE", "header", "string")
+}
+
+// TestHTTPRequestHelper_QueryGet verifies that a helper taking *http.Request
+// and using r.URL.Query().Get("name") or q := r.URL.Query(); q.Get("name")
+// is detected and propagated to calling handlers.
+func TestHTTPRequestHelper_QueryGet(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	helpersContent := `package app
+
+import "net/http"
+
+func getETag(r *http.Request) string {
+	return r.Header.Get("If-None-Match")
+}
+
+func getPageParam(r *http.Request) string {
+	return r.URL.Query().Get("page")
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "helpers.go"), []byte(helpersContent), 0644); err != nil {
+		t.Fatalf("Failed to create helpers.go: %v", err)
+	}
+
+	handlersContent := `package app
+
+// API_SOURCE
+
+import (
+	"net/http"
+	"github.com/pocketbase/pocketbase/core"
+)
+
+// API_DESC List with pagination
+// API_TAGS List
+func listHandler(c *core.RequestEvent) error {
+	etag := getETag(c.Request)
+	page := getPageParam(c.Request)
+	_, _ = etag, page
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "handlers.go"), []byte(handlersContent), 0644); err != nil {
+		t.Fatalf("Failed to create handlers.go: %v", err)
+	}
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	parser := NewASTParser()
+	if err := parser.DiscoverSourceFiles(); err != nil {
+		t.Fatalf("DiscoverSourceFiles failed: %v", err)
+	}
+
+	h, ok := parser.GetHandlerByName("listHandler")
+	if !ok || h == nil {
+		t.Fatal("Expected listHandler to be discovered")
+	}
+	pm := paramMap(h.Parameters)
+	assertParam(t, pm, "If-None-Match", "header", "string")
+	assertParam(t, pm, "page", "query", "string")
+}

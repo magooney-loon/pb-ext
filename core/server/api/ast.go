@@ -41,7 +41,7 @@ func NewASTParser() *ASTParser {
 // DiscoverSourceFiles finds and parses files with API_SOURCE directive,
 // then follows local imports to parse struct definitions from imported packages.
 func (p *ASTParser) DiscoverSourceFiles() error {
-	// Phase 1: Find and parse all API_SOURCE files
+	// Phase 1: Collect all API_SOURCE file paths
 	var apiSourceFiles []string
 	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil || !strings.HasSuffix(path, ".go") {
@@ -63,13 +63,22 @@ func (p *ASTParser) DiscoverSourceFiles() error {
 		return err
 	}
 
+	// Phase 1.5: Extract helper function params from sibling files BEFORE handler parsing.
+	// This ensures that when handlers are analyzed (Phase 2) and they call helpers like
+	// parseTimeParams, the helper's params are already in funcParamSchemas and will be
+	// merged into the handler's parameter list. Without this, helpers defined in files
+	// without // API_SOURCE are invisible to the parser.
+	p.extractHelperParamsFromSiblingFiles(apiSourceFiles)
+
+	// Phase 2: Parse each API_SOURCE file (structs → helpers → handlers).
+	// Helper params extracted in Phase 1.5 are now available for merging.
 	for _, f := range apiSourceFiles {
 		if parseErr := p.ParseFile(f); parseErr != nil {
 			slog.Warn("api docs: failed to parse API_SOURCE file", "file", f, "err", parseErr)
 		}
 	}
 
-	// Phase 2: Follow local imports from API_SOURCE files and parse their structs
+	// Phase 3: Follow local imports from API_SOURCE files and parse their structs
 	p.parseImportedPackages(apiSourceFiles)
 
 	return nil

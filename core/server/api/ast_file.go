@@ -95,6 +95,63 @@ func (p *ASTParser) parseImportedPackages(apiSourceFiles []string) {
 	}
 }
 
+// extractHelperParamsFromSiblingFiles scans every non-API_SOURCE, non-test .go file in
+// the same directories as apiSourceFiles and extracts helper function params from them.
+// This allows helpers like parseTimeParams to be defined in ordinary helper files (without
+// the // API_SOURCE directive) while still having their params inherited by handlers in
+// the API_SOURCE files of the same package.
+func (p *ASTParser) extractHelperParamsFromSiblingFiles(apiSourceFiles []string) {
+	// Collect unique directories that contain API_SOURCE files
+	dirs := map[string]bool{}
+	for _, f := range apiSourceFiles {
+		dirs[filepath.Dir(f)] = true
+	}
+
+	// Build a set of the API_SOURCE files themselves (skip them — they are fully parsed
+	// by ParseFile in the next phase, including their own helpers).
+	apiSourceSet := map[string]bool{}
+	for _, f := range apiSourceFiles {
+		abs, err := filepath.Abs(f)
+		if err == nil {
+			apiSourceSet[abs] = true
+		} else {
+			apiSourceSet[f] = true
+		}
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+				continue
+			}
+			filePath := filepath.Join(dir, entry.Name())
+			abs, err := filepath.Abs(filePath)
+			if err != nil {
+				abs = filePath
+			}
+			if apiSourceSet[abs] {
+				continue // already processed by ParseFile
+			}
+			file, err := parser.ParseFile(p.fileSet, filePath, nil, parser.ParseComments)
+			if err != nil {
+				slog.Warn("api docs: failed to parse sibling file for helper params", "file", filePath, "err", err)
+				continue
+			}
+			// Extract helper params without requiring API_SOURCE directive
+			p.extractHelperFuncParams(file)
+			// Also extract return types so cross-file helper return types resolve correctly
+			p.extractFuncReturnTypes(file)
+		}
+	}
+}
+
 // parseDirectoryStructs parses all .go files in a directory for struct definitions
 // and type aliases only (no handlers or function return types). Returns true if any
 // new structs were added.
