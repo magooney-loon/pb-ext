@@ -130,7 +130,9 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 				return &OpenAPISchema{Type: "string"}
 			case "GetBool":
 				return &OpenAPISchema{Type: "boolean"}
-			case "GetInt", "GetFloat":
+			case "GetInt":
+				return &OpenAPISchema{Type: "integer"}
+			case "GetFloat":
 				return &OpenAPISchema{Type: "number"}
 			case "GetDateTime":
 				return &OpenAPISchema{Type: "string", Format: "date-time"}
@@ -178,17 +180,30 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 		}
 	case *ast.IndexExpr:
 		if ident, ok := e.X.(*ast.Ident); ok && handlerInfo != nil {
-			if keyLit, ok := e.Index.(*ast.BasicLit); ok && keyLit.Kind == token.STRING {
-				key := strings.Trim(keyLit.Value, `"`)
-				if tracedExpr, exists := handlerInfo.VariableExprs[ident.Name]; exists {
-					if callExpr, ok := tracedExpr.(*ast.CallExpr); ok {
-						if fnIdent, ok := callExpr.Fun.(*ast.Ident); ok {
-							if bodySchema, ok := p.funcBodySchemas[fnIdent.Name]; ok {
-								if bodySchema.Properties != nil {
-									if propSchema, ok := bodySchema.Properties[key]; ok {
-										return p.deepCopySchema(propSchema)
+			if keyLit, ok := e.Index.(*ast.BasicLit); ok {
+				if keyLit.Kind == token.STRING {
+					key := strings.Trim(keyLit.Value, `"`)
+					if tracedExpr, exists := handlerInfo.VariableExprs[ident.Name]; exists {
+						if callExpr, ok := tracedExpr.(*ast.CallExpr); ok {
+							if fnIdent, ok := callExpr.Fun.(*ast.Ident); ok {
+								if bodySchema, ok := p.funcBodySchemas[fnIdent.Name]; ok {
+									if bodySchema.Properties != nil {
+										if propSchema, ok := bodySchema.Properties[key]; ok {
+											return p.deepCopySchema(propSchema)
+										}
 									}
 								}
+							}
+						}
+					}
+				} else if keyLit.Kind == token.INT {
+					// Integer index on a slice: resolve element type from known variable type.
+					// e.g. returns[0] where returns is []float64 → "float64" → number schema
+					if varType, exists := handlerInfo.Variables[ident.Name]; exists {
+						if strings.HasPrefix(varType, "[]") {
+							elemType := strings.TrimPrefix(varType, "[]")
+							if schema := p.resolveTypeToSchema(elemType); schema != nil {
+								return schema
 							}
 						}
 					}
@@ -219,7 +234,9 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 					return &OpenAPISchema{Type: "string"}
 				case strings.Contains(sel, "Bool"):
 					return &OpenAPISchema{Type: "boolean"}
-				case strings.Contains(sel, "Int") || strings.Contains(sel, "Float"):
+				case strings.Contains(sel, "Int"):
+					return &OpenAPISchema{Type: "integer"}
+				case strings.Contains(sel, "Float"):
 					return &OpenAPISchema{Type: "number"}
 				case strings.Contains(sel, "DateTime") || strings.Contains(sel, "Time"):
 					return &OpenAPISchema{Type: "string", Format: "date-time"}

@@ -1034,6 +1034,19 @@ func (p *ASTParser) inferTypeFromExpression(expr ast.Expr, handlerInfo *ASTHandl
 				}
 				return "Record"
 			}
+			// PocketBase getter methods — resolve to their actual Go return types so
+			// that variables assigned from them (e.g. td := r.GetString("x")) carry
+			// the right type through analyzeValueExpression rather than "interface{}".
+			switch methodName {
+			case "GetString", "GetDateTime":
+				return "string"
+			case "GetInt":
+				return "int"
+			case "GetFloat":
+				return "float64"
+			case "GetBool":
+				return "bool"
+			}
 			if strings.Contains(methodName, "Find") && strings.Contains(methodName, "s") {
 				return "[]interface{}"
 			}
@@ -1041,8 +1054,19 @@ func (p *ASTParser) inferTypeFromExpression(expr ast.Expr, handlerInfo *ASTHandl
 				return "interface{}"
 			}
 		}
-	case *ast.SliceExpr, *ast.IndexExpr:
+	case *ast.SliceExpr:
 		return "[]interface{}"
+	case *ast.IndexExpr:
+		// Try to resolve the element type from the base variable's known type.
+		// e.g. returns[0] where returns is []float64 → "float64"
+		if ident, ok := e.X.(*ast.Ident); ok && handlerInfo != nil {
+			if varType, exists := handlerInfo.Variables[ident.Name]; exists {
+				if strings.HasPrefix(varType, "[]") {
+					return strings.TrimPrefix(varType, "[]")
+				}
+			}
+		}
+		return "interface{}"
 	}
 	return ""
 }

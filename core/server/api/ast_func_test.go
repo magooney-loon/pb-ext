@@ -964,6 +964,49 @@ func updateTodoMapAdditionsHandler(c *core.RequestEvent) error {
 		"changes": updates,
 	})
 }
+
+// getIntTypingHandler tests that r.GetInt() produces integer schema and r.GetFloat() produces number.
+// Previously both were collapsed to "number"; GetInt should be "integer".
+func getIntTypingHandler(c *core.RequestEvent) error {
+	var r *core.Record
+	return c.JSON(http.StatusOK, map[string]any{
+		"page":    r.GetInt("page"),
+		"total":   r.GetInt("total"),
+		"price":   r.GetFloat("price"),
+		"score":   r.GetFloat("score"),
+		"label":   r.GetString("label"),
+		"enabled": r.GetBool("enabled"),
+	})
+}
+
+// conditionalKeysHandler tests that keys assigned inside if blocks are tracked.
+// entry["direction"] and entry["entry_price"] are set via variables typed from GetString/GetFloat.
+func conditionalKeysHandler(c *core.RequestEvent) error {
+	var r *core.Record
+	entry := map[string]any{
+		"signal": r.GetString("signal"),
+		"value":  r.GetFloat("value"),
+	}
+	if td := r.GetString("direction"); td != "" {
+		entry["direction"]   = td
+		entry["entry_price"] = r.GetFloat("entry_price")
+		entry["stop_loss"]   = r.GetFloat("stop_loss")
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"data": entry,
+	})
+}
+
+// sliceIndexTypeHandler tests that indexing a typed slice ([]float64) resolves to
+// the element type (number) rather than falling back to interface{} / object.
+func sliceIndexTypeHandler(c *core.RequestEvent) error {
+	returns := []float64{1.0, 2.0, 3.0}
+	return c.JSON(http.StatusOK, map[string]any{
+		"min": returns[0],
+		"max": returns[1],
+		"avg": returns[2],
+	})
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -1541,9 +1584,11 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getItemsInlineQueryHandler", "getItemsRequestInfoHandler",
 		"getWithHeaderHandler", "getItemByPathValueHandler", "getMixedParamsHandler",
 		// Indirect param extraction handlers (42-47) + index-assignment handler (48) + map-additions handler (49)
+		// + GetInt/conditional/slice-index fix handlers (50-52)
 		"getChartHandler", "getPaginatedItemsHandler", "getVerboseDataHandler",
 		"getChartPaginatedHandler", "getWithAuthHeaderHandler", "getChartWithDirectParamHandler",
 		"listTodosIndexHandler", "updateTodoMapAdditionsHandler",
+		"getIntTypingHandler", "conditionalKeysHandler", "sliceIndexTypeHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -1813,7 +1858,7 @@ func TestFuncBodySchema_SingleMapHelper(t *testing.T) {
 		"id":       "string",
 		"symbol":   "string",
 		"name":     "string",
-		"decimals": "number",
+		"decimals": "integer", // r.GetInt() now correctly produces "integer"
 		"active":   "boolean",
 	}
 	for key, expectedType := range expectedKeys {
@@ -1978,8 +2023,8 @@ func TestHandlerScenario_DeepHelperSingleMap(t *testing.T) {
 	if s := h.ResponseSchema.Properties["active"]; s != nil && s.Type != "boolean" {
 		t.Errorf("Expected 'active' type 'boolean', got %q", s.Type)
 	}
-	if s := h.ResponseSchema.Properties["decimals"]; s != nil && s.Type != "number" {
-		t.Errorf("Expected 'decimals' type 'number', got %q", s.Type)
+	if s := h.ResponseSchema.Properties["decimals"]; s != nil && s.Type != "integer" {
+		t.Errorf("Expected 'decimals' type 'integer' (from GetInt), got %q", s.Type)
 	}
 }
 
@@ -2676,5 +2721,132 @@ func TestHandlerScenario_MapAdditionsClearsAdditionalProperties(t *testing.T) {
 	// additionalProperties must NOT be true once concrete properties are known
 	if changesSchema.AdditionalProperties == true {
 		t.Error("Expected additionalProperties to be cleared (nil/false) after map_additions resolved concrete properties, but it is still true")
+	}
+}
+
+// =============================================================================
+// GetInt/GetFloat/GetString Typing Tests
+// =============================================================================
+
+func TestHandlerScenario_GetIntProducesIntegerSchema(t *testing.T) {
+	// getIntTypingHandler returns a map with r.GetInt() and r.GetFloat() values.
+	// GetInt must produce "integer", GetFloat must produce "number".
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getIntTypingHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	props := h.ResponseSchema.Properties
+	if props == nil {
+		t.Fatal("Expected response schema properties")
+	}
+
+	for _, want := range []struct {
+		key      string
+		wantType string
+	}{
+		{"page", "integer"},
+		{"total", "integer"},
+		{"price", "number"},
+		{"score", "number"},
+		{"label", "string"},
+		{"enabled", "boolean"},
+	} {
+		prop, ok := props[want.key]
+		if !ok {
+			t.Errorf("Expected property %q", want.key)
+			continue
+		}
+		if prop.Type != want.wantType {
+			t.Errorf("Property %q: expected type %q, got %q", want.key, want.wantType, prop.Type)
+		}
+	}
+}
+
+// =============================================================================
+// Conditional Map Key Assignment Tests
+// =============================================================================
+
+func TestHandlerScenario_ConditionalKeysFromIfBlock(t *testing.T) {
+	// conditionalKeysHandler sets entry["direction"] etc. inside an if block.
+	// Because td := r.GetString("direction") is now tracked as type "string",
+	// entry["direction"] = td should also resolve to "string".
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "conditionalKeysHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	dataSchema, ok := h.ResponseSchema.Properties["data"]
+	if !ok {
+		t.Fatal("Expected 'data' property in response")
+	}
+	if dataSchema.Type != "object" {
+		t.Fatalf("Expected 'data' to be object, got %q", dataSchema.Type)
+	}
+
+	// Keys from the base map literal
+	for _, key := range []string{"signal", "value"} {
+		if _, ok := dataSchema.Properties[key]; !ok {
+			t.Errorf("Expected base key %q in data schema", key)
+		}
+	}
+
+	// Keys from the conditional if block (via map additions)
+	for _, key := range []string{"direction", "entry_price", "stop_loss"} {
+		if _, ok := dataSchema.Properties[key]; !ok {
+			t.Errorf("Expected conditional key %q in data schema (from if-block map addition)", key)
+		}
+	}
+
+	// "direction" should be string (from td := r.GetString("direction"))
+	if s := dataSchema.Properties["direction"]; s != nil && s.Type != "string" {
+		t.Errorf("Expected 'direction' type 'string', got %q", s.Type)
+	}
+
+	// "entry_price" and "stop_loss" should be number (from r.GetFloat)
+	for _, key := range []string{"entry_price", "stop_loss"} {
+		if s := dataSchema.Properties[key]; s != nil && s.Type != "number" {
+			t.Errorf("Expected %q type 'number', got %q", key, s.Type)
+		}
+	}
+}
+
+// =============================================================================
+// Slice Index Element Type Tests
+// =============================================================================
+
+func TestHandlerScenario_SliceIndexElementType(t *testing.T) {
+	// sliceIndexTypeHandler indexes a []float64 slice via returns[0], returns[1], returns[2].
+	// Each index expression should resolve to the element type "float64" → "number",
+	// NOT fall back to "interface{}" → {type:object, additionalProperties:true}.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "sliceIndexTypeHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	props := h.ResponseSchema.Properties
+	if props == nil {
+		t.Fatal("Expected response schema properties")
+	}
+
+	for _, key := range []string{"min", "max", "avg"} {
+		prop, ok := props[key]
+		if !ok {
+			t.Errorf("Expected property %q", key)
+			continue
+		}
+		// Should be "number" (from []float64 element), not "object" with additionalProperties
+		if prop.Type != "number" {
+			t.Errorf("Property %q: expected type 'number' (from []float64 element), got %q", key, prop.Type)
+		}
+		if prop.AdditionalProperties == true {
+			t.Errorf("Property %q: should not have additionalProperties:true (not an object)", key)
+		}
 	}
 }
