@@ -7,9 +7,29 @@ import (
 )
 
 // SetupCollection creates the _job_logs system collection if it doesn't exist.
+// If an older schema is detected (missing fields added in the refactor), those
+// fields are added in-place without touching existing records.
 func SetupCollection(app core.App) error {
-	if _, err := app.FindCollectionByNameOrId(Collection); err == nil {
-		app.Logger().Debug("Job logs collection already exists")
+	if col, err := app.FindCollectionByNameOrId(Collection); err == nil {
+		// Collection exists — check for fields added in the refactor.
+		changed := false
+		if col.Fields.GetByName("description") == nil {
+			col.Fields.Add(&core.TextField{Name: "description", Required: false, Max: 1000})
+			changed = true
+		}
+		if col.Fields.GetByName("expression") == nil {
+			col.Fields.Add(&core.TextField{Name: "expression", Required: false, Max: 255})
+			changed = true
+		}
+		if changed {
+			app.Logger().Warn("Migrating _job_logs: adding missing fields (description, expression)")
+			if err := app.SaveNoValidate(col); err != nil {
+				return fmt.Errorf("migration: failed to update _job_logs schema: %w", err)
+			}
+			app.Logger().Info("Migrated _job_logs collection")
+		} else {
+			app.Logger().Debug("_job_logs collection already exists (current schema)")
+		}
 		return nil
 	}
 

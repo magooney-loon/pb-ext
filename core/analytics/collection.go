@@ -1,8 +1,13 @@
 package analytics
 
-import "github.com/pocketbase/pocketbase/core"
+import (
+	"fmt"
+
+	"github.com/pocketbase/pocketbase/core"
+)
 
 // SetupCollections creates both pb-ext analytics system collections if they don't exist.
+// On upgrade from an older pb-ext version the old raw-events schema is automatically migrated.
 func SetupCollections(app core.App) error {
 	if err := setupCounterCollection(app); err != nil {
 		return err
@@ -11,10 +16,28 @@ func SetupCollections(app core.App) error {
 }
 
 // setupCounterCollection creates _analytics — one row per (path, date, device, browser).
+// If the old raw-events schema is detected (presence of an "ip" field), it is dropped
+// and the new aggregated schema is created in its place.
 func setupCounterCollection(app core.App) error {
-	if _, err := app.FindCollectionByNameOrId(CollectionName); err == nil {
-		app.Logger().Debug("_analytics collection already exists")
-		return nil
+	if col, err := app.FindCollectionByNameOrId(CollectionName); err == nil {
+		if col.Fields.GetByName("ip") != nil {
+			// Old raw-events schema detected — incompatible with aggregated design.
+			// Drop it (PII data should not be retained anyway).
+			app.Logger().Warn("Detected old _analytics raw-events schema — migrating to aggregated schema (old data dropped)")
+			// Clear the system flag so app.Delete can proceed (system collections
+			// are otherwise protected from deletion by a built-in hook).
+			col.System = false
+			if saveErr := app.SaveNoValidate(col); saveErr != nil {
+				return fmt.Errorf("migration: failed to unmark _analytics as system: %w", saveErr)
+			}
+			if delErr := app.Delete(col); delErr != nil {
+				return fmt.Errorf("migration: failed to drop old _analytics: %w", delErr)
+			}
+			// Fall through to create the new schema below.
+		} else {
+			app.Logger().Debug("_analytics collection already exists (current schema)")
+			return nil
+		}
 	}
 
 	app.Logger().Debug("Creating _analytics collection")

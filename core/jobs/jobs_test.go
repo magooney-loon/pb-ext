@@ -6,6 +6,7 @@ import (
 
 	"github.com/magooney-loon/pb-ext/core/jobs"
 	"github.com/magooney-loon/pb-ext/core/testutil"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // --- Constants ---
@@ -208,6 +209,73 @@ func TestSetupCollection_OptionalFields(t *testing.T) {
 	for _, name := range optional {
 		if col.Fields.GetByName(name) == nil {
 			t.Errorf("optional field %q missing from _job_logs", name)
+		}
+	}
+}
+
+// --- Migration ---
+
+// TestMigration_JobLogs_AddsMissingFields simulates upgrading from a pre-refactor
+// _job_logs schema that lacks the "description" and "expression" fields.
+func TestMigration_JobLogs_AddsMissingFields(t *testing.T) {
+	app := testutil.NewTestApp(t)
+
+	// Build an old-style _job_logs collection without description/expression.
+	oldCol := core.NewBaseCollection(jobs.Collection)
+	oldCol.System = true
+	oldCol.Fields.Add(&core.TextField{Name: "job_id", Required: true, Max: 255})
+	oldCol.Fields.Add(&core.TextField{Name: "job_name", Required: true, Max: 255})
+	oldCol.Fields.Add(&core.DateField{Name: "start_time", Required: true})
+	oldCol.Fields.Add(&core.DateField{Name: "end_time", Required: false})
+	oldCol.Fields.Add(&core.NumberField{Name: "duration", Required: false})
+	oldCol.Fields.Add(&core.SelectField{
+		Name:     "status",
+		Required: true,
+		Values:   []string{"started", "completed", "failed", "timeout"},
+	})
+	oldCol.Fields.Add(&core.TextField{Name: "output", Required: false, Max: 10000})
+	oldCol.Fields.Add(&core.TextField{Name: "error", Required: false, Max: 2000})
+	oldCol.Fields.Add(&core.SelectField{
+		Name:     "trigger_type",
+		Required: true,
+		Values:   []string{"scheduled", "manual", "api"},
+	})
+	oldCol.Fields.Add(&core.TextField{Name: "trigger_by", Required: false, Max: 255})
+	oldCol.Fields.Add(&core.AutodateField{Name: "created", OnCreate: true})
+	oldCol.Fields.Add(&core.AutodateField{Name: "updated", OnCreate: true, OnUpdate: true})
+
+	if err := app.SaveNoValidate(oldCol); err != nil {
+		t.Fatalf("create old _job_logs schema: %v", err)
+	}
+
+	// Verify old schema is missing the new fields.
+	before, _ := app.FindCollectionByNameOrId(jobs.Collection)
+	if before.Fields.GetByName("description") != nil {
+		t.Fatal("pre-condition failed: old schema should not have 'description'")
+	}
+	if before.Fields.GetByName("expression") != nil {
+		t.Fatal("pre-condition failed: old schema should not have 'expression'")
+	}
+
+	// Run migration via SetupCollection.
+	if err := jobs.SetupCollection(app); err != nil {
+		t.Fatalf("SetupCollection (migration): %v", err)
+	}
+
+	// Verify new fields were added.
+	after, err := app.FindCollectionByNameOrId(jobs.Collection)
+	if err != nil {
+		t.Fatalf("collection not found after migration: %v", err)
+	}
+	for _, name := range []string{"description", "expression"} {
+		if after.Fields.GetByName(name) == nil {
+			t.Errorf("migration failed: field %q not added to _job_logs", name)
+		}
+	}
+	// Existing fields must still be present.
+	for _, name := range []string{"job_id", "job_name", "status", "start_time", "trigger_type"} {
+		if after.Fields.GetByName(name) == nil {
+			t.Errorf("migration broke existing field %q in _job_logs", name)
 		}
 	}
 }

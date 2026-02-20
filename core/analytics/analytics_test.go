@@ -8,6 +8,7 @@ import (
 
 	"github.com/magooney-loon/pb-ext/core/analytics"
 	"github.com/magooney-loon/pb-ext/core/testutil"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // --- Constants ---
@@ -169,6 +170,64 @@ func TestSetupCollections_SessionsFields(t *testing.T) {
 		if col.Fields.GetByName(name) == nil {
 			t.Errorf("required field %q missing from _analytics_sessions", name)
 		}
+	}
+}
+
+// --- Migration ---
+
+// TestMigration_OldAnalyticsSchema_DroppedAndRecreated simulates upgrading from
+// the old raw-events _analytics schema (which contained an "ip" field) to the
+// new aggregated counter schema.
+func TestMigration_OldAnalyticsSchema_DroppedAndRecreated(t *testing.T) {
+	app := testutil.NewTestApp(t)
+
+	// Build an old-style _analytics collection with raw-event fields including "ip".
+	oldCol := core.NewBaseCollection(analytics.CollectionName)
+	oldCol.System = true
+	oldCol.Fields.Add(&core.TextField{Name: "path", Required: true})
+	oldCol.Fields.Add(&core.TextField{Name: "method", Required: false})
+	oldCol.Fields.Add(&core.TextField{Name: "ip", Required: false})
+	oldCol.Fields.Add(&core.TextField{Name: "user_agent", Required: false})
+	oldCol.Fields.Add(&core.TextField{Name: "visitor_id", Required: false})
+	oldCol.Fields.Add(&core.DateField{Name: "timestamp", Required: false})
+	oldCol.Fields.Add(&core.AutodateField{Name: "created", OnCreate: true})
+
+	if err := app.SaveNoValidate(oldCol); err != nil {
+		t.Fatalf("create old _analytics schema: %v", err)
+	}
+
+	// Pre-condition: old schema has "ip".
+	before, _ := app.FindCollectionByNameOrId(analytics.CollectionName)
+	if before.Fields.GetByName("ip") == nil {
+		t.Fatal("pre-condition failed: old schema should have 'ip'")
+	}
+
+	// Run migration via SetupCollections.
+	if err := analytics.SetupCollections(app); err != nil {
+		t.Fatalf("SetupCollections (migration): %v", err)
+	}
+
+	// Old PII fields must be gone.
+	after, err := app.FindCollectionByNameOrId(analytics.CollectionName)
+	if err != nil {
+		t.Fatalf("_analytics not found after migration: %v", err)
+	}
+	for _, bad := range []string{"ip", "user_agent", "visitor_id", "method"} {
+		if after.Fields.GetByName(bad) != nil {
+			t.Errorf("migration failed: old field %q still present in _analytics", bad)
+		}
+	}
+
+	// New schema fields must exist.
+	for _, name := range []string{"path", "date", "device_type", "browser", "views", "unique_sessions"} {
+		if after.Fields.GetByName(name) == nil {
+			t.Errorf("migration failed: new field %q missing from _analytics", name)
+		}
+	}
+
+	// _analytics_sessions must also be created.
+	if _, err := app.FindCollectionByNameOrId(analytics.SessionsCollectionName); err != nil {
+		t.Errorf("_analytics_sessions not created during migration: %v", err)
 	}
 }
 

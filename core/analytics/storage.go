@@ -154,12 +154,14 @@ func (a *Analytics) GetData() (*Data, error) {
 	}
 
 	// --- 7. Recent visits (from sessions ring) ---
+	// Timestamp is stored by PocketBase as "2006-01-02 15:04:05.000Z" — scan
+	// it as a string to avoid dbx failing to parse it into time.Time directly.
 	type sessionRow struct {
-		Path      string    `db:"path"`
-		Device    string    `db:"device_type"`
-		Browser   string    `db:"browser"`
-		OS        string    `db:"os"`
-		Timestamp time.Time `db:"timestamp"`
+		Path      string `db:"path"`
+		Device    string `db:"device_type"`
+		Browser   string `db:"browser"`
+		OS        string `db:"os"`
+		Timestamp string `db:"timestamp"`
 	}
 	var sessionRows []sessionRow
 	_ = a.app.DB().
@@ -171,8 +173,9 @@ func (a *Analytics) GetData() (*Data, error) {
 
 	data.RecentVisits = make([]RecentVisit, 0, len(sessionRows))
 	for _, r := range sessionRows {
+		ts, _ := time.Parse("2006-01-02 15:04:05.000Z", r.Timestamp)
 		data.RecentVisits = append(data.RecentVisits, RecentVisit{
-			Time:       r.Timestamp,
+			Time:       ts,
 			Path:       r.Path,
 			DeviceType: r.Device,
 			Browser:    r.Browser,
@@ -181,7 +184,8 @@ func (a *Analytics) GetData() (*Data, error) {
 	}
 
 	// --- 8. Hourly activity ---
-	oneHourAgo := time.Now().Add(-time.Hour).Format("2006-01-02 15:04:05")
+	// Use PocketBase's date layout so the SQLite string comparison is correct.
+	oneHourAgo := time.Now().UTC().Add(-time.Hour).Format("2006-01-02 15:04:05.000Z")
 	var hourlyCount int
 	hourlyErr := a.app.DB().
 		Select("COUNT(*)").
