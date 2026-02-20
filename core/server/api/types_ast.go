@@ -137,6 +137,7 @@ type ASTHandlerInfo struct {
 	VariableExprs          map[string]ast.Expr    `json:"-"`
 	MapAdditions           map[string][]MapKeyAdd `json:"-"`
 	SliceAppendExprs       map[string]ast.Expr    `json:"-"`
+	AnonStructSchemas      map[string]*OpenAPISchema `json:"-"` // inline struct schemas keyed by var name
 
 	// PocketBase-specific fields
 	RequiresAuth       bool     `json:"requires_auth"`

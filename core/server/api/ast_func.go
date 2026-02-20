@@ -344,9 +344,13 @@ func (p *ASTParser) analyzeHelperFuncBody(funcDecl *ast.FuncDecl) *OpenAPISchema
 			return true
 		}
 		schema := p.parseMapLiteral(compLit, tempInfo)
-		if schema != nil && len(schema.Properties) > bestKeyCount {
+		// Use properties+required as the key count so that nil-initialized maps
+		// (which have empty Properties but non-empty Required after Fix 1) are
+		// still selected as the best schema and can be enriched by mergeMapAdditions.
+		keyCount := len(schema.Properties) + len(schema.Required)
+		if schema != nil && keyCount > bestKeyCount {
 			bestSchema = schema
-			bestKeyCount = len(schema.Properties)
+			bestKeyCount = keyCount
 			bestVarName = p.findAssignedVariable(funcDecl.Body, compLit)
 		}
 		return true
@@ -644,11 +648,12 @@ func (p *ASTParser) isPocketBaseHandler(funcDecl *ast.FuncDecl) bool {
 // analyzePocketBaseHandler analyzes a PocketBase handler function
 func (p *ASTParser) analyzePocketBaseHandler(funcDecl *ast.FuncDecl) *ASTHandlerInfo {
 	handlerInfo := &ASTHandlerInfo{
-		Name:             funcDecl.Name.Name,
-		Variables:        make(map[string]string),
-		VariableExprs:    make(map[string]ast.Expr),
-		MapAdditions:     make(map[string][]MapKeyAdd),
-		SliceAppendExprs: make(map[string]ast.Expr),
+		Name:              funcDecl.Name.Name,
+		Variables:         make(map[string]string),
+		VariableExprs:     make(map[string]ast.Expr),
+		MapAdditions:      make(map[string][]MapKeyAdd),
+		SliceAppendExprs:  make(map[string]ast.Expr),
+		AnonStructSchemas: make(map[string]*OpenAPISchema),
 	}
 
 	if funcDecl.Doc != nil {
@@ -746,8 +751,11 @@ func (p *ASTParser) handleBindBody(call *ast.CallExpr, handlerInfo *ASTHandlerIn
 	if len(call.Args) > 0 {
 		if unary, ok := call.Args[0].(*ast.UnaryExpr); ok && unary.Op == token.AND {
 			if ident, ok := unary.X.(*ast.Ident); ok {
-				if varType, exists := handlerInfo.Variables[ident.Name]; exists {
+				if varType, exists := handlerInfo.Variables[ident.Name]; exists && varType != "" {
 					handlerInfo.RequestType = varType
+				} else if schema, exists := handlerInfo.AnonStructSchemas[ident.Name]; exists {
+					// var body struct{...} — anonymous inline struct, no named type
+					handlerInfo.RequestSchema = schema
 				}
 			}
 		}

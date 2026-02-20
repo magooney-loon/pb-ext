@@ -46,6 +46,13 @@ func (p *ASTParser) parseMapLiteral(mapLit *ast.CompositeLit, handlerInfo *ASTHa
 					if keyName != "error" && keyName != "message" && keyName != "description" {
 						required = append(required, keyName)
 					}
+				} else {
+					// nil literal: mark as required so the field appears in the schema,
+					// but omit from Properties so mergeMapAdditions can set the correct
+					// type from later result["key"] = r.GetXxx() assignments.
+					if keyName != "error" && keyName != "message" && keyName != "description" {
+						required = append(required, keyName)
+					}
 				}
 			}
 		}
@@ -87,7 +94,11 @@ func (p *ASTParser) analyzeValueExpression(expr ast.Expr, handlerInfo *ASTHandle
 				Example: e.Name == "true",
 			}
 		case "nil":
-			return &OpenAPISchema{Type: "object"}
+			// nil literals carry no type information. Return nil so the caller
+			// (parseMapLiteral) can mark the key as required without assigning a
+			// wrong "object" type, allowing mergeMapAdditions to fill in the
+			// correct type from subsequent result["key"] = r.GetXxx() assignments.
+			return nil
 		default:
 			if handlerInfo != nil {
 				if tracedExpr, exists := handlerInfo.VariableExprs[e.Name]; exists {
@@ -472,9 +483,20 @@ func (p *ASTParser) extractVarDecl(genDecl *ast.GenDecl, handlerInfo *ASTHandler
 		if valueSpec, ok := spec.(*ast.ValueSpec); ok {
 			for i, name := range valueSpec.Names {
 				if valueSpec.Type != nil {
-					typeName := p.extractTypeName(valueSpec.Type)
-					if typeName != "" {
-						handlerInfo.Variables[name.Name] = typeName
+					// Handle anonymous struct: var body struct { Field Type `json:"field"` }
+					if structType, ok := valueSpec.Type.(*ast.StructType); ok {
+						if schema := p.parseAnonStructType(structType); schema != nil {
+							if handlerInfo.AnonStructSchemas == nil {
+								handlerInfo.AnonStructSchemas = make(map[string]*OpenAPISchema)
+							}
+							handlerInfo.AnonStructSchemas[name.Name] = schema
+						}
+						// Don't try extractTypeName on a StructType — it returns ""
+					} else {
+						typeName := p.extractTypeName(valueSpec.Type)
+						if typeName != "" {
+							handlerInfo.Variables[name.Name] = typeName
+						}
 					}
 				}
 				if i < len(valueSpec.Values) {
@@ -489,6 +511,57 @@ func (p *ASTParser) extractVarDecl(genDecl *ast.GenDecl, handlerInfo *ASTHandler
 			}
 		}
 	}
+}
+
+// parseAnonStructType builds an inline object OpenAPI schema from an anonymous struct type.
+// Reads json struct tags for property names; falls back to the field name if no tag.
+func (p *ASTParser) parseAnonStructType(structType *ast.StructType) *OpenAPISchema {
+	schema := &OpenAPISchema{
+		Type:       "object",
+		Properties: make(map[string]*OpenAPISchema),
+	}
+	var required []string
+
+	for _, field := range structType.Fields.List {
+		for _, nameIdent := range field.Names {
+			jsonName := nameIdent.Name
+			omitempty := false
+
+			if field.Tag != nil {
+				tagValue := strings.Trim(field.Tag.Value, "`")
+				if jsonTag := p.extractTag(tagValue, "json"); jsonTag != "" {
+					parts := strings.Split(jsonTag, ",")
+					if len(parts) > 0 && parts[0] != "" && parts[0] != "-" {
+						jsonName = parts[0]
+					}
+					for _, opt := range parts[1:] {
+						if opt == "omitempty" {
+							omitempty = true
+						}
+					}
+				}
+			}
+
+			typeName := p.extractTypeName(field.Type)
+			var propSchema *OpenAPISchema
+			if typeName != "" {
+				propSchema = p.resolveTypeToSchema(typeName)
+			}
+			if propSchema == nil {
+				propSchema = &OpenAPISchema{Type: "string"}
+			}
+
+			schema.Properties[jsonName] = propSchema
+			if !omitempty {
+				required = append(required, jsonName)
+			}
+		}
+	}
+
+	if len(required) > 0 {
+		schema.Required = required
+	}
+	return schema
 }
 
 // resolveTypeAlias resolves a type alias recursively to find the real type.

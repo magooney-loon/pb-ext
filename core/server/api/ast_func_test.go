@@ -1007,6 +1007,90 @@ func sliceIndexTypeHandler(c *core.RequestEvent) error {
 		"avg": returns[2],
 	})
 }
+
+// =============================================================================
+// Nil-initialized map with later GetXxx() assignments
+// =============================================================================
+
+// buildNilInitSummary mirrors the real-world pattern where a map[string]any is
+// declared with all nil values, then each key is set to a typed value afterward.
+// The parser must NOT emit type:object for each key; instead it should use the
+// types inferred from the later result["key"] = r.GetXxx() assignments.
+func buildNilInitSummary(r *core.Record) map[string]any {
+	result := map[string]any{
+		"price":     nil,
+		"volume":    nil,
+		"timestamp": nil,
+		"signal":    nil,
+		"active":    nil,
+	}
+	result["price"] = r.GetFloat("close")
+	result["volume"] = r.GetFloat("volume")
+	result["timestamp"] = r.GetInt("unix_timestamp")
+	result["signal"] = r.GetString("signal")
+	result["active"] = r.GetBool("active")
+	return result
+}
+
+// 49. Handler calling buildNilInitSummary helper
+// API_DESC Get nil-init summary
+// API_TAGS Test
+func getNilInitSummaryHandler(c *core.RequestEvent) error {
+	record, _ := c.App.FindRecordById("items", "abc")
+	data := buildNilInitSummary(record)
+	return c.JSON(http.StatusOK, data)
+}
+
+// 50. Handler with nil-init map inline (no helper)
+// API_DESC Get inline nil-init summary
+// API_TAGS Test
+func getInlineNilInitHandler(c *core.RequestEvent) error {
+	var r *core.Record
+	result := map[string]any{
+		"price":  nil,
+		"count":  nil,
+		"label":  nil,
+	}
+	result["price"] = r.GetFloat("price")
+	result["count"] = r.GetInt("count")
+	result["label"] = r.GetString("label")
+	return c.JSON(http.StatusOK, result)
+}
+
+// =============================================================================
+// Anonymous inline struct BindBody
+// =============================================================================
+
+// 51. Handler using var body struct{...} (anonymous inline struct) with BindBody
+// API_DESC Purchase pass
+// API_TAGS Pass
+func purchasePassHandler(c *core.RequestEvent) error {
+	var body struct {
+		Duration string ` + "`json:\"duration\"`" + `
+		Wallet   string ` + "`json:\"wallet\"`" + `
+	}
+	if err := c.BindBody(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid"})
+	}
+	_ = body.Duration
+	_ = body.Wallet
+	return c.JSON(http.StatusOK, map[string]any{"success": true})
+}
+
+// 52. Handler using var body struct{...} with mixed types and omitempty
+// API_DESC Create subscription
+// API_TAGS Subscription
+func createSubscriptionHandler(c *core.RequestEvent) error {
+	var body struct {
+		Plan     string ` + "`json:\"plan\"`" + `
+		Months   int    ` + "`json:\"months\"`" + `
+		Discount float64 ` + "`json:\"discount,omitempty\"`" + `
+	}
+	if err := c.BindBody(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid"})
+	}
+	return c.JSON(http.StatusCreated, map[string]any{"ok": true})
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -1589,6 +1673,8 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getChartPaginatedHandler", "getWithAuthHeaderHandler", "getChartWithDirectParamHandler",
 		"listTodosIndexHandler", "updateTodoMapAdditionsHandler",
 		"getIntTypingHandler", "conditionalKeysHandler", "sliceIndexTypeHandler",
+		"getNilInitSummaryHandler", "getInlineNilInitHandler",
+		"purchasePassHandler", "createSubscriptionHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -2848,5 +2934,193 @@ func TestHandlerScenario_SliceIndexElementType(t *testing.T) {
 		if prop.AdditionalProperties == true {
 			t.Errorf("Property %q: should not have additionalProperties:true (not an object)", key)
 		}
+	}
+}
+
+// =============================================================================
+// Nil-Initialized Map Tests
+// =============================================================================
+
+func TestHandlerScenario_NilInitMapViaHelper(t *testing.T) {
+	// buildNilInitSummary declares all keys as nil in the initial composite literal,
+	// then assigns typed values via result["key"] = r.GetXxx() afterward.
+	// The parser must not emit type:object for those keys; instead it should resolve
+	// the concrete types from the later map-addition assignments.
+	parser := parseHandlerScenarios(t)
+
+	// Verify the helper function body schema was extracted correctly
+	bodySchema, ok := parser.funcBodySchemas["buildNilInitSummary"]
+	if !ok {
+		t.Fatal("Expected buildNilInitSummary to be registered in funcBodySchemas")
+	}
+	if bodySchema == nil {
+		t.Fatal("Expected non-nil body schema for buildNilInitSummary")
+	}
+
+	// The five keys must all be present
+	for _, key := range []string{"price", "volume", "timestamp", "signal", "active"} {
+		prop, ok := bodySchema.Properties[key]
+		if !ok {
+			t.Errorf("Expected key %q in buildNilInitSummary schema", key)
+			continue
+		}
+		// Must NOT be the wrong "object" fallback from nil literals
+		if prop.Type == "object" && prop.AdditionalProperties == nil {
+			t.Errorf("Key %q has type 'object' (nil fallback); expected concrete type from GetXxx()", key)
+		}
+	}
+
+	// Verify specific types
+	want := map[string]string{
+		"price":     "number",
+		"volume":    "number",
+		"timestamp": "integer",
+		"signal":    "string",
+		"active":    "boolean",
+	}
+	for key, wantType := range want {
+		prop := bodySchema.Properties[key]
+		if prop == nil {
+			t.Errorf("Key %q missing from buildNilInitSummary schema", key)
+			continue
+		}
+		if prop.Type != wantType {
+			t.Errorf("Key %q: expected type %q, got %q", key, wantType, prop.Type)
+		}
+	}
+
+	// Also verify the handler that calls the helper resolves correctly
+	h := requireHandler(t, parser, "getNilInitSummaryHandler")
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema for getNilInitSummaryHandler")
+	}
+}
+
+func TestHandlerScenario_InlineNilInitMap(t *testing.T) {
+	// getInlineNilInitHandler builds the nil-init map directly in the handler body.
+	// After our fix, each key should resolve to its concrete type from the
+	// result["key"] = r.GetXxx() assignments via mergeMapAdditions.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getInlineNilInitHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	props := h.ResponseSchema.Properties
+	if props == nil {
+		t.Fatal("Expected response schema properties")
+	}
+
+	want := map[string]string{
+		"price": "number",
+		"count": "integer",
+		"label": "string",
+	}
+	for key, wantType := range want {
+		prop, ok := props[key]
+		if !ok {
+			t.Errorf("Expected property %q in response schema", key)
+			continue
+		}
+		if prop.Type == "object" && prop.AdditionalProperties == nil {
+			t.Errorf("Property %q has type 'object' (nil fallback); expected %q from GetXxx()", key, wantType)
+			continue
+		}
+		if prop.Type != wantType {
+			t.Errorf("Property %q: expected type %q, got %q", key, wantType, prop.Type)
+		}
+	}
+}
+
+// =============================================================================
+// Anonymous Inline Struct BindBody Tests
+// =============================================================================
+
+func TestHandlerScenario_AnonStructBindBody(t *testing.T) {
+	// purchasePassHandler uses var body struct { Duration string; Wallet string }
+	// followed by e.BindBody(&body). The parser must detect the anonymous struct
+	// declaration and build an inline request schema from its fields.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "purchasePassHandler")
+
+	if !h.UsesBindBody {
+		t.Error("Expected UsesBindBody to be true")
+	}
+
+	// RequestSchema must be set from the anonymous struct fields
+	if h.RequestSchema == nil {
+		t.Fatal("Expected RequestSchema to be set from anonymous struct BindBody")
+	}
+	if h.RequestSchema.Type != "object" {
+		t.Errorf("Expected RequestSchema type 'object', got %q", h.RequestSchema.Type)
+	}
+	if h.RequestSchema.Properties == nil {
+		t.Fatal("Expected RequestSchema to have properties")
+	}
+
+	// Both json-tagged fields must be present
+	for _, key := range []string{"duration", "wallet"} {
+		prop, ok := h.RequestSchema.Properties[key]
+		if !ok {
+			t.Errorf("Expected property %q in request schema", key)
+			continue
+		}
+		if prop.Type != "string" {
+			t.Errorf("Property %q: expected type 'string', got %q", key, prop.Type)
+		}
+	}
+
+	// RequestType should remain empty (no named type)
+	if h.RequestType != "" {
+		t.Errorf("Expected RequestType to be empty for anonymous struct, got %q", h.RequestType)
+	}
+}
+
+func TestHandlerScenario_AnonStructBindBodyMixedTypes(t *testing.T) {
+	// createSubscriptionHandler uses var body struct { Plan string; Months int; Discount float64 omitempty }
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "createSubscriptionHandler")
+
+	if !h.UsesBindBody {
+		t.Error("Expected UsesBindBody to be true")
+	}
+	if h.RequestSchema == nil {
+		t.Fatal("Expected RequestSchema from anonymous struct")
+	}
+	if h.RequestSchema.Properties == nil {
+		t.Fatal("Expected RequestSchema to have properties")
+	}
+
+	wantTypes := map[string]string{
+		"plan":     "string",
+		"months":   "integer",
+		"discount": "number",
+	}
+	for key, wantType := range wantTypes {
+		prop, ok := h.RequestSchema.Properties[key]
+		if !ok {
+			t.Errorf("Expected property %q in request schema", key)
+			continue
+		}
+		if prop.Type != wantType {
+			t.Errorf("Property %q: expected type %q, got %q", key, wantType, prop.Type)
+		}
+	}
+
+	// plan and months are non-omitempty → required; discount is omitempty → not required
+	req := h.RequestSchema.Required
+	reqSet := make(map[string]bool, len(req))
+	for _, r := range req {
+		reqSet[r] = true
+	}
+	if !reqSet["plan"] {
+		t.Error("Expected 'plan' to be required (no omitempty)")
+	}
+	if !reqSet["months"] {
+		t.Error("Expected 'months' to be required (no omitempty)")
+	}
+	if reqSet["discount"] {
+		t.Error("Expected 'discount' to NOT be required (omitempty)")
 	}
 }
