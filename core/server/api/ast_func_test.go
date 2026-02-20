@@ -1091,6 +1091,53 @@ func createSubscriptionHandler(c *core.RequestEvent) error {
 	}
 	return c.JSON(http.StatusCreated, map[string]any{"ok": true})
 }
+
+// Helper that uses e.Request.FormValue("name") — should be detectable.
+func parseFormValueHelper(e *core.RequestEvent) string {
+	return e.Request.FormValue("search")
+}
+
+// 49. Handler using e.Request.FormValue directly.
+// API_DESC Search items
+// API_TAGS Items
+func searchItemsFormValueHandler(c *core.RequestEvent) error {
+	q := c.Request.FormValue("q")
+	category := c.Request.FormValue("category")
+	_, _ = q, category
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+// 50. Handler calling a helper that uses FormValue.
+// API_DESC Search with helper
+// API_TAGS Items
+func searchWithFormValueHelperHandler(c *core.RequestEvent) error {
+	s := parseFormValueHelper(c)
+	_ = s
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+// parseTimeParamsMethod is a method-receiver version of parseTimeParams.
+// This exercises the case where helpers are methods on a struct.
+type HandlerServer struct{}
+
+func (s *HandlerServer) parseTimeParamsMethod(e *core.RequestEvent) timeParams {
+	q := e.Request.URL.Query()
+	return timeParams{
+		Interval: q.Get("interval"),
+		From:     q.Get("from"),
+		To:       q.Get("to"),
+		Limit:    q.Get("limit"),
+	}
+}
+
+// 51. Handler calling a method-receiver helper.
+// API_DESC Get chart via method helper
+// API_TAGS Charts
+func (s *HandlerServer) getChartMethodHelperHandler(c *core.RequestEvent) error {
+	tp := s.parseTimeParamsMethod(c)
+	_ = tp
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -1675,6 +1722,8 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getIntTypingHandler", "conditionalKeysHandler", "sliceIndexTypeHandler",
 		"getNilInitSummaryHandler", "getInlineNilInitHandler",
 		"purchasePassHandler", "createSubscriptionHandler",
+		// FormValue + method-receiver helper handlers (49-51)
+		"searchItemsFormValueHandler", "searchWithFormValueHelperHandler", "getChartMethodHelperHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -3123,4 +3172,79 @@ func TestHandlerScenario_AnonStructBindBodyMixedTypes(t *testing.T) {
 	if reqSet["discount"] {
 		t.Error("Expected 'discount' to NOT be required (omitempty)")
 	}
+}
+
+// =============================================================================
+// FormValue Parameter Detection Tests
+// =============================================================================
+
+func TestHandlerScenario_FormValue_DirectInHandler(t *testing.T) {
+	// searchItemsFormValueHandler uses c.Request.FormValue("q") and c.Request.FormValue("category")
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "searchItemsFormValueHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected query parameters from FormValue, got none")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "q", "query", "string")
+	assertParam(t, params, "category", "query", "string")
+}
+
+func TestHandlerScenario_FormValue_ViaHelper(t *testing.T) {
+	// searchWithFormValueHelperHandler calls parseFormValueHelper(c) which reads FormValue("search")
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "searchWithFormValueHelperHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected query parameters from FormValue helper, got none")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "search", "query", "string")
+}
+
+// =============================================================================
+// Method-Receiver Helper Tests
+// =============================================================================
+
+func TestHandlerScenario_MethodReceiverHelper_RegisteredInFuncParamSchemas(t *testing.T) {
+	// parseTimeParamsMethod is a method on HandlerServer but should still be registered
+	// in funcParamSchemas so that getChartMethodHelperHandler can inherit its params.
+	parser := parseHandlerScenarios(t)
+
+	tp, ok := parser.funcParamSchemas["parseTimeParamsMethod"]
+	if !ok {
+		t.Fatal("Expected parseTimeParamsMethod to be registered in funcParamSchemas")
+	}
+	if len(tp) == 0 {
+		t.Fatal("Expected at least one param for parseTimeParamsMethod")
+	}
+	names := make(map[string]bool)
+	for _, p := range tp {
+		names[p.Name] = true
+	}
+	for _, want := range []string{"interval", "from", "to", "limit"} {
+		if !names[want] {
+			t.Errorf("Expected parseTimeParamsMethod to have param %q", want)
+		}
+	}
+}
+
+func TestHandlerScenario_MethodReceiverHelper_ParamsInheritedByHandler(t *testing.T) {
+	// getChartMethodHelperHandler calls s.parseTimeParamsMethod(c) — a method call.
+	// The handler should inherit interval, from, to, limit params.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "getChartMethodHelperHandler")
+
+	if len(h.Parameters) == 0 {
+		t.Fatal("Expected query parameters from method-receiver helper, got none")
+	}
+
+	params := paramMap(h.Parameters)
+	assertParam(t, params, "interval", "query", "string")
+	assertParam(t, params, "from", "query", "string")
+	assertParam(t, params, "to", "query", "string")
+	assertParam(t, params, "limit", "query", "string")
 }

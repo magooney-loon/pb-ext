@@ -78,7 +78,7 @@ func (p *ASTParser) extractFuncReturnTypes(file *ast.File) {
 func (p *ASTParser) extractHelperFuncParams(file *ast.File) {
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok || funcDecl.Body == nil || funcDecl.Recv != nil {
+		if !ok || funcDecl.Body == nil {
 			continue
 		}
 		// Skip handlers — they're processed separately
@@ -195,6 +195,13 @@ func (p *ASTParser) extractParamsFromBody(body *ast.BlockStmt, eventParamNames m
 				case "PathValue":
 					if paramName, ok := firstStringArg(call); ok {
 						params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "path", Required: true})
+					}
+				case "FormValue":
+					// e.Request.FormValue("name") / r.FormValue("name") — query/form param
+					if paramName, ok := firstStringArg(call); ok {
+						if isRequestSelector(sel.X, eventParamNames) || isHTTPRequestIdent(sel.X, httpReqNames) {
+							params = appendParamIfNew(params, &ParamInfo{Name: paramName, Type: "string", Source: "query"})
+						}
 					}
 				}
 			}
@@ -328,6 +335,41 @@ func isHTTPRequestHeaderSelector(expr ast.Expr, httpReqParamNames map[string]boo
 		return false
 	}
 	if ident, ok := sel.X.(*ast.Ident); ok {
+		return httpReqParamNames[ident.Name]
+	}
+	return false
+}
+
+// isAnyRequestSelector checks if expr is *.Request for any receiver (handler-context version
+// of isRequestSelector where the event param name is not tracked). Matches e.Request, c.Request, etc.
+func isAnyRequestSelector(expr ast.Expr) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	return sel.Sel.Name == "Request"
+}
+
+// isRequestSelector checks if expr is e.Request where e is a known *core.RequestEvent param.
+// Used to match e.Request.FormValue("name") patterns.
+func isRequestSelector(expr ast.Expr, eventParams map[string]bool) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Request" {
+		return false
+	}
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		return eventParams[ident.Name]
+	}
+	return false
+}
+
+// isHTTPRequestIdent checks if expr is an identifier bound to a *http.Request param.
+// Used to match r.FormValue("name") patterns.
+func isHTTPRequestIdent(expr ast.Expr, httpReqParamNames map[string]bool) bool {
+	if len(httpReqParamNames) == 0 {
+		return false
+	}
+	if ident, ok := expr.(*ast.Ident); ok {
 		return httpReqParamNames[ident.Name]
 	}
 	return false
@@ -535,6 +577,17 @@ func (p *ASTParser) extractQueryParameters(body *ast.BlockStmt, handlerInfo *AST
 							Required: true,
 						})
 					}
+				case "FormValue":
+					// e.Request.FormValue("name") — query/form param
+					if paramName, ok := firstStringArg(call); ok {
+						if isAnyRequestSelector(sel.X) {
+							handlerInfo.Parameters = appendParamIfNew(handlerInfo.Parameters, &ParamInfo{
+								Name:   paramName,
+								Type:   "string",
+								Source: "query",
+							})
+						}
+					}
 				}
 			}
 		}
@@ -576,17 +629,27 @@ func (p *ASTParser) extractQueryParameters(body *ast.BlockStmt, handlerInfo *AST
 	// Two patterns:
 	//   1. Domain helper:   parseTimeParams(e)          → merge all params stored in funcParamSchemas
 	//   2. Generic helper:  parseIntParam(e, "page", 0) → extract param name from 2nd string-literal arg
+	// Also handles method call variants:
+	//   3. Method call:     s.parseTimeParams(e)        → same logic keyed by method name
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-		ident, ok := call.Fun.(*ast.Ident)
-		if !ok {
+
+		// Resolve the called function name: direct call (Ident) or method call (SelectorExpr).
+		var funcName string
+		switch fn := call.Fun.(type) {
+		case *ast.Ident:
+			funcName = fn.Name
+		case *ast.SelectorExpr:
+			funcName = fn.Sel.Name
+		}
+		if funcName == "" {
 			return true
 		}
 
-		if helperParams, exists := p.funcParamSchemas[ident.Name]; exists {
+		if helperParams, exists := p.funcParamSchemas[funcName]; exists {
 			// Separate literal params (Name != "") from sentinel params (Name == "").
 			// Sentinels encode which source type a generic helper reads (query vs header).
 			var literalParams []*ParamInfo

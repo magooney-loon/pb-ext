@@ -73,6 +73,21 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 		funcBodySchemasOut[k] = schemaDigest(v)
 	}
 
+	// Function param schemas (helper functions that contribute query/header/path params)
+	funcParamSchemasOut := make(map[string]any, len(parser.funcParamSchemas))
+	for k, params := range parser.funcParamSchemas {
+		paramList := make([]map[string]any, 0, len(params))
+		for _, p := range params {
+			paramList = append(paramList, map[string]any{
+				"name":     p.Name,
+				"type":     p.Type,
+				"source":   p.Source,
+				"required": p.Required,
+			})
+		}
+		funcParamSchemasOut[k] = paramList
+	}
+
 	// Parsed directories
 	parsedDirsList := make([]string, 0, len(parser.parsedDirs))
 	for dir := range parser.parsedDirs {
@@ -81,14 +96,15 @@ func (vm *APIVersionManager) BuildDebugData() map[string]any {
 	sort.Strings(parsedDirsList)
 
 	result["ast"] = map[string]any{
-		"total_structs":     len(allStructs),
-		"total_handlers":    len(allHandlers),
-		"structs":           structsOut,
-		"type_aliases":      aliases,
-		"func_return_types": funcRetTypes,
-		"func_body_schemas": funcBodySchemasOut,
-		"module_path":       parser.modulePath,
-		"imported_packages": parsedDirsList,
+		"total_structs":      len(allStructs),
+		"total_handlers":     len(allHandlers),
+		"structs":            structsOut,
+		"type_aliases":       aliases,
+		"func_return_types":  funcRetTypes,
+		"func_body_schemas":  funcBodySchemasOut,
+		"func_param_schemas": funcParamSchemasOut,
+		"module_path":        parser.modulePath,
+		"imported_packages":  parsedDirsList,
 	}
 
 	// -------------------------------------------------------------------------
