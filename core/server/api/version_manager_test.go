@@ -415,16 +415,17 @@ func TestVersionedAPIRouterBasicMethods(t *testing.T) {
 		t.Fatal("Router is nil")
 	}
 
-	// Skip router method tests since we can't properly mock the ServeEvent.Router
-	t.Skip("Skipping router method tests - requires proper PocketBase ServeEvent mock")
-
-	// Test basic router properties
+	// Test basic router properties — these work without a real PB router
 	if router.GetVersion() != "v1" {
 		t.Errorf("Expected version v1, got %s", router.GetVersion())
 	}
 
 	if router.GetVersionManager() != vm {
 		t.Error("Expected router to have reference to version manager")
+	}
+
+	if router.GetRegistry() == nil {
+		t.Error("Expected router to have a non-nil registry")
 	}
 }
 
@@ -741,11 +742,162 @@ func TestSetPrefix(t *testing.T) {
 // =============================================================================
 
 func TestCRUDHandlers(t *testing.T) {
-	t.Skip("Skipping CRUD handlers test - requires proper PocketBase ServeEvent mock")
+	type Item struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		// List
+		v1Router.GET("/api/v1/items", func(e *core.RequestEvent) error {
+			return e.JSON(200, []Item{{ID: "1", Name: "item-one"}})
+		})
+		// Create
+		v1Router.POST("/api/v1/items", func(e *core.RequestEvent) error {
+			return e.JSON(201, Item{ID: "2", Name: "new-item"})
+		})
+		// Read
+		v1Router.GET("/api/v1/items/{id}", func(e *core.RequestEvent) error {
+			return e.JSON(200, Item{ID: e.Request.PathValue("id"), Name: "fetched"})
+		})
+		// Update
+		v1Router.PATCH("/api/v1/items/{id}", func(e *core.RequestEvent) error {
+			return e.JSON(200, Item{ID: e.Request.PathValue("id"), Name: "updated"})
+		})
+		// Delete
+		v1Router.DELETE("/api/v1/items/{id}", func(e *core.RequestEvent) error {
+			return e.NoContent(204)
+		})
+	})
+	defer app.Cleanup()
+
+	scenarios := []tests.ApiScenario{
+		{
+			Name:            "list items",
+			Method:          "GET",
+			URL:             "/api/v1/items",
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  200,
+			ExpectedContent: []string{`"id"`, `"item-one"`},
+		},
+		{
+			Name:            "create item",
+			Method:          "POST",
+			URL:             "/api/v1/items",
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  201,
+			ExpectedContent: []string{`"new-item"`},
+		},
+		{
+			Name:            "get item by id",
+			Method:          "GET",
+			URL:             "/api/v1/items/42",
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  200,
+			ExpectedContent: []string{`"id"`, `"fetched"`},
+		},
+		{
+			Name:            "update item",
+			Method:          "PATCH",
+			URL:             "/api/v1/items/42",
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  200,
+			ExpectedContent: []string{`"updated"`},
+		},
+		{
+			Name:           "delete item",
+			Method:         "DELETE",
+			URL:            "/api/v1/items/42",
+			TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus: 204,
+		},
+	}
+
+	for _, sc := range scenarios {
+		sc := sc
+		t.Run(sc.Name, sc.Test)
+	}
+
 }
 
 func TestCRUDHandlersWithAuth(t *testing.T) {
-	t.Skip("Skipping CRUD handlers with auth test - requires proper PocketBase ServeEvent mock")
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		// Auth-gated middleware
+		authMW := &hook.Handler[*core.RequestEvent]{
+			Id: "require-auth",
+			Func: func(e *core.RequestEvent) error {
+				token := e.Request.Header.Get("Authorization")
+				if token != "Bearer valid-token" {
+					return e.JSON(401, map[string]string{"error": "unauthorized"})
+				}
+				return e.Next()
+			},
+		}
+
+		v1Router.GET("/api/v1/secure/profile", func(e *core.RequestEvent) error {
+			return e.JSON(200, map[string]string{"user": "alice", "role": "admin"})
+		}).Bind(authMW)
+
+		v1Router.DELETE("/api/v1/secure/items/{id}", func(e *core.RequestEvent) error {
+			return e.NoContent(204)
+		}).Bind(authMW)
+	})
+	defer app.Cleanup()
+
+	scenarios := []tests.ApiScenario{
+		{
+			Name:   "auth required - no token returns 401",
+			Method: "GET",
+			URL:    "/api/v1/secure/profile",
+			Headers: map[string]string{
+				"Authorization": "",
+			},
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  401,
+			ExpectedContent: []string{`"unauthorized"`},
+		},
+		{
+			Name:   "auth required - valid token succeeds",
+			Method: "GET",
+			URL:    "/api/v1/secure/profile",
+			Headers: map[string]string{
+				"Authorization": "Bearer valid-token",
+			},
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  200,
+			ExpectedContent: []string{`"alice"`, `"admin"`},
+		},
+		{
+			Name:   "auth required - delete without token returns 401",
+			Method: "DELETE",
+			URL:    "/api/v1/secure/items/99",
+			Headers: map[string]string{
+				"Authorization": "",
+			},
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  401,
+			ExpectedContent: []string{`"unauthorized"`},
+		},
+		{
+			Name:   "auth required - delete with valid token succeeds",
+			Method: "DELETE",
+			URL:    "/api/v1/secure/items/99",
+			Headers: map[string]string{
+				"Authorization": "Bearer valid-token",
+			},
+			TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus: 204,
+		},
+	}
+
+	for _, sc := range scenarios {
+		sc := sc
+		t.Run(sc.Name, sc.Test)
+	}
 }
 
 // =============================================================================

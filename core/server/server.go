@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/magooney-loon/pb-ext/core/analytics"
+	"github.com/magooney-loon/pb-ext/core/jobs"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
@@ -16,10 +18,9 @@ import (
 type Server struct {
 	app         *pocketbase.PocketBase
 	stats       *ServerStats
-	analytics   *Analytics
-	jobLogger   *JobLogger
-	jobManager  *JobManager
-	jobHandlers *JobHandlers
+	analytics   *analytics.Analytics
+	jobManager  *jobs.Manager
+	jobHandlers *jobs.Handlers
 	options     *options
 }
 
@@ -89,24 +90,18 @@ func (s *Server) Start() error {
 			return NewInternalError("bootstrap_initialization", "Failed to initialize core resources", err)
 		}
 
-		// Initialize job logging system early so it's available for job registration
-		jobLogger, err := InitializeJobLogger(app)
+		// Initialize job management system
+		jobManager, err := jobs.Initialize(app)
 		if err != nil {
-			app.Logger().Error("Failed to initialize job logger", "error", err)
+			app.Logger().Error("Failed to initialize job management system", "error", err)
 		} else {
-			s.jobLogger = jobLogger
+			s.jobManager = jobManager
 
-			// Initialize job manager for unified job handling
-			InitializeJobManager(app, jobLogger)
-			s.jobManager = GetJobManager()
-
-			// Register internal system jobs
-			if err := s.jobManager.RegisterInternalSystemJobs(); err != nil {
+			if err := jobManager.RegisterInternalSystemJobs(); err != nil {
 				app.Logger().Error("Failed to register internal system jobs", "error", err)
 			}
 
-			// Initialize job handlers for API endpoints
-			s.jobHandlers = NewJobHandlers(s.jobManager, jobLogger)
+			s.jobHandlers = jobs.NewHandlers(jobManager)
 
 			app.Logger().Info("✅ Job management system initialized")
 		}
@@ -181,23 +176,18 @@ func (s *Server) Start() error {
 		s.RegisterHealthRoute(e)
 
 		// Initialize analytics system
-		analytics, err := InitializeAnalytics(app)
+		analyticsInst, err := analytics.Initialize(app)
 		if err != nil {
 			app.Logger().Error("Failed to initialize analytics", "error", err)
 		} else {
-			s.analytics = analytics
-			analytics.RegisterRoutes(e)
+			s.analytics = analyticsInst
+			analyticsInst.RegisterRoutes(e)
 			app.Logger().Info("✅ Analytics system initialized")
 		}
 
-		// Register job logging routes (job logger was initialized in OnBootstrap)
-		if s.jobLogger != nil {
-			s.jobLogger.RegisterRoutes(e)
-		}
-
-		// Register job management API routes
+		// Register job API routes
 		if s.jobHandlers != nil {
-			s.jobHandlers.RegisterJobRoutes(e)
+			s.jobHandlers.RegisterRoutes(e)
 			app.Logger().Info("⚡ Job API routes registered")
 		}
 

@@ -4,21 +4,51 @@ This package (`core/server/api/`) is the OpenAPI documentation engine for pb-ext
 
 ## File Map
 
+### Types
 | File | What it owns |
 |---|---|
-| `ast.go` | `ASTParser` — core pipeline: file discovery, struct extraction (two-pass), handler analysis, map literal / variable / expression analysis, schema generation from Go types |
-| `ast_types.go` | All AST data structures: `ASTParser`, `StructInfo`, `FieldInfo`, `ASTHandlerInfo`, `MapKeyAdd`, `ParamInfo`, interfaces (`ASTParserInterface`) |
-| `api_types.go` | `APIEndpoint` (includes `Parameters []*ParamInfo`), `APIDocs`, `APIDocsConfig`, `AuthInfo`, `HandlerInfo` — the route/endpoint model |
-| `openapi_schema_types.go` | Full OpenAPI 3.0 type hierarchy: `OpenAPISchema`, `OpenAPIPathItem`, `OpenAPIOperation`, `OpenAPIComponents`, etc. |
-| `schema_types.go` | `SchemaGenerator` type, `SchemaAnalysisResult`, `SchemaConfig`, `SchemaGeneratorInterface` |
-| `common_types.go` | `Logger` interface, `DefaultLogger` |
-| `registry.go` | `APIRegistry` — coordinates endpoints, AST parser, schema generator; builds final OpenAPI paths and components; prunes `$ref` targets to only referenced schemas |
-| `schema.go` | `SchemaGenerator` implementation — request/response schema inference, component schema collection, response schema promotion to named components, fallback patterns |
-| `schema_conversion.go` | Go type to OpenAPI conversion, validation tag parsing, struct-to-schema conversion |
+| `types_ast.go` | All AST data structures: `ASTParser`, `StructInfo`, `FieldInfo`, `ASTHandlerInfo`, `MapKeyAdd`, `ParamInfo`, `ParseError`, `PocketBasePatterns`, logger interface, `ASTParserInterface` |
+| `types_api.go` | `APIEndpoint`, `APIDocs`, `APIDocsConfig`, `AuthInfo`, `HandlerInfo` — the route/endpoint model |
+| `types_openapi.go` | Full OpenAPI 3.0 type hierarchy: `OpenAPISchema`, `OpenAPIPathItem`, `OpenAPIOperation`, `OpenAPIComponents`, `OpenAPIParameter`, etc. |
+
+### AST Parser (split by responsibility)
+| File | What it owns |
+|---|---|
+| `ast.go` | Entry points: `NewASTParser`, `DiscoverSourceFiles`, `ParseFile`, `EnhanceEndpoint`, all public interface methods (`GetAllStructs`, `GetAllHandlers`, `ClearCache`, etc.) |
+| `ast_func.go` | Handler/function analysis: `extractHandlers`, `extractFuncReturnTypes`, `extractHelperFuncParams`, `extractParamsFromBody`, `extractQueryParameters`, `analyzeHelperFuncBody`, `isPocketBaseHandler`, `analyzePocketBaseHandler`, `analyzePocketBasePatterns`, `analyzePocketBaseCall`, `trackVariableAssignment`, `handleBindBody`, `handleJSONResponse`, all query/header/path detection helpers |
+| `ast_struct.go` | Struct analysis and schema generation: `extractStructs`, `parseStruct`, `generateStructSchema`, `flattenEmbeddedFields`, `generateFieldSchema`, `generateSchemaForEndpoint`, `generateSchemaFromType`, `deepCopySchema` |
+| `ast_metadata.go` | Value/type resolution: `analyzeMapLiteralSchema`, `parseMapLiteral`, `analyzeValueExpression`, `resolveTypeToSchema`, `schemaFromMakeArg`, `analyzeCompositeLitSchema`, `parseArrayLiteral`, `extractVariableDeclarations`, `extractLocalVariables`, `extractVarDecl`, `resolveTypeAlias`, `NewPocketBasePatterns` |
+| `ast_file.go` | File-level utilities: `newFileSet`, `getModulePath`, `parseImportedPackages`, `parseDirectoryStructs` |
+
+### Registry
+| File | What it owns |
+|---|---|
+| `registry.go` | `APIRegistry` struct, constructor, `RegisterEndpoint`, helpers |
+| `registry_routes.go` | `RegisterRoute`, `RegisterExplicitRoute`, `BatchRegisterRoutes`, `enhanceEndpointWithAST`, `createEndpointFromAnalysis` |
+| `registry_spec.go` | `GetDocsWithComponents`, `buildPaths`, `endpointToOperation`, `extractPathParameters`, `collectRefsFromSchema` (pruning), `generateOperationId`, `buildTags` |
+
+### Other
+| File | What it owns |
+|---|---|
+| `schema.go` | `SchemaGenerator` — request/response schema inference, `GenerateComponentSchemas`, `promoteHandlerResponseSchemas` |
+| `schema_conversion.go` | Go type → OpenAPI conversion: `ConvertGoTypeToOpenAPISchema`, `ConvertParamInfoToOpenAPIParameter`, validation tag parsing |
+| `version_manager.go` | `APIVersionManager`, `VersionedAPIRouter`, `VersionedRouteChain`, `PrefixedRouter`, multi-version routing, per-version registries, `ServeSwaggerUI` (SwaggerDark CSS via `strings.NewReplacer`) |
 | `discovery.go` | `RouteAnalyzer`, `MiddlewareAnalyzer`, `PathAnalyzer` — runtime route analysis utilities |
-| `version_manager.go` | `APIVersionManager`, `VersionedAPIRouter`, `VersionedRouteChain` — multi-version routing and per-version registries |
 | `debug_dump.go` | `BuildDebugData()` — serves the `/api/docs/debug/ast` endpoint with full pipeline introspection |
 | `utils.go` | String helpers: handler name extraction, camelCase/snake_case, description/tag generation, path conversion |
+
+### Tests
+| File | What it covers |
+|---|---|
+| `ast_test.go` | Core parser lifecycle, `ParseFile`, `EnhanceEndpoint`, `DiscoverSourceFiles`, benchmarks |
+| `ast_struct_test.go` | Struct/schema/type extraction and JSON schema generation |
+| `ast_func_test.go` | Handler scenarios (46+ handlers), func return type resolution, `funcBodySchemas`, append-based resolution, direct and indirect parameter detection |
+| `ast_file_test.go` | Cross-package struct resolution via import following |
+| `registry_test.go` | `APIRegistry` route registration and OpenAPI output |
+| `schema_test.go` | `SchemaGenerator` and component schema generation |
+| `version_manager_test.go` | `APIVersionManager` and versioned routing |
+| `discovery_test.go` | Route/middleware/path analysis |
+| `utils_test.go` | String helper utilities |
 
 ## Pipeline Overview
 
@@ -33,8 +63,11 @@ ASTParser.DiscoverSourceFiles()
   |     v
   |   ASTParser.ParseFile()  (for each API_SOURCE file)
   |     |-- extractStructs()            two-pass: register all structs, then generate JSONSchemas
+  |     |-- extractVariableDeclarations()  global var tracking
   |     |-- extractFuncReturnTypes()    scan non-handler functions for return type signatures
   |     |     \-- analyzeHelperFuncBody()  deep-analyze map[string]any helpers for key schemas
+  |     |-- extractHelperFuncParams()   scan *core.RequestEvent helpers for params
+  |     |     \-- extractParamsFromBody()  walks body detecting param access patterns
   |     |-- extractHandlers()           find func(c *core.RequestEvent) error
   |     |     |-- parseHandlerComments()   // API_DESC, // API_TAGS
   |     |     |-- analyzePocketBasePatterns()
@@ -42,7 +75,7 @@ ASTParser.DiscoverSourceFiles()
   |     |     |     |-- trackVariableAssignment()   vars + map["key"]=value additions + append() tracking
   |     |     |     \-- auth / database operation detection
   |     |     |-- extractLocalVariables()
-  |     |     \-- extractQueryParameters()  detect query, header, and path params (see section below)
+  |     |     \-- extractQueryParameters()  direct + indirect (via funcParamSchemas) param detection
   |     \-- marks directory in parsedDirs
   |
   |-- Phase 2: Follow local imports (zero-config)
@@ -50,7 +83,7 @@ ASTParser.DiscoverSourceFiles()
   |     |     |-- getModulePath()       read go.mod for module name (cached on parser)
   |     |     |-- resolve imports       strip module prefix → local directory path
   |     |     |-- skip parsedDirs       avoid re-parsing API_SOURCE directories
-  |     |     \-- parseDirectoryStructs()  extract structs only from each dir (no handlers)
+  |     |     \-- parseDirectoryStructs()  extract structs only (no handlers)
   |     \-- re-run schema generation    imported structs may cross-reference each other
   v
 APIRegistry.RegisterRoute(method, path, handler, middlewares)
@@ -85,7 +118,7 @@ Pass 1 registers all structs with fields (no schemas) and type aliases. Pass 2 g
 
 ### Handler Analysis
 
-A function is a PocketBase handler if its signature is `func(param *core.RequestEvent) error`. Analysis walks the body AST and tracks:
+A function is a PocketBase handler if its signature is exactly `func(param *core.RequestEvent) error` — one `*core.RequestEvent` parameter and returns `error`. Analysis walks the body AST and tracks:
 
 - **Variables**: `map[string]string` — variable name to inferred Go type
 - **VariableExprs**: `map[string]ast.Expr` — variable name to RHS AST node (for deep map literal analysis)
@@ -97,156 +130,146 @@ Response detection: `c.JSON(status, expr)` — the second argument is analyzed:
 1. Try composite literal analysis (map/struct/slice)
 2. If arg is a variable, trace to its stored expression
 3. Merge any `MapAdditions` for that variable
-4. Fall back to type inference -> `$ref` for known structs
+4. Fall back to type inference → `$ref` for known structs
 5. Last resort: generic object schema
 
 ### Function Return Type Resolution
 
-`extractFuncReturnTypes()` runs before handler analysis. It scans all non-handler function declarations in API_SOURCE files and extracts the first non-error return type from the function signature. Stored in `ASTParser.funcReturnTypes` as `map[string]string` (func name → Go type string).
+`extractFuncReturnTypes()` runs before handler analysis. Scans all non-handler function declarations in API_SOURCE files and extracts the first non-error return type. Stored in `ASTParser.funcReturnTypes` as `map[string]string` (func name → Go type string).
 
-This enables `inferTypeFromExpression` and `analyzeValueExpression` to resolve variables assigned from helper function calls (e.g., `candles := formatCandlesFull(records)` → type `[]map[string]any`).
+Enables `inferTypeFromExpression` and `analyzeValueExpression` to resolve variables assigned from helper function calls (e.g., `candles := formatCandlesFull(records)` → type `[]map[string]any`).
 
 ### Helper Function Body Analysis (Deep Schema Resolution)
 
-When `extractFuncReturnTypes()` finds a function returning `map[string]any` or `[]map[string]any`, it calls `analyzeHelperFuncBody()` to walk the function body and extract the actual map keys being set. Results are stored in `ASTParser.funcBodySchemas` as `map[string]*OpenAPISchema`.
+When `extractFuncReturnTypes()` finds a function returning `map[string]any` or `[]map[string]any`, it calls `analyzeHelperFuncBody()` to extract the map keys being set. Results go into `ASTParser.funcBodySchemas` as `map[string]*OpenAPISchema`.
 
 **How it works:**
 1. Creates a temporary `ASTHandlerInfo` to track variables and map additions within the function
-2. Walks the function body with `ast.Inspect`, tracking variable assignments
-3. Finds all `map[string]any{...}` composite literals and parses them via `parseMapLiteral`
-4. Picks the literal with the most keys (the primary response shape)
-5. Uses `findAssignedVariable()` to find the variable name the literal was assigned to
-6. Merges any dynamic `mapVar["key"] = value` additions for that variable
-7. For `[]map[string]any` return types, wraps the item schema in an array schema
+2. Finds all `map[string]any{...}` composite literals, parses them via `parseMapLiteral`
+3. Picks the literal with the most keys (the primary response shape)
+4. Uses `findAssignedVariable()` to find the variable name and merges any dynamic `mapVar["key"] = value` additions
+5. For `[]map[string]any` return types, wraps the item schema in an array schema
 
-**Consumption**: In `analyzeValueExpression`, when a `*ast.CallExpr` is encountered for a function with a `funcBodySchemas` entry, the deep schema is returned (via `deepCopySchema`) instead of the generic type-based schema from `resolveTypeToSchema`. This flows through the normal handler analysis — when a handler has `candles := formatCandlesFull(records)` and returns `map[string]any{"candles": candles}`, the `candles` value resolves to the array-of-objects schema with typed properties instead of `{type: "array", items: {type: "object", additionalProperties: true}}`.
+**Consumption**: In `analyzeValueExpression`, a `*ast.CallExpr` for a function with a `funcBodySchemas` entry returns the deep schema (via `deepCopySchema`) instead of the generic type-based schema.
 
 **Limitation**: Only covers functions defined in API_SOURCE files, not imported packages.
 
+### Indirect Parameter Extraction (Helper Functions)
+
+`extractHelperFuncParams()` runs after `extractFuncReturnTypes` and before `extractHandlers`. It finds functions that accept `*core.RequestEvent` but are NOT handlers (return type ≠ `error`) and extracts the params they read into `ASTParser.funcParamSchemas`.
+
+**Two categories of helpers:**
+
+1. **Domain helpers** — read params with literal names:
+   ```go
+   func parseTimeParams(e *core.RequestEvent) timeParams {
+       q := e.Request.URL.Query()
+       return timeParams{Interval: q.Get("interval"), From: q.Get("from")}
+   }
+   ```
+   → `funcParamSchemas["parseTimeParams"]` = `[{Name:"interval", Source:"query"}, ...]`
+
+2. **Generic helpers** — param name is a function argument:
+   ```go
+   func parseIntParam(e *core.RequestEvent, name string, def int) int {
+       return e.Request.URL.Query().Get(name)
+   }
+   ```
+   → `funcParamSchemas["parseIntParam"]` = sentinel `[{Name:"", Source:"query"}]`
+
+   Header-reading generics (`e.Request.Header.Get(name)`) get `Source:"header"` in the sentinel.
+
+**Call-site merging in `extractQueryParameters`** (second pass after direct body scan):
+- Domain helper call → merge all stored params directly
+- Generic helper call → extract param name from 2nd string-literal arg, source from sentinel
+
 ### Append-Based Slice Item Resolution
 
-When a handler builds a slice via `make([]map[string]any, ...)` and populates it in a loop with `append(varName, entry)`, the `make()` call alone produces a generic `{type: "array", items: {type: "object", additionalProperties: true}}`. The append-based resolution connects the appended item expression to the slice variable.
+When a handler builds a slice via `make([]map[string]any, ...)` and populates it with `append(varName, entry)`, the `make()` alone produces a generic array schema. The append-based resolution connects the appended item expression to the slice variable.
 
 **How it works:**
-1. `trackVariableAssignment()` detects `varName = append(varName, itemExpr)` patterns and stores `itemExpr` in `SliceAppendExprs[varName]` on the handler info
-2. `enrichArraySchemaFromAppend()` is called after resolving a variable to an array schema — if the items are generic, it looks up the append source expression and resolves it via `analyzeValueExpression()`
-3. The resolved item expression (usually a variable referencing a `map[string]any{...}` literal) provides the rich items schema with typed properties
-
-**Key field on ASTHandlerInfo:** `SliceAppendExprs map[string]ast.Expr` — maps slice variable names to the item expression being appended.
-
-**Common pattern this resolves:**
-```go
-entries := make([]map[string]any, 0)
-for _, r := range records {
-    entry := map[string]any{"name": r.GetString("name"), "value": r.GetFloat("val")}
-    entries = append(entries, entry)
-}
-return c.JSON(200, map[string]any{"entries": entries})
-```
+1. `trackVariableAssignment()` detects `varName = append(varName, itemExpr)` and stores `itemExpr` in `SliceAppendExprs[varName]`
+2. `enrichArraySchemaFromAppend()` is called after resolving a variable to a generic array schema — looks up the append expression and resolves it via `analyzeValueExpression()`
 
 ### Index Expression Resolution (map["key"] from funcBodySchemas)
 
-When a helper function reads values from another helper's return value via index expressions (e.g., `summary["price"]`), the parser resolves the property type by looking up the source function's `funcBodySchemas` entry.
+When a helper reads values from another helper's return via index expressions (e.g., `summary["price"]`), the parser resolves the property type by looking up the source function's `funcBodySchemas` entry.
 
-**How it works:**
-1. In `analyzeValueExpression`, the `*ast.IndexExpr` case handles `mapVar["key"]` patterns
-2. It traces `mapVar` to its defining expression via `handlerInfo.VariableExprs`
-3. If the defining expression is a function call (e.g., `fetchIntervalSummary(tokenID)`), it looks up the function name in `funcBodySchemas`
-4. If the body schema has a property matching the key, that property's schema is returned
-
-This means `summary["price"]` where `summary = fetchIntervalSummary(id)` resolves to `{type: "number"}` instead of generic `{type: "string"}`.
+1. In `analyzeValueExpression`, `*ast.IndexExpr` handles `mapVar["key"]` patterns
+2. Traces `mapVar` to its defining expression via `handlerInfo.VariableExprs`
+3. If the defining expression is a function call, looks up the function name in `funcBodySchemas`
+4. Returns the matching property's schema
 
 ### Parameter Detection (Query, Header, Path)
 
-`extractQueryParameters()` detects query, header, and path parameter usage in handler bodies. It tracks two kinds of variable assignments — `URL.Query()` return values and `RequestInfo()` return values — then detects all access patterns on those variables.
+`extractQueryParameters()` runs in two passes:
 
-**Supported patterns:**
+**Pass 1 — direct body scan:**
 
-| Pattern | Source | Example |
-|---|---|---|
-| `q := e.Request.URL.Query(); q.Get("param")` | query | Variable-based query access |
-| `e.Request.URL.Query().Get("param")` | query | Inline query access |
-| `e.Request.URL.Query()["param"]` | query | Index-based query access |
-| `info.Query["param"]` | query | Via `e.RequestInfo()` |
-| `e.Request.Header.Get("name")` | header | Direct header access |
-| `info.Headers["name"]` | header | Via `e.RequestInfo()` |
-| `e.Request.PathValue("id")` | path | Path parameter access |
+| Pattern | Source |
+|---|---|
+| `q := e.Request.URL.Query(); q.Get("param")` | query |
+| `e.Request.URL.Query().Get("param")` | query |
+| `e.Request.URL.Query()["param"]` | query |
+| `info.Query["param"]` (via `e.RequestInfo()`) | query |
+| `e.Request.Header.Get("name")` | header |
+| `info.Headers["name"]` (via `e.RequestInfo()`) | header |
+| `e.Request.PathValue("id")` | path (Required: true) |
 
-**Helpers:** `isURLQueryCall()`, `isRequestInfoCall()`, `isRequestHeaderSelector()`, `firstStringArg()`, `stringLiteralValue()`
+**Pass 2 — indirect helper scan** (via `funcParamSchemas`): merges params from known helper calls in the handler body.
 
-Detected parameters are stored as `ParamInfo` entries on `handlerInfo.Parameters` with `Source` set to `"query"`, `"header"`, or `"path"`. Path parameters are marked `Required: true`. Deduplication is by name+source via `appendParamIfNew()`.
-
-**Pipeline flow:** `handlerInfo.Parameters` → `endpoint.Parameters` (via `enhanceEndpointWithAST` / `EnhanceEndpoint`) → `endpointToOperation` appends them after URL-pattern path params (deduplicated by `in:name` key) → `ConvertParamInfoToOpenAPIParameter()` produces `OpenAPIParameter` objects.
+Deduplication by name+source via `appendParamIfNew()`. Pipeline flow: `handlerInfo.Parameters` → `endpoint.Parameters` → `endpointToOperation` → `ConvertParamInfoToOpenAPIParameter`.
 
 ### Auto-Import Following (Cross-Package Struct Resolution)
 
-After all API_SOURCE files are parsed, `parseImportedPackages()` automatically resolves local imports (same Go module) and parses their struct definitions. This is zero-config — no directives needed on type definition files.
-
-**How it works:**
-1. `getModulePath()` reads `go.mod` (walking up from cwd) to get the module name. Cached in `ASTParser.modulePath`.
-2. For each API_SOURCE file, re-parse its imports. If an import path starts with `modulePath`, strip the prefix to get a relative directory.
-3. Skip directories already in `parsedDirs` (marked during Phase 1 when parsing API_SOURCE files).
-4. `parseDirectoryStructs(dir)` parses all `.go` files (excluding `_test.go`) in the directory, calling `extractStructs()` only — no handler analysis.
-5. After all imported directories are processed, re-run `generateStructSchema()` for all structs so cross-references between imported structs resolve correctly.
+After all API_SOURCE files are parsed, `parseImportedPackages()` automatically resolves local imports and parses their struct definitions. Zero-config — no directives needed on type files.
 
 **Key fields on ASTParser:**
-- `modulePath string` — Go module path from go.mod (e.g., `github.com/magooney-loon/pb-ext`)
-- `parsedDirs map[string]bool` — tracks directories already parsed to avoid duplicates
-- `funcBodySchemas map[string]*OpenAPISchema` — deep-analyzed schemas from helper function bodies
+- `modulePath string` — from go.mod (e.g., `github.com/magooney-loon/pb-ext`)
+- `parsedDirs map[string]bool` — tracks directories already parsed
+- `funcBodySchemas map[string]*OpenAPISchema` — deep-analyzed schemas from helper bodies
+- `funcParamSchemas map[string][]*ParamInfo` — params extracted from `*core.RequestEvent` helpers
 
 **Edge cases:**
-- No `go.mod` found → `modulePath` stays empty, feature silently disabled (falls back to current behavior)
-- External imports (different module) → ignored, only local module imports are followed
-- API_SOURCE file's own directory → already in `parsedDirs` from Phase 1, won't be re-parsed
+- No `go.mod` → feature silently disabled
+- External imports → ignored
+- API_SOURCE file's own directory → already in `parsedDirs`, skipped
 - `_test.go` files → skipped in `parseDirectoryStructs`
-- Circular imports → not an issue since we only extract structs, never follow further imports
+- Circular imports → not an issue (structs only, no further import following)
 
 ### Value Expression Analysis
 
-`analyzeValueExpression()` resolves map literal values to OpenAPI schemas. It handles:
-- Literals (string, int, float, bool)
-- Variable references (looks up `VariableExprs` then `Variables`)
-- Struct field access (`req.DryRun` -> looks up struct definition -> field type)
-- Call expressions (`time.Now().Format()`, `len()`, `make()`, PocketBase getters)
-- Nested composite literals (maps, slices, structs)
-
-The `handlerInfo` parameter is threaded through the entire chain: `analyzeMapLiteralSchema` -> `parseMapLiteral` -> `analyzeValueExpression` -> `analyzeCompositeLitSchema` -> `parseArrayLiteral`.
+`analyzeValueExpression()` resolves map literal values to OpenAPI schemas: literals, variable references, struct field access, call expressions, nested composite literals. The `handlerInfo` parameter threads through the entire call chain.
 
 ### Type Resolution
 
-`resolveTypeToSchema(typeName)` converts Go type strings to OpenAPI schemas. Handles: slices (`[]T`), maps (`map[K]V`), pointers (`*T`), primitives, `time.Time`, `any`/`interface{}`, and known structs (via `$ref`).
+`resolveTypeToSchema(typeName)` converts Go type strings to OpenAPI schemas: slices, maps, pointers, primitives, `time.Time`, `any`/`interface{}`, known structs (via `$ref`).
 
-`generateSchemaForEndpoint(typeName)` is the top-level variant that always uses `$ref` for known structs (so they land in `components/schemas`).
-
-`generateSchemaFromType(typeName, inline)` controls whether structs are inlined or referenced.
+`generateSchemaForEndpoint(typeName)` always uses `$ref` for known structs. `generateSchemaFromType(typeName, inline)` controls inline vs. referenced.
 
 ### Response Schema Promotion
 
-Handlers that return inline `map[string]any{...}` responses (rather than typed structs) produce anonymous schemas that won't appear in Swagger UI's "Schemas" section. The promotion system lifts these into named component schemas.
+Handlers returning inline `map[string]any{...}` produce anonymous schemas. The promotion system lifts these into named component schemas.
 
-**How it works (two-part):**
+**Two-part:**
+1. **`promoteHandlerResponseSchemas()`** (schema.go) — during `GenerateComponentSchemas`, promotes inline handler schemas to `components/schemas` and replaces them with `$ref`s
+2. **`endpointToOperation()`** (registry_spec.go) — uses the same deterministic name to replace inline responses with `$ref`s at operation-build time
 
-1. **`promoteHandlerResponseSchemas()`** (schema.go) — called during `GenerateComponentSchemas`. Iterates all AST handlers. For handlers with a promotable response schema (object with properties, or array with items, and NOT already a `$ref`), derives a name via `handlerResponseSchemaName()` and adds the full schema to `components/schemas`. Replaces the handler's `ResponseSchema` with a `$ref`.
-
-2. **`endpointToOperation()`** (registry.go) — since endpoints bake response schemas at registration time (before `GenerateComponentSchemas` runs), this also derives the same deterministic name and replaces inline responses with `$ref`s. The pruning logic in `GetDocsWithComponents` keeps only schemas that are actually referenced.
-
-**Naming convention:** `handlerResponseSchemaName()` strips package prefix and common suffixes (`Handler`, `Func`, `API`, `Endpoint`), uppercases the first letter, and appends `Response`:
+**Naming:** `handlerResponseSchemaName()` strips package prefix and `Handler`/`Func`/`API`/`Endpoint` suffixes, uppercases first letter, appends `Response`:
 - `getOrderHandler` → `GetOrderResponse`
 - `pkg.listCategoriesHandler` → `ListCategoriesResponse`
 
-**What qualifies:** `isPromotableSchema()` returns true for:
-- `{type: "object"}` with at least one property
-- `{type: "array"}` with non-nil items
-
-Schemas that are already `$ref`s (struct-based responses) are skipped.
+**Qualifies:** object with ≥1 property, or array with non-nil items. Already-`$ref` schemas are skipped.
 
 ## Versioning System
 
-Each API version (`v1`, `v2`, ...) gets its own isolated `ASTParser`, `SchemaGenerator`, and `APIRegistry`. `APIVersionManager` coordinates them.
+Each API version gets its own isolated `ASTParser`, `SchemaGenerator`, and `APIRegistry`. `APIVersionManager` coordinates them.
 
-`VersionedAPIRouter` wraps PocketBase's router and registers routes into the version's registry. `VersionedRouteChain` handles `.Bind(middleware)` chaining.
+`VersionedAPIRouter` wraps PocketBase's router. `VersionedRouteChain` handles `.Bind(middleware)` chaining. `PrefixedRouter` adds a path prefix to all registered routes.
 
-`GetDocsWithComponents()` prunes component schemas per-version — only schemas actually `$ref`'d from that version's paths are included. `Error` and `PocketBaseRecord` are always included.
+Component schemas are pruned per-version — only schemas `$ref`'d from that version's paths are included. `Error` and `PocketBaseRecord` are always included.
+
+`ServeSwaggerUI()` renders Swagger UI with dark mode CSS (SwaggerDark by Amoenus, MIT). Uses `strings.NewReplacer` instead of `fmt.Sprintf` so CSS `%` characters need no escaping.
 
 ## Source File Directives
 
@@ -258,31 +281,31 @@ Each API version (`v1`, `v2`, ...) gets its own isolated `ASTParser`, `SchemaGen
 
 ## Debug Endpoint
 
-`GET /api/docs/debug/ast` returns the full pipeline state: parsed structs (with fields, json tags, pointer info), handlers (with variables, expressions, map additions, schemas), per-version endpoints, component schemas, and the complete OpenAPI output. Requires auth.
+`GET /api/docs/debug/ast` returns the full pipeline state: structs, handlers, per-version endpoints, component schemas, complete OpenAPI output. Requires auth.
 
 ## Common Pitfalls
 
-- **Adding a new detection pattern in `analyzePocketBaseCall`**: must also consider how the detected data flows into `handleJSONResponse` or `handleBindBody`. Test with the debug endpoint.
-- **Modifying `trackVariableAssignment`**: the order matters — `VariableExprs` must be stored even when type inference fails, because `handleJSONResponse` uses it for map literal tracing.
-- **Changing struct schema generation**: `generateStructSchema` handles embedded struct flattening recursively. Pointer fields get `nullable: true` only when `Ref == ""` (inline schemas, not `$ref`s).
-- **`$ref` vs inline**: endpoint-level schemas use `$ref` via `generateSchemaForEndpoint`. Nested types in struct fields use `$ref` via `generateFieldSchema` -> `generateSchemaFromType(type, inline=false)`. Map literal values use inline schemas from `analyzeValueExpression`.
-- **Type aliases**: resolved via `resolveTypeAlias()` with cycle detection. Qualified types (`pkg.Type`) are resolved to simple names.
-- **Component pruning**: `GetDocsWithComponents()` walks all `$ref` targets recursively. If you add a new place where `$ref` can appear, make sure `collectRefsFromSchema` covers it.
-- **Response schema promotion naming**: `handlerResponseSchemaName()` must produce the same name in both `promoteHandlerResponseSchemas()` (schema.go) and `endpointToOperation()` (registry.go). If the naming logic changes, update both call sites.
-- **Parameter deduplication**: `appendParamIfNew` deduplicates by name+source (not just name). A query param `id` and path param `id` can coexist. `endpointToOperation` also deduplicates when merging URL-pattern path params with AST-detected params using `in:name` keys.
-- **Adding new parameter patterns**: new PocketBase access patterns go in `extractQueryParameters()` in `ast.go`. Track any new variable assignment patterns (like `RequestInfo()` variables) in the assignment tracking block at the top of the function.
-- **`extractFuncReturnTypes` ordering**: must run BEFORE `extractHandlers` in `ParseFile`, so that `inferTypeFromExpression` can resolve function call return types during handler body analysis.
-- **`funcReturnTypes` scope**: only covers functions in API_SOURCE files. Functions from imported packages won't be resolved — their call sites fall through to heuristic matching in `analyzeValueExpression`.
-- **`funcBodySchemas` resolution**: `analyzeHelperFuncBody` picks the map literal with the most keys. If a function builds multiple different map shapes (rare), the richest one wins. The temporary `ASTHandlerInfo` used for body analysis does NOT have access to handler-level variables — it only tracks variables within the helper function itself.
-- **`funcBodySchemas` ordering**: populated during `extractFuncReturnTypes`, which runs before `extractHandlers`. The schemas are consumed later in `analyzeValueExpression` during handler body analysis.
-- **Import following scope**: only resolves struct definitions from local imports. Handlers, func return types, and type aliases in imported packages are NOT extracted — only `extractStructs()` is called on imported directories.
-- **Duplicate struct names**: if an imported package defines a struct with the same name as one in an API_SOURCE file, last-parsed wins. No package-qualified naming yet.
+- **Adding detection in `analyzePocketBaseCall`**: check how data flows into `handleJSONResponse` or `handleBindBody`. Test via debug endpoint.
+- **Modifying `trackVariableAssignment`**: order matters — `VariableExprs` must be stored even when type inference fails.
+- **Struct schema generation**: `generateStructSchema` handles embedded struct flattening. Pointer fields get `nullable: true` only when `Ref == ""`.
+- **`$ref` vs inline**: endpoint-level use `$ref` via `generateSchemaForEndpoint`; struct fields use `$ref` via `generateSchemaFromType(type, inline=false)`; map literal values use inline from `analyzeValueExpression`.
+- **Type aliases**: `resolveTypeAlias()` has cycle detection. Qualified types (`pkg.Type`) resolve to simple names.
+- **Component pruning**: `collectRefsFromSchema` must cover every place `$ref` can appear.
+- **Response schema promotion naming**: `handlerResponseSchemaName()` must produce identical names in both `promoteHandlerResponseSchemas()` (schema.go) and `endpointToOperation()` (registry_spec.go).
+- **Parameter deduplication**: `appendParamIfNew` deduplicates by name+source. Query `id` and path `id` coexist. `endpointToOperation` deduplicates again using `in:name` keys.
+- **Adding direct parameter patterns**: new access patterns go in `extractQueryParameters()` in `ast_func.go`.
+- **Adding indirect parameter patterns**: helpers must take `*core.RequestEvent` and NOT return `error`. `extractHelperFuncParams` picks them up automatically.
+- **`isPocketBaseHandler` check**: validates both parameter type (`*core.RequestEvent`) AND return type (`error`). Helpers like `parseTimeParams(e *core.RequestEvent) timeParams` are correctly excluded from handler analysis.
+- **Ordering in `ParseFile`**: `extractFuncReturnTypes` → `extractHelperFuncParams` → `extractHandlers`. All three must run in this order.
+- **`funcParamSchemas` sentinels**: generic helpers store `{Name:"", Source:"query"|"header"}`. Call-site extraction in `extractQueryParameters` uses the sentinel's source.
+- **Import following scope**: only `extractStructs()` is called on imported directories — no handlers, func return types, or type aliases extracted.
+- **Duplicate struct names**: if an imported package defines a struct with the same name as one in an API_SOURCE file, last-parsed wins.
 
 ## Test Coverage
 
-Tests are in `*_test.go` files in this package. Run with:
 ```
 go test ./core/server/api/... -v
+go test ./core/server/api/... -run TestHandlerScenario     # handler scenarios
+go test ./core/server/api/... -run TestIndirectParams      # indirect param extraction
+go test ./core/server/api/... -run TestCrossPackage        # import following
 ```
-
-Many version manager tests require PocketBase mocks and are skipped. The AST parser, registry, and schema tests run fully.

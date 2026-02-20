@@ -9,7 +9,28 @@ import (
 )
 
 // =============================================================================
-// AST Parsing Types
+// Logger Interface
+// =============================================================================
+
+// Logger interface for structured logging
+type Logger interface {
+	Debug(msg string, args ...interface{})
+	Info(msg string, args ...interface{})
+	Warn(msg string, args ...interface{})
+	Error(msg string, args ...interface{})
+}
+
+// DefaultLogger provides a no-op logger implementation
+type DefaultLogger struct{}
+
+func (l *DefaultLogger) Debug(msg string, args ...interface{}) {}
+func (l *DefaultLogger) Info(msg string, args ...interface{})  {}
+func (l *DefaultLogger) Warn(msg string, args ...interface{})  {}
+func (l *DefaultLogger) Error(msg string, args ...interface{}) {}
+func (l *DefaultLogger) Log(msg string)                        {}
+
+// =============================================================================
+// AST Parser Types
 // =============================================================================
 
 // ASTParser provides robust AST parsing with improved error handling and performance
@@ -24,6 +45,7 @@ type ASTParser struct {
 	typeAliases        map[string]string         // Maps alias name to real type name
 	funcReturnTypes    map[string]string         // Maps function name to inferred return type from signature
 	funcBodySchemas    map[string]*OpenAPISchema // Maps function name to resolved schema from body analysis (for map[string]any helpers)
+	funcParamSchemas   map[string][]*ParamInfo   // Maps function name to params extracted from helper func bodies (e.g. parseTimeParams)
 	modulePath         string                    // Go module path from go.mod (e.g., "github.com/magooney-loon/pb-ext")
 	parsedDirs         map[string]bool           // Track directories already parsed to avoid duplicates
 }
@@ -111,10 +133,10 @@ type ASTHandlerInfo struct {
 	Documentation          *Documentation         `json:"documentation,omitempty"`
 	Complexity             int                    `json:"complexity"`
 	SourceLocation         *SourceLocation        `json:"source_location,omitempty"`
-	Variables              map[string]string      `json:"variables,omitempty"` // Track variable names to types
-	VariableExprs          map[string]ast.Expr    `json:"-"`                   // Track variable names to RHS AST expressions
-	MapAdditions           map[string][]MapKeyAdd `json:"-"`                   // Track dynamic map[key]=value additions
-	SliceAppendExprs       map[string]ast.Expr    `json:"-"`                   // Track items appended to slice variables via append()
+	Variables              map[string]string      `json:"variables,omitempty"`
+	VariableExprs          map[string]ast.Expr    `json:"-"`
+	MapAdditions           map[string][]MapKeyAdd `json:"-"`
+	SliceAppendExprs       map[string]ast.Expr    `json:"-"`
 
 	// PocketBase-specific fields
 	RequiresAuth       bool     `json:"requires_auth"`
@@ -183,7 +205,7 @@ type SourceLocation struct {
 }
 
 // =============================================================================
-// Interface Definitions
+// AST Interface Definitions
 // =============================================================================
 
 // ASTParserInterface defines the contract for AST parsing operations
@@ -200,6 +222,10 @@ type ASTParserInterface interface {
 	GetHandlerTags(handlerName string) []string
 	GetStructsForFinding() map[string]*StructInfo
 }
+
+// =============================================================================
+// PocketBase Pattern Types
+// =============================================================================
 
 // PocketBasePatterns contains PocketBase-specific parsing patterns
 type PocketBasePatterns struct {

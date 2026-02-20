@@ -48,13 +48,26 @@ core/server/templates/ — Embedded Go templates for the dashboard UI
 
 ## OpenAPI Documentation System
 
-The API doc system uses Go AST parsing at startup to extract endpoint metadata:
+The API doc system uses Go AST parsing at startup to extract endpoint metadata. See `core/server/api/AGENTS.md` for full internals.
 
-- Handler files must have `// API_SOURCE` comment at the top of the file
-- Individual handlers use `// API_DESC <description>` and `// API_TAGS <tag>` comments
-- Request/response types are reflected from Go structs in the same file
-- Routes are registered through `api.VersionedAPIRouter` which wraps PocketBase's router
-- Debug endpoint: `/api/docs/debug/ast`
+**Source file directives:**
+- `// API_SOURCE` at the top of a `.go` file — marks it for AST parsing
+- `// API_DESC <text>` before a handler — sets its OpenAPI description
+- `// API_TAGS <csv>` before a handler — sets its OpenAPI tags
+
+**What is auto-detected from source (no annotations needed):**
+- Request body type (from `c.BindBody(&req)` or `json.Decode`)
+- Response schema (from `c.JSON(status, expr)` — struct, map literal, or helper call)
+- Query, header, and path parameters — direct access (`q.Get("x")`, `PathValue("id")`, `Header.Get("x")`) AND indirect via helper functions that wrap param access
+- Auth requirements (from PocketBase auth pattern detection)
+
+**Indirect parameter extraction**: if a handler calls a helper like `parseTimeParams(e)` that internally reads query params, those params are automatically detected. Generic helpers (`parseIntParam(e, "page", 0)`) resolve the param name from the call site's second string-literal argument.
+
+**Routes** are registered through `api.VersionedAPIRouter` which wraps PocketBase's router. Each API version has its own isolated parser, schema generator, and registry.
+
+**Debug endpoint:** `GET /api/docs/debug/ast` — full pipeline introspection (structs, handlers, schemas, OpenAPI output). Requires auth.
+
+**Swagger UI** is served with dark mode CSS (SwaggerDark by Amoenus, MIT).
 
 ## Cron Jobs
 
@@ -71,3 +84,5 @@ Request middleware captures visitor data (user agent, device, browser, UTM param
 - PocketBase system collections prefixed with `_` (e.g., `_analytics`, `_job_logs`)
 - Dashboard templates use Go `text/template` with `embed.FS`
 - Module path: `github.com/magooney-loon/pb-ext`
+- AST parser files are split by responsibility: `ast.go` (entry points), `ast_func.go` (handler/function analysis), `ast_struct.go` (struct/schema), `ast_metadata.go` (value/type resolution), `ast_file.go` (file utilities)
+- Registry is split: `registry.go` (core), `registry_routes.go` (route registration), `registry_spec.go` (OpenAPI spec generation)
