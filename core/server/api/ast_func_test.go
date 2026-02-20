@@ -926,6 +926,44 @@ func getChartWithDirectParamHandler(c *core.RequestEvent) error {
 	_, _ = tp, sort
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
+
+// 48. Handler using slice[i] = map[string]any{...} (index assignment, not append)
+// This pattern is used when the slice is pre-allocated with make([]T, n) and
+// populated in a for loop via index assignment rather than append.
+// API_DESC List todos with index assignment
+// API_TAGS Items
+func listTodosIndexHandler(c *core.RequestEvent) error {
+	records := []string{"a", "b"}
+	todos := make([]map[string]any, len(records))
+	for i, r := range records {
+		todos[i] = map[string]any{
+			"id":          r,
+			"title":       r,
+			"priority":    "high",
+			"completed":   false,
+			"description": r,
+		}
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"todos": todos,
+		"count": len(todos),
+	})
+}
+
+// updateTodoMapAdditionsHandler exercises the make(map)+additions pattern.
+// The 'updates' map starts as make(map[string]any) but concrete keys are added
+// afterwards, so the final schema should NOT have additionalProperties:true.
+func updateTodoMapAdditionsHandler(c *core.RequestEvent) error {
+	updates := make(map[string]any)
+	updates["title"] = "new title"
+	updates["completed"] = true
+	updates["priority"] = "low"
+	updates["description"] = "updated"
+	return c.JSON(http.StatusOK, map[string]any{
+		"updated": true,
+		"changes": updates,
+	})
+}
 `
 
 // parseHandlerScenarios parses the handlerScenarioSource and returns the parser.
@@ -1502,9 +1540,10 @@ func TestHandlerScenario_HandlerDiscovery(t *testing.T) {
 		"getLatestSummaryHandler", "listInlineAppendHandler",
 		"getItemsInlineQueryHandler", "getItemsRequestInfoHandler",
 		"getWithHeaderHandler", "getItemByPathValueHandler", "getMixedParamsHandler",
-		// Indirect param extraction handlers (42-47)
+		// Indirect param extraction handlers (42-47) + index-assignment handler (48) + map-additions handler (49)
 		"getChartHandler", "getPaginatedItemsHandler", "getVerboseDataHandler",
 		"getChartPaginatedHandler", "getWithAuthHeaderHandler", "getChartWithDirectParamHandler",
+		"listTodosIndexHandler", "updateTodoMapAdditionsHandler",
 	}
 
 	allHandlers := parser.GetAllHandlers()
@@ -2556,5 +2595,86 @@ func TestHandlerScenario_IndirectParams_HelperRegistered(t *testing.T) {
 	}
 	if namedBP != 0 {
 		t.Errorf("Expected parseBoolParam to have 0 named params (sentinel only), got %d", namedBP)
+	}
+}
+
+// =============================================================================
+// Slice Index Assignment Resolution Tests
+// =============================================================================
+
+func TestHandlerScenario_SliceIndexAssignment(t *testing.T) {
+	// listTodosIndexHandler builds its slice via:
+	//   todos := make([]map[string]any, len(records))
+	//   for i, r := range records {
+	//       todos[i] = map[string]any{"id": r, "title": r, "priority": "high", ...}
+	//   }
+	// The items schema should be resolved from the assigned composite literal,
+	// NOT fall back to {type: "object", additionalProperties: true}.
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "listTodosIndexHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	todosSchema, ok := h.ResponseSchema.Properties["todos"]
+	if !ok {
+		t.Fatal("Expected 'todos' property in response schema")
+	}
+	if todosSchema.Type != "array" {
+		t.Fatalf("Expected todos to be array type, got %q", todosSchema.Type)
+	}
+	if todosSchema.Items == nil {
+		t.Fatal("Expected todos.items to be non-nil")
+	}
+
+	// Items must NOT be the generic additionalProperties fallback
+	if todosSchema.Items.AdditionalProperties == true && len(todosSchema.Items.Properties) == 0 {
+		t.Fatal("Expected todos items to have typed properties, got generic additionalProperties:true fallback")
+	}
+
+	// Verify the item properties were resolved from the literal
+	itemProps := todosSchema.Items.Properties
+	for _, want := range []string{"id", "title", "priority", "completed", "description"} {
+		if _, ok := itemProps[want]; !ok {
+			t.Errorf("Expected todos item property %q, not found in schema", want)
+		}
+	}
+}
+
+func TestHandlerScenario_MapAdditionsClearsAdditionalProperties(t *testing.T) {
+	// updateTodoMapAdditionsHandler builds updates via:
+	//   updates := make(map[string]any)
+	//   updates["title"] = "new title"
+	//   updates["completed"] = true
+	//   ...
+	// After merging map_additions the schema must have concrete properties
+	// and must NOT carry additionalProperties:true (which causes Swagger UI
+	// to render a spurious "additionalProp1" entry).
+	parser := parseHandlerScenarios(t)
+	h := requireHandler(t, parser, "updateTodoMapAdditionsHandler")
+
+	if h.ResponseSchema == nil {
+		t.Fatal("Expected response schema")
+	}
+
+	changesSchema, ok := h.ResponseSchema.Properties["changes"]
+	if !ok {
+		t.Fatal("Expected 'changes' property in response schema")
+	}
+	if changesSchema.Type != "object" {
+		t.Fatalf("Expected changes to be object type, got %q", changesSchema.Type)
+	}
+
+	// Concrete properties must be present
+	for _, want := range []string{"title", "completed", "priority", "description"} {
+		if _, ok := changesSchema.Properties[want]; !ok {
+			t.Errorf("Expected changes property %q, not found in schema", want)
+		}
+	}
+
+	// additionalProperties must NOT be true once concrete properties are known
+	if changesSchema.AdditionalProperties == true {
+		t.Error("Expected additionalProperties to be cleared (nil/false) after map_additions resolved concrete properties, but it is still true")
 	}
 }

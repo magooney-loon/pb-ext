@@ -894,6 +894,7 @@ func (p *ASTParser) trackVariableAssignment(assign *ast.AssignStmt, handlerInfo 
 		if indexExpr, ok := lhs.(*ast.IndexExpr); ok {
 			if ident, ok := indexExpr.X.(*ast.Ident); ok {
 				if basicLit, ok := indexExpr.Index.(*ast.BasicLit); ok && basicLit.Kind == token.STRING {
+					// map[string]any string-key assignment: mapVar["key"] = value
 					key := strings.Trim(basicLit.Value, `"`)
 					var valueExpr ast.Expr
 					if i < len(assign.Rhs) {
@@ -906,6 +907,27 @@ func (p *ASTParser) trackVariableAssignment(assign *ast.AssignStmt, handlerInfo 
 							handlerInfo.MapAdditions[ident.Name],
 							MapKeyAdd{Key: key, Value: valueExpr},
 						)
+					}
+				} else {
+					// Numeric/variable index assignment: slice[i] = expr
+					// If the slice is a known []map[string]any, treat the RHS the same as an
+					// append item so enrichArraySchemaFromAppend can resolve the item schema.
+					if handlerInfo.SliceAppendExprs != nil {
+						varType := handlerInfo.Variables[ident.Name]
+						if varType == "[]map[string]any" || varType == "[]map[string]interface{}" {
+							var valueExpr ast.Expr
+							if i < len(assign.Rhs) {
+								valueExpr = assign.Rhs[i]
+							} else if len(assign.Rhs) == 1 {
+								valueExpr = assign.Rhs[0]
+							}
+							if valueExpr != nil {
+								// Only store if we don't already have a richer source
+								if _, exists := handlerInfo.SliceAppendExprs[ident.Name]; !exists {
+									handlerInfo.SliceAppendExprs[ident.Name] = valueExpr
+								}
+							}
+						}
 					}
 				}
 			}
@@ -930,6 +952,11 @@ func (p *ASTParser) mergeMapAdditions(schema *OpenAPISchema, varName string, han
 		if valueSchema != nil {
 			schema.Properties[add.Key] = valueSchema
 		}
+	}
+	// If we successfully added concrete properties, clear the generic additionalProperties flag
+	// so Swagger UI doesn't render a spurious "additionalProp1" entry.
+	if len(schema.Properties) > 0 && schema.AdditionalProperties == true {
+		schema.AdditionalProperties = nil
 	}
 }
 
