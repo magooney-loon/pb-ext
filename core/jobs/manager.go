@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/cron"
 )
@@ -357,54 +358,29 @@ func (m *Manager) RegisterInternalSystemJobs() error {
 		func(el *ExecutionLogger) {
 			el.Start("Analytics Cleanup Job")
 
-			cutoff := time.Now().AddDate(0, 0, -90)
-			el.Info("Deleting analytics records older than: %s", cutoff.Format("2006-01-02"))
+			cutoff := time.Now().AddDate(0, 0, -90).Format("2006-01-02")
+			el.Info("Deleting _analytics records with date < %s", cutoff)
 
-			col, err := m.app.FindCollectionByNameOrId("_analytics")
+			res, err := m.app.NonconcurrentDB().
+				NewQuery("DELETE FROM _analytics WHERE date < {:cutoff}").
+				Bind(dbx.Params{"cutoff": cutoff}).
+				Execute()
 			if err != nil {
-				el.Error("Failed to find _analytics collection: %v", err)
+				el.Error("Failed to delete old analytics records: %v", err)
 				el.Fail(err)
 				return
 			}
 
-			records, err := m.app.FindRecordsByFilter(col,
-				"timestamp < {:cutoff}", "-timestamp", 5000, 0,
-				map[string]any{"cutoff": cutoff.Format("2006-01-02 15:04:05.000Z")},
-			)
-			if err != nil {
-				el.Error("Failed to find old analytics records: %v", err)
-				el.Fail(err)
-				return
-			}
-
-			el.Info("Found %d records to delete", len(records))
-
-			deleted, failed := 0, 0
-			for _, rec := range records {
-				if err := m.app.Delete(rec); err != nil {
-					el.Error("Failed to delete analytics record %s: %v", rec.Id, err)
-					failed++
-				} else {
-					deleted++
-				}
-			}
+			affected, _ := res.RowsAffected()
 
 			el.Statistics(map[string]interface{}{
-				"total_found":    len(records),
-				"deleted":        deleted,
-				"failed":         failed,
+				"deleted":        affected,
 				"retention_days": 90,
-				"cutoff_date":    cutoff.Format("2006-01-02"),
+				"cutoff_date":    cutoff,
 			})
-
-			if failed > 0 {
-				el.Warn("Cleanup completed with some failures: deleted %d/%d records", deleted, len(records))
-			} else {
-				el.Success("Cleanup completed: deleted %d analytics records", deleted)
-			}
-
-			el.Complete(fmt.Sprintf("Analytics cleanup finished - deleted %d/%d records", deleted, len(records)))
-			m.app.Logger().Info("Analytics cleanup completed", "deleted", deleted, "failed", failed)
+			el.Success("Cleanup completed: deleted %d _analytics rows", affected)
+			el.Complete(fmt.Sprintf("Analytics cleanup finished - deleted %d rows", affected))
+			m.app.Logger().Info("Analytics cleanup completed", "deleted", affected)
 		},
 	); err != nil {
 		return fmt.Errorf("failed to register analytics cleanup job: %w", err)

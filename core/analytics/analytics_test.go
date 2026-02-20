@@ -3,7 +3,6 @@ package analytics_test
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -19,61 +18,25 @@ func TestCollectionName(t *testing.T) {
 	}
 }
 
+func TestSessionsCollectionName(t *testing.T) {
+	if analytics.SessionsCollectionName != "_analytics_sessions" {
+		t.Errorf("expected _analytics_sessions, got %q", analytics.SessionsCollectionName)
+	}
+}
+
 func TestConstants(t *testing.T) {
 	if analytics.LookbackDays <= 0 {
 		t.Errorf("LookbackDays must be positive, got %d", analytics.LookbackDays)
 	}
-	if analytics.MaxRecords <= 0 {
-		t.Errorf("MaxRecords must be positive, got %d", analytics.MaxRecords)
-	}
 	if analytics.MaxExpectedHourlyVisits <= 0 {
 		t.Errorf("MaxExpectedHourlyVisits must be positive, got %d", analytics.MaxExpectedHourlyVisits)
 	}
-	if analytics.FlushWaitTime <= 0 {
-		t.Errorf("FlushWaitTime must be positive")
+	if analytics.SessionRingSize <= 0 {
+		t.Errorf("SessionRingSize must be positive, got %d", analytics.SessionRingSize)
 	}
 }
 
 // --- Types ---
-
-func TestPageView_ZeroValue(t *testing.T) {
-	var pv analytics.PageView
-	if pv.Path != "" || pv.Method != "" || pv.IsNewVisit {
-		t.Error("zero-value PageView should have empty fields")
-	}
-}
-
-func TestPageView_Fields(t *testing.T) {
-	now := time.Now()
-	pv := analytics.PageView{
-		Path:        "/test",
-		Method:      "GET",
-		IP:          "1.2.3.4",
-		UserAgent:   "Mozilla/5.0",
-		Referrer:    "https://example.com",
-		Duration:    123,
-		Timestamp:   now,
-		VisitorID:   "abc123",
-		DeviceType:  "desktop",
-		Browser:     "chrome",
-		OS:          "linux",
-		Country:     "US",
-		UTMSource:   "google",
-		UTMMedium:   "cpc",
-		UTMCampaign: "test",
-		IsNewVisit:  true,
-		QueryParams: "utm_source=google",
-	}
-	if pv.Path != "/test" {
-		t.Errorf("Path mismatch")
-	}
-	if !pv.IsNewVisit {
-		t.Errorf("IsNewVisit mismatch")
-	}
-	if pv.Timestamp != now {
-		t.Errorf("Timestamp mismatch")
-	}
-}
 
 func TestData_ZeroValue(t *testing.T) {
 	var d analytics.Data
@@ -128,42 +91,54 @@ func TestRecentVisit_Fields(t *testing.T) {
 	}
 }
 
-// --- Collection ---
+// --- Collection setup ---
 
-func TestSetupCollection_CreatesCollection(t *testing.T) {
+func TestSetupCollections_CreatesBothCollections(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
-	if err := analytics.SetupCollection(app); err != nil {
-		t.Fatalf("SetupCollection: %v", err)
+	if err := analytics.SetupCollections(app); err != nil {
+		t.Fatalf("SetupCollections: %v", err)
 	}
 
-	col, err := app.FindCollectionByNameOrId(analytics.CollectionName)
-	if err != nil {
-		t.Fatalf("collection not found: %v", err)
-	}
-	if col.Name != "_analytics" {
-		t.Errorf("expected _analytics, got %q", col.Name)
-	}
-	if !col.System {
-		t.Error("_analytics must be a system collection")
+	for _, name := range []string{analytics.CollectionName, analytics.SessionsCollectionName} {
+		col, err := app.FindCollectionByNameOrId(name)
+		if err != nil {
+			t.Fatalf("collection %q not found: %v", name, err)
+		}
+		if !col.System {
+			t.Errorf("collection %q must be a system collection", name)
+		}
 	}
 }
 
-func TestSetupCollection_Idempotent(t *testing.T) {
+func TestSetupCollections_Idempotent(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
-	if err := analytics.SetupCollection(app); err != nil {
-		t.Fatalf("first SetupCollection: %v", err)
+	if err := analytics.SetupCollections(app); err != nil {
+		t.Fatalf("first SetupCollections: %v", err)
 	}
-	if err := analytics.SetupCollection(app); err != nil {
-		t.Fatalf("second SetupCollection (idempotent): %v", err)
+	if err := analytics.SetupCollections(app); err != nil {
+		t.Fatalf("second SetupCollections (idempotent): %v", err)
 	}
 }
 
-func TestSetupCollection_RequiredFields(t *testing.T) {
+func TestSetupCollection_Alias(t *testing.T) {
+	// SetupCollection is a backward-compat alias for SetupCollections.
 	app := testutil.NewTestApp(t)
-
 	if err := analytics.SetupCollection(app); err != nil {
+		t.Fatalf("SetupCollection alias: %v", err)
+	}
+	if _, err := app.FindCollectionByNameOrId(analytics.CollectionName); err != nil {
+		t.Fatalf("_analytics not found after alias call: %v", err)
+	}
+	if _, err := app.FindCollectionByNameOrId(analytics.SessionsCollectionName); err != nil {
+		t.Fatalf("_analytics_sessions not found after alias call: %v", err)
+	}
+}
+
+func TestSetupCollections_CounterFields(t *testing.T) {
+	app := testutil.NewTestApp(t)
+	if err := analytics.SetupCollections(app); err != nil {
 		t.Fatal(err)
 	}
 
@@ -172,50 +147,34 @@ func TestSetupCollection_RequiredFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	required := []string{"path", "method", "ip", "duration_ms", "timestamp"}
-	for _, name := range required {
+	for _, name := range []string{"path", "date", "device_type", "browser", "views", "unique_sessions"} {
 		if col.Fields.GetByName(name) == nil {
 			t.Errorf("required field %q missing from _analytics", name)
 		}
 	}
 }
 
-func TestSetupCollection_AllFields(t *testing.T) {
+func TestSetupCollections_SessionsFields(t *testing.T) {
 	app := testutil.NewTestApp(t)
-
-	if err := analytics.SetupCollection(app); err != nil {
+	if err := analytics.SetupCollections(app); err != nil {
 		t.Fatal(err)
 	}
 
-	col, err := app.FindCollectionByNameOrId(analytics.CollectionName)
+	col, err := app.FindCollectionByNameOrId(analytics.SessionsCollectionName)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	all := []string{
-		"path", "method", "ip", "user_agent", "referrer", "duration_ms",
-		"timestamp", "visitor_id", "device_type", "browser", "os", "country",
-		"utm_source", "utm_medium", "utm_campaign", "is_new_visit", "query_params",
-	}
-	for _, name := range all {
+	for _, name := range []string{"path", "device_type", "browser", "os", "timestamp", "is_new_session"} {
 		if col.Fields.GetByName(name) == nil {
-			t.Errorf("field %q missing from _analytics", name)
+			t.Errorf("required field %q missing from _analytics_sessions", name)
 		}
 	}
 }
 
-// --- Analytics struct / Initialize ---
+// --- Initialize / New ---
 
-func TestNew_NotNil(t *testing.T) {
-	app := testutil.NewTestAppWithAnalytics(t)
-	a := analytics.New(app)
-	if a == nil {
-		t.Fatal("New returned nil")
-	}
-}
-
-func TestInitialize_CreatesCollection(t *testing.T) {
-	// Bare app — Initialize should call SetupCollection
+func TestInitialize_CreatesBothCollections(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
 	a, err := analytics.Initialize(app)
@@ -226,37 +185,17 @@ func TestInitialize_CreatesCollection(t *testing.T) {
 		t.Fatal("Initialize returned nil Analytics")
 	}
 
-	_, err = app.FindCollectionByNameOrId(analytics.CollectionName)
-	if err != nil {
-		t.Fatalf("_analytics collection not found after Initialize: %v", err)
+	for _, name := range []string{analytics.CollectionName, analytics.SessionsCollectionName} {
+		if _, err := app.FindCollectionByNameOrId(name); err != nil {
+			t.Fatalf("collection %q not found after Initialize: %v", name, err)
+		}
 	}
 }
 
-// --- Tracking / Buffer ---
+// --- GetData ---
 
-func TestForceFlush_EmptyBuffer(t *testing.T) {
-	app := testutil.NewTestAppWithAnalytics(t)
-	a := analytics.New(app)
-
-	// ForceFlush on empty buffer must not panic
-	a.ForceFlush()
-}
-
-func TestGetData_ReturnsDefault_WhenEmpty(t *testing.T) {
-	app := testutil.NewTestAppWithAnalytics(t)
-	a := analytics.New(app)
-
-	d, err := a.GetData()
-	if err != nil {
-		t.Fatalf("GetData: %v", err)
-	}
-	if d == nil {
-		t.Fatal("GetData returned nil")
-	}
-}
-
-func TestGetData_NoCollection_ReturnsDefault(t *testing.T) {
-	// App with no collection — GetData should return DefaultData gracefully
+func TestGetData_ReturnsDefault_WhenNoCollection(t *testing.T) {
+	// No collections — GetData should fall back to DefaultData gracefully.
 	app := testutil.NewTestApp(t)
 	a := analytics.New(app)
 
@@ -269,59 +208,68 @@ func TestGetData_NoCollection_ReturnsDefault(t *testing.T) {
 	}
 }
 
-// --- Collector helpers (pure functions tested via http.Request) ---
-
-func makeRequest(method, rawURL, ua, xff, referrer string) *http.Request {
-	u, _ := url.Parse(rawURL)
-	req := &http.Request{
-		Method: method,
-		URL:    u,
-		Header: make(http.Header),
-	}
-	req.Header.Set("User-Agent", ua)
-	if xff != "" {
-		req.Header.Set("X-Forwarded-For", xff)
-	}
-	if referrer != "" {
-		req.Header.Set("Referer", referrer)
-	}
-	req.RemoteAddr = "192.168.1.1:1234"
-	return req
-}
-
-func TestRegisterRoutes_TracksRequest(t *testing.T) {
+func TestGetData_ReturnsData_WhenEmpty(t *testing.T) {
 	app := testutil.NewTestAppWithAnalytics(t)
 	a := analytics.New(app)
 
-	// We can't spin up a full router here, but we can verify that
-	// after a manual track+flush a record exists in the DB.
-	// Use httptest to simulate a tracked request indirectly via ForceFlush.
-
-	// Seed one record directly by verifying the collection works
-	col, err := app.FindCollectionByNameOrId(analytics.CollectionName)
+	d, err := a.GetData()
 	if err != nil {
-		t.Fatalf("collection: %v", err)
+		t.Fatalf("GetData: %v", err)
 	}
-	if col == nil {
-		t.Fatal("collection is nil")
+	if d == nil {
+		t.Fatal("GetData returned nil")
 	}
+	// Fresh DB — counters must be zero.
+	if d.TotalPageViews != 0 {
+		t.Errorf("expected 0 TotalPageViews, got %d", d.TotalPageViews)
+	}
+	if d.UniqueVisitors != 0 {
+		t.Errorf("expected 0 UniqueVisitors, got %d", d.UniqueVisitors)
+	}
+}
 
-	// ForceFlush on empty is safe
-	a.ForceFlush()
+func TestGetData_TopPages_EmptySlice(t *testing.T) {
+	app := testutil.NewTestAppWithAnalytics(t)
+	a := analytics.New(app)
 
 	d, err := a.GetData()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.TotalPageViews != 0 {
-		t.Errorf("expected 0 total page views for fresh app, got %d", d.TotalPageViews)
+	if d.TopPages == nil {
+		t.Error("TopPages should be non-nil even when empty")
 	}
 }
 
-// --- httptest-based smoke test for middleware wiring ---
+func TestGetData_RecentVisits_EmptySlice(t *testing.T) {
+	app := testutil.NewTestAppWithAnalytics(t)
+	a := analytics.New(app)
 
-func TestRegisterRoutes_HandlerNotNil(t *testing.T) {
-	// Verify that a simple handler behind the analytics middleware works.
+	d, err := a.GetData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.RecentVisits == nil {
+		t.Error("RecentVisits should be non-nil even when empty")
+	}
+}
+
+func TestGetData_BrowserBreakdown_NotNil(t *testing.T) {
+	app := testutil.NewTestAppWithAnalytics(t)
+	a := analytics.New(app)
+
+	d, err := a.GetData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.BrowserBreakdown == nil {
+		t.Error("BrowserBreakdown should be non-nil")
+	}
+}
+
+// --- Middleware smoke test ---
+
+func TestMiddleware_PassesThrough(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -345,11 +293,20 @@ func BenchmarkDefaultData(b *testing.B) {
 	}
 }
 
-func BenchmarkSetupCollection(b *testing.B) {
+func BenchmarkSetupCollections(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		app := testutil.NewTestApp(b)
-		_ = analytics.SetupCollection(app)
+		_ = analytics.SetupCollections(app)
 		app.Cleanup()
+	}
+}
+
+func BenchmarkGetData_Empty(b *testing.B) {
+	app := testutil.NewTestAppWithAnalytics(b)
+	a := analytics.New(app)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = a.GetData()
 	}
 }

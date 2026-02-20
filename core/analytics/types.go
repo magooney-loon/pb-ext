@@ -4,35 +4,15 @@ import "time"
 
 // Analytics configuration constants
 const (
-	LookbackDays          = 90            // Days to look back for detailed analysis
-	MaxRecords            = 50000         // Maximum records to fetch for analysis
-	FlushWaitTime         = 100 * time.Millisecond
-	MaxExpectedHourlyVisits = 100         // For hourly activity percentage calculation
-	CollectionName        = "_analytics"
+	LookbackDays            = 90           // Days to look back for aggregate queries
+	MaxExpectedHourlyVisits = 100          // Denominator for hourly activity percentage
+	CollectionName          = "_analytics" // Daily aggregated counters
+	SessionsCollectionName  = "_analytics_sessions" // Recent visit ring buffer
+	SessionRingSize         = 50           // Max rows kept in _analytics_sessions
 )
 
-// PageView represents a single tracked request.
-type PageView struct {
-	Path        string    `json:"path"`
-	Method      string    `json:"method"`
-	IP          string    `json:"ip"`
-	UserAgent   string    `json:"user_agent"`
-	Referrer    string    `json:"referrer"`
-	Duration    int64     `json:"duration_ms"`
-	Timestamp   time.Time `json:"timestamp"`
-	VisitorID   string    `json:"visitor_id"`
-	DeviceType  string    `json:"device_type"`
-	Browser     string    `json:"browser"`
-	OS          string    `json:"os"`
-	Country     string    `json:"country"`
-	UTMSource   string    `json:"utm_source"`
-	UTMMedium   string    `json:"utm_medium"`
-	UTMCampaign string    `json:"utm_campaign"`
-	IsNewVisit  bool      `json:"is_new_visit"`
-	QueryParams string    `json:"query_params"`
-}
-
 // Data contains aggregated analytics statistics for the dashboard.
+// Shape is unchanged — health.go and visitor_analytics.tmpl require no edits.
 type Data struct {
 	UniqueVisitors     int     `json:"unique_visitors"`
 	NewVisitors        int     `json:"new_visitors"`
