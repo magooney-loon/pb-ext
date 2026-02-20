@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/hook"
 )
 
 // =============================================================================
@@ -426,8 +428,291 @@ func TestVersionedAPIRouterBasicMethods(t *testing.T) {
 	}
 }
 
-func TestVersionedRouteChainBind(t *testing.T) {
-	t.Skip("Skipping route chain tests - requires proper PocketBase ServeEvent mock")
+// =============================================================================
+// Middleware Binding Integration Tests
+// These tests use real PocketBase TestApp and ApiScenario to verify middleware executes
+// =============================================================================
+
+// setupMiddlewareTestApp creates a TestApp with versioned routes and middleware tracking
+func setupMiddlewareTestApp(t *testing.T, routesFunc func(*core.ServeEvent, *APIVersionManager)) *tests.TestApp {
+	app, err := tests.NewTestApp(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create version manager
+	configs := map[string]*APIDocsConfig{
+		"v1": {
+			Title:       "Test API v1",
+			Version:     "1.0.0",
+			Description: "Test API",
+			BaseURL:     "http://127.0.0.1:8090",
+			Enabled:     true,
+		},
+	}
+	vm := InitializeVersionedSystem(configs, "v1")
+
+	// Register routes that will be tested
+	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
+		routesFunc(se, vm)
+		return se.Next()
+	})
+
+	return app
+}
+
+// TestVersionedRouteChain_Bind_SingleMiddleware verifies that a single middleware executes
+func TestVersionedRouteChain_Bind_SingleMiddleware(t *testing.T) {
+	middlewareExecuted := false
+
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		testMW := &hook.Handler[*core.RequestEvent]{
+			Id: "test-middleware",
+			Func: func(e *core.RequestEvent) error {
+				middlewareExecuted = true
+				return e.Next()
+			},
+		}
+
+		v1Router.GET("/api/v1/test", func(e *core.RequestEvent) error {
+			return e.JSON(200, map[string]string{"status": "ok"})
+		}).Bind(testMW)
+	})
+	defer app.Cleanup()
+
+	// Reset flag before test
+	middlewareExecuted = false
+
+	(&tests.ApiScenario{
+		Name:           "single middleware executes",
+		Method:         "GET",
+		URL:            "/api/v1/test",
+		TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus: 200,
+		ExpectedContent: []string{
+			`"status"`,
+			`"ok"`,
+		},
+	}).Test(t)
+
+	if !middlewareExecuted {
+		t.Error("Expected middleware to execute, but it didn't")
+	}
+}
+
+// TestVersionedRouteChain_Bind_MultipleMiddleware verifies multiple middleware execute in order
+func TestVersionedRouteChain_Bind_MultipleMiddleware(t *testing.T) {
+	var executionOrder []string
+	var mu sync.Mutex
+
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		mw1 := &hook.Handler[*core.RequestEvent]{
+			Id: "middleware-1",
+			Func: func(e *core.RequestEvent) error {
+				mu.Lock()
+				executionOrder = append(executionOrder, "mw1")
+				mu.Unlock()
+				return e.Next()
+			},
+		}
+
+		mw2 := &hook.Handler[*core.RequestEvent]{
+			Id: "middleware-2",
+			Func: func(e *core.RequestEvent) error {
+				mu.Lock()
+				executionOrder = append(executionOrder, "mw2")
+				mu.Unlock()
+				return e.Next()
+			},
+		}
+
+		mw3 := &hook.Handler[*core.RequestEvent]{
+			Id: "middleware-3",
+			Func: func(e *core.RequestEvent) error {
+				mu.Lock()
+				executionOrder = append(executionOrder, "mw3")
+				mu.Unlock()
+				return e.Next()
+			},
+		}
+
+		v1Router.GET("/api/v1/test", func(e *core.RequestEvent) error {
+			mu.Lock()
+			executionOrder = append(executionOrder, "handler")
+			mu.Unlock()
+			return e.JSON(200, map[string]string{"status": "ok"})
+		}).Bind(mw1).Bind(mw2).Bind(mw3)
+	})
+	defer app.Cleanup()
+
+	// Reset before test
+	executionOrder = nil
+
+	(&tests.ApiScenario{
+		Name:           "multiple middleware execute in order",
+		Method:         "GET",
+		URL:            "/api/v1/test",
+		TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus: 200,
+		ExpectedContent: []string{
+			`"status"`,
+			`"ok"`,
+		},
+	}).Test(t)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(executionOrder) != 4 {
+		t.Fatalf("Expected 4 executions (3 middlewares + handler), got %d", len(executionOrder))
+	}
+
+	expectedOrder := []string{"mw1", "mw2", "mw3", "handler"}
+	for i, expected := range expectedOrder {
+		if executionOrder[i] != expected {
+			t.Errorf("Expected %s at position %d, got %s", expected, i, executionOrder[i])
+		}
+	}
+}
+
+// TestVersionedRouteChain_Bind_NoMiddleware verifies routes without middleware work
+func TestVersionedRouteChain_Bind_NoMiddleware(t *testing.T) {
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		v1Router.GET("/api/v1/public", func(e *core.RequestEvent) error {
+			return e.JSON(200, map[string]string{"message": "public access"})
+		})
+	})
+	defer app.Cleanup()
+
+	(&tests.ApiScenario{
+		Name:           "route without middleware works",
+		Method:         "GET",
+		URL:            "/api/v1/public",
+		TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus: 200,
+		ExpectedContent: []string{
+			`"message"`,
+			`"public access"`,
+		},
+	}).Test(t)
+}
+
+// TestVersionedRouteChain_Bind_AllHTTPMethods verifies all HTTP methods store pbRoute correctly
+func TestVersionedRouteChain_Bind_AllHTTPMethods(t *testing.T) {
+	methods := []struct {
+		method       string
+		expectedCode int
+	}{
+		{"GET", 200},
+		{"POST", 201},
+		{"PATCH", 200},
+		{"DELETE", 204},
+		{"PUT", 200},
+	}
+
+	for _, tc := range methods {
+		t.Run(tc.method, func(t *testing.T) {
+			app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+				v1Router, _ := vm.GetVersionRouter("v1", se)
+
+				testMW := &hook.Handler[*core.RequestEvent]{
+					Id: "test-mw",
+					Func: func(e *core.RequestEvent) error {
+						return e.Next()
+					},
+				}
+
+				handler := func(e *core.RequestEvent) error {
+					return e.JSON(tc.expectedCode, map[string]string{"method": tc.method})
+				}
+
+				switch tc.method {
+				case "GET":
+					v1Router.GET("/api/v1/test", handler).Bind(testMW)
+				case "POST":
+					v1Router.POST("/api/v1/test", handler).Bind(testMW)
+				case "PATCH":
+					v1Router.PATCH("/api/v1/test", handler).Bind(testMW)
+				case "DELETE":
+					v1Router.DELETE("/api/v1/test", handler).Bind(testMW)
+				case "PUT":
+					v1Router.PUT("/api/v1/test", handler).Bind(testMW)
+				}
+			})
+			defer app.Cleanup()
+
+			(&tests.ApiScenario{
+				Name:           tc.method + " with middleware",
+				Method:         tc.method,
+				URL:            "/api/v1/test",
+				TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+				ExpectedStatus: tc.expectedCode,
+				ExpectedContent: []string{
+					`"method"`,
+					`"` + tc.method + `"`,
+				},
+			}).Test(t)
+		})
+	}
+}
+
+// TestVersionedRouteChain_Bind_DocsAccuracy verifies docs registry stays in sync
+func TestVersionedRouteChain_Bind_DocsAccuracy(t *testing.T) {
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+		registry := v1Router.GetRegistry()
+
+		mw1 := &hook.Handler[*core.RequestEvent]{
+			Id: "auth-middleware",
+			Func: func(e *core.RequestEvent) error {
+				return e.Next()
+			},
+		}
+
+		mw2 := &hook.Handler[*core.RequestEvent]{
+			Id: "logger-middleware",
+			Func: func(e *core.RequestEvent) error {
+				return e.Next()
+			},
+		}
+
+		v1Router.GET("/api/v1/protected", func(e *core.RequestEvent) error {
+			return e.JSON(200, map[string]string{"status": "protected"})
+		}).Bind(mw1).Bind(mw2)
+
+		// Verify docs registry was updated
+		endpoint, exists := registry.GetEndpoint("GET", "/api/v1/protected")
+		if !exists {
+			t.Error("Expected endpoint to exist in docs registry")
+		}
+
+		if endpoint.Method != "GET" {
+			t.Errorf("Expected method GET in docs, got %s", endpoint.Method)
+		}
+
+		if endpoint.Path != "/api/v1/protected" {
+			t.Errorf("Expected path /api/v1/protected in docs, got %s", endpoint.Path)
+		}
+	})
+	defer app.Cleanup()
+
+	(&tests.ApiScenario{
+		Name:           "docs accuracy - route is accessible",
+		Method:         "GET",
+		URL:            "/api/v1/protected",
+		TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus: 200,
+		ExpectedContent: []string{
+			`"status"`,
+			`"protected"`,
+		},
+	}).Test(t)
 }
 
 func TestSetPrefix(t *testing.T) {

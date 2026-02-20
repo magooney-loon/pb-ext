@@ -88,6 +88,10 @@ func SetupErrorHandler(app core.App, e *core.ServeEvent) {
 			Timestamp:  time.Now().Format(time.RFC3339),
 		}
 
+		// API routes always return JSON (regardless of Accept header or User-Agent)
+		isAPIRoute := strings.HasPrefix(c.Request.URL.Path, "/api/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/api")
+
 		// Check if client accepts HTML
 		accept := c.Request.Header.Get("Accept")
 		userAgent := c.Request.Header.Get("User-Agent")
@@ -96,8 +100,8 @@ func SetupErrorHandler(app core.App, e *core.ServeEvent) {
 			strings.Contains(strings.ToLower(userAgent), "safari") ||
 			strings.Contains(strings.ToLower(userAgent), "firefox")
 
-		// Return HTML for browsers or when explicitly requested
-		if isBrowser || strings.Contains(strings.ToLower(accept), "text/html") {
+		// Return HTML for browsers or when explicitly requested (but NOT for API routes)
+		if !isAPIRoute && (isBrowser || strings.Contains(strings.ToLower(accept), "text/html")) {
 			// Return HTML error page
 			if tmpl != nil {
 				var buf bytes.Buffer
@@ -171,6 +175,10 @@ func RecoverFromPanic(app core.App, c *core.RequestEvent) {
 			Timestamp:  time.Now().Format(time.RFC3339),
 		}
 
+		// API routes always return JSON (regardless of Accept header or User-Agent)
+		isAPIRoute := strings.HasPrefix(c.Request.URL.Path, "/api/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/api")
+
 		// Check if client accepts HTML
 		accept := c.Request.Header.Get("Accept")
 		userAgent := c.Request.Header.Get("User-Agent")
@@ -179,8 +187,8 @@ func RecoverFromPanic(app core.App, c *core.RequestEvent) {
 			strings.Contains(strings.ToLower(userAgent), "safari") ||
 			strings.Contains(strings.ToLower(userAgent), "firefox")
 
-		// Return HTML for browsers or when explicitly requested
-		if isBrowser || strings.Contains(strings.ToLower(accept), "text/html") {
+		// Return HTML for browsers or when explicitly requested (but NOT for API routes)
+		if !isAPIRoute && (isBrowser || strings.Contains(strings.ToLower(accept), "text/html")) {
 			// Return HTML error page
 			if tmpl, err := template.ParseFS(server.TemplateFS, "templates/error.tmpl"); err == nil {
 				var buf bytes.Buffer

@@ -10,6 +10,8 @@ import (
 
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 // =============================================================================
@@ -227,13 +229,14 @@ func (vm *APIVersionManager) GetVersionRouter(version string, e *core.ServeEvent
 
 // GET registers a GET route with automatic documentation
 func (vr *VersionedAPIRouter) GET(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	vr.serveEvent.Router.GET(path, handler)
+	pbRoute := vr.serveEvent.Router.GET(path, handler)
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "GET",
 		path:        path,
 		handler:     handler,
 		middlewares: []interface{}{},
+		pbRoute:     pbRoute,
 	}
 	// Register immediately for routes without middleware
 	vr.registry.RegisterRoute("GET", path, handler)
@@ -242,13 +245,14 @@ func (vr *VersionedAPIRouter) GET(path string, handler func(*core.RequestEvent) 
 
 // POST registers a POST route with automatic documentation
 func (vr *VersionedAPIRouter) POST(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	vr.serveEvent.Router.POST(path, handler)
+	pbRoute := vr.serveEvent.Router.POST(path, handler)
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "POST",
 		path:        path,
 		handler:     handler,
 		middlewares: []interface{}{},
+		pbRoute:     pbRoute,
 	}
 	// Register immediately for routes without middleware
 	vr.registry.RegisterRoute("POST", path, handler)
@@ -257,13 +261,14 @@ func (vr *VersionedAPIRouter) POST(path string, handler func(*core.RequestEvent)
 
 // PATCH registers a PATCH route with automatic documentation
 func (vr *VersionedAPIRouter) PATCH(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	vr.serveEvent.Router.PATCH(path, handler)
+	pbRoute := vr.serveEvent.Router.PATCH(path, handler)
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "PATCH",
 		path:        path,
 		handler:     handler,
 		middlewares: []interface{}{},
+		pbRoute:     pbRoute,
 	}
 	// Register immediately for routes without middleware
 	vr.registry.RegisterRoute("PATCH", path, handler)
@@ -272,13 +277,14 @@ func (vr *VersionedAPIRouter) PATCH(path string, handler func(*core.RequestEvent
 
 // DELETE registers a DELETE route with automatic documentation
 func (vr *VersionedAPIRouter) DELETE(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	vr.serveEvent.Router.DELETE(path, handler)
+	pbRoute := vr.serveEvent.Router.DELETE(path, handler)
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "DELETE",
 		path:        path,
 		handler:     handler,
 		middlewares: []interface{}{},
+		pbRoute:     pbRoute,
 	}
 	// Register immediately for routes without middleware
 	vr.registry.RegisterRoute("DELETE", path, handler)
@@ -287,13 +293,14 @@ func (vr *VersionedAPIRouter) DELETE(path string, handler func(*core.RequestEven
 
 // PUT registers a PUT route with automatic documentation
 func (vr *VersionedAPIRouter) PUT(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	vr.serveEvent.Router.PUT(path, handler)
+	pbRoute := vr.serveEvent.Router.PUT(path, handler)
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "PUT",
 		path:        path,
 		handler:     handler,
 		middlewares: []interface{}{},
+		pbRoute:     pbRoute,
 	}
 	// Register immediately for routes without middleware
 	vr.registry.RegisterRoute("PUT", path, handler)
@@ -404,9 +411,11 @@ type VersionedRouteChain struct {
 	path        string
 	handler     func(*core.RequestEvent) error
 	middlewares []interface{}
+	pbRoute     *router.Route[*core.RequestEvent] // PocketBase route for real middleware binding
 }
 
 // Bind detects middleware binding and re-registers route with middleware documentation
+// AND binds middleware to the actual PocketBase route so it executes at runtime
 func (vrc *VersionedRouteChain) Bind(middlewares ...interface{}) *VersionedRouteChain {
 	// Store middlewares for analysis
 	vrc.middlewares = append(vrc.middlewares, middlewares...)
@@ -414,6 +423,20 @@ func (vrc *VersionedRouteChain) Bind(middlewares ...interface{}) *VersionedRoute
 	// Re-register with documentation system including middleware info
 	// This will overwrite the initial registration with middleware analysis
 	vrc.router.registry.RegisterRoute(vrc.method, vrc.path, vrc.handler, vrc.middlewares...)
+
+	// Bind middleware to the actual PocketBase route so it executes at runtime
+	if vrc.pbRoute != nil {
+		// Extract only *hook.Handler[*core.RequestEvent] types that PocketBase expects
+		handlers := make([]*hook.Handler[*core.RequestEvent], 0, len(middlewares))
+		for _, mw := range middlewares {
+			if handler, ok := mw.(*hook.Handler[*core.RequestEvent]); ok {
+				handlers = append(handlers, handler)
+			}
+		}
+		if len(handlers) > 0 {
+			vrc.pbRoute.Bind(handlers...)
+		}
+	}
 
 	return vrc
 }

@@ -4,121 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Error {{.StatusCode}}</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            line-height: 1.6;
-            color: #000;
-            background: #fff;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 2rem;
-            text-align: center;
-        }
-
-        .status-code {
-            font-size: 10rem;
-            font-weight: 900;
-            line-height: 1;
-            margin-bottom: 1rem;
-            background: linear-gradient(to right, #000, #666);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .error-title {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-        }
-
-        .error-message {
-            font-size: 1.2rem;
-            max-width: 600px;
-            margin-bottom: 2rem;
-            opacity: 0.8;
-        }
-
-        .actions {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            justify-content: center;
-            margin-bottom: 3rem;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.75rem 1.5rem;
-            border-radius: 0.375rem;
-            font-size: 0.875rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-decoration: none;
-        }
-
-        .btn-primary {
-            background-color: #000;
-            color: #fff;
-        }
-
-        .btn-primary:hover {
-            background-color: #333;
-        }
-
-        .btn-secondary {
-            background-color: transparent;
-            color: #000;
-            border: 1px solid #eaeaea;
-        }
-
-        .btn-secondary:hover {
-            background-color: #f7f7f7;
-        }
-
-        .error-details {
-            font-size: 0.875rem;
-            opacity: 0.6;
-            max-width: 600px;
-        }
-
-        .error-details p {
-            margin-bottom: 0.25rem;
-        }
-
-        .divider {
-            width: 40px;
-            height: 4px;
-            background: #000;
-            margin: 0 auto 2rem;
-        }
-
-        @media (max-width: 768px) {
-            .status-code {
-                font-size: 6rem;
-            }
-
-            .error-title {
-                font-size: 1.875rem;
-            }
-
-            .error-message {
-                font-size: 1rem;
-            }
-        }
-    </style>
 </head>
 <body>
     <div class="status-code">{{.StatusCode}}</div>
@@ -131,13 +16,322 @@
     <div class="actions">
         <a href="/" class="btn btn-primary">Go Home</a>
         <button class="btn btn-secondary" onclick="window.history.back()">Go Back</button>
+        <button class="btn btn-tertiary" onclick="copyErrorAsJSON()">Copy as JSON</button>
     </div>
 
+    <div id="copy-feedback" class="copy-feedback">Copied!</div>
+
     <div class="error-details">
-        <p><strong>Error Code:</strong> {{.Type}}</p>
-        <p><strong>Operation:</strong> {{.Operation}}</p>
-        <p><strong>Trace ID:</strong> {{.TraceID}}</p>
-        <p><strong>Time:</strong> {{.Timestamp}}</p>
+        <div class="detail-row">
+            <span class="detail-label">Error Code:</span>
+            <span class="detail-value">{{.Type}}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Operation:</span>
+            <span class="detail-value">{{.Operation}}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Trace ID:</span>
+            <span class="detail-value detail-copyable" onclick="copyToClipboard('{{.TraceID}}')">{{.TraceID}}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Status Code:</span>
+            <span class="detail-value">{{.StatusCode}}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Time:</span>
+            <span class="detail-value">{{.Timestamp}}</span>
+        </div>
     </div>
+
+    <details class="json-preview">
+        <summary>View JSON Response</summary>
+        <pre id="json-output">{
+  "status": {{.StatusCode}},
+  "status_text": "{{.Status}}",
+  "message": "{{.Message}}",
+  "type": "{{.Type}}",
+  "operation": "{{.Operation}}",
+  "status_code": {{.StatusCode}},
+  "trace_id": "{{.TraceID}}",
+  "timestamp": "{{.Timestamp}}"
+}</pre>
+    </details>
 </body>
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    color: #000;
+    background: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    text-align: center;
+}
+
+.status-code {
+    font-size: 10rem;
+    font-weight: 900;
+    line-height: 1;
+    margin-bottom: 1rem;
+    background: linear-gradient(to right, #000, #666);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.error-title {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+}
+
+.error-message {
+    font-size: 1.2rem;
+    max-width: 600px;
+    margin-bottom: 2rem;
+    opacity: 0.8;
+}
+
+.actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 3rem;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background-color: #000;
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background-color: #333;
+}
+
+.btn-secondary {
+    background-color: transparent;
+    color: #000;
+    border: 1px solid #eaeaea;
+}
+
+.btn-secondary:hover {
+    background-color: #f7f7f7;
+}
+
+.btn-tertiary {
+    background-color: #f3f4f6;
+    color: #000;
+    border: 1px solid #d1d5db;
+}
+
+.btn-tertiary:hover {
+    background-color: #e5e7eb;
+}
+
+.error-details {
+    font-size: 0.875rem;
+    opacity: 0.8;
+    max-width: 600px;
+    text-align: left;
+    background: #f9fafb;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    margin-bottom: 2rem;
+    border: 1px solid #e5e7eb;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.detail-row:last-child {
+    border-bottom: none;
+}
+
+.detail-label {
+    font-weight: 600;
+    color: #6b7280;
+}
+
+.detail-value {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.8rem;
+    color: #000;
+    word-break: break-all;
+}
+
+.detail-copyable {
+    cursor: pointer;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+    transition: background-color 0.2s ease;
+}
+
+.detail-copyable:hover {
+    background-color: #e5e7eb;
+}
+
+.detail-copyable:active {
+    background-color: #d1d5db;
+}
+
+.json-preview {
+    max-width: 600px;
+    margin: 0 auto;
+    text-align: left;
+}
+
+.json-preview summary {
+    cursor: pointer;
+    padding: 0.75rem;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    font-weight: 500;
+    user-select: none;
+}
+
+.json-preview summary:hover {
+    background: #f3f4f6;
+}
+
+.json-preview pre {
+    margin-top: 0;
+    padding: 1rem;
+    background: #1f2937;
+    color: #e5e7eb;
+    border-radius: 0 0 0.375rem 0.375rem;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    overflow-x: auto;
+}
+
+.copy-feedback {
+    position: fixed;
+    top: 2rem;
+    right: 2rem;
+    background: #10b981;
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.375rem;
+    font-weight: 500;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: all 0.3s ease;
+    pointer-events: none;
+}
+
+.copy-feedback.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.divider {
+    width: 40px;
+    height: 4px;
+    background: #000;
+    margin: 0 auto 2rem;
+}
+
+@media (max-width: 768px) {
+    .status-code {
+        font-size: 6rem;
+    }
+
+    .error-title {
+        font-size: 1.875rem;
+    }
+
+    .error-message {
+        font-size: 1rem;
+    }
+
+    .error-details {
+        font-size: 0.8rem;
+    }
+
+    .detail-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+}
+</style>
+<script>
+function getErrorResponse() {
+    return {
+        status: {{.StatusCode}},
+        status_text: "{{.Status}}",
+        message: "{{.Message}}",
+        type: "{{.Type}}",
+        operation: "{{.Operation}}",
+        status_code: {{.StatusCode}},
+        trace_id: "{{.TraceID}}",
+        timestamp: "{{.Timestamp}}"
+    };
+}
+
+function copyErrorAsJSON() {
+    const error = getErrorResponse();
+    const json = JSON.stringify(error, null, 2);
+    copyToClipboard(json);
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        showFeedback();
+    }).catch(err => {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            showFeedback();
+        } catch (e) {
+            console.error('Failed to copy:', e);
+        }
+        document.body.removeChild(textArea);
+    });
+}
+
+function showFeedback() {
+    const feedback = document.getElementById('copy-feedback');
+    feedback.classList.add('show');
+    setTimeout(() => {
+        feedback.classList.remove('show');
+    }, 2000);
+}
+</script>
 </html>
