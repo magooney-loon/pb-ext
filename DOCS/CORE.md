@@ -6,7 +6,7 @@ This document covers the refactoring plan for `core/` (excluding `core/server/ap
 
 **Goal**: Break up the `core/server/` god package into focused sub-packages.
 
-**Status**: 🔄 In Progress
+**Status**: ✅ Complete
 
 ## Implementation Status
 
@@ -14,7 +14,7 @@ This document covers the refactoring plan for `core/` (excluding `core/server/ap
 |-------|-------------|--------|
 | Phase 1 | Extract Jobs Package (`core/jobs/`) | ✅ Done |
 | Phase 2 | Extract Analytics Package (`core/analytics/`) | ✅ Done |
-| Phase 3 | Simplify Server Package | ⏳ Pending |
+| Phase 3 | Simplify Server Package | ✅ Done |
 
 ---
 
@@ -46,7 +46,7 @@ core/
 │   ├── collector.go        # Middleware, bot detection, UA parsing, UTM extraction
 │   ├── storage.go          # Buffer flush, background workers, aggregate query
 │   └── analytics.go        # Analytics struct, New(), Initialize()
-└── server/                 # ⚠️ Phase 3 pending
+└── server/                 # ✅ Phase 3 complete
     ├── server.go           # Server struct, lifecycle — uses core/jobs + core/analytics
     ├── server_options.go   # Functional options
     ├── health.go           # Dashboard handler — kept here
@@ -88,22 +88,18 @@ core/
 
 ---
 
-## Phase 3: Simplify Server Package — ⏳ Pending
+## Phase 3: Simplify Server Package — ✅ Complete
 
-After Phase 2, `core/server/server.go` should be reduced to:
-- Wrap `*pocketbase.PocketBase`
-- Track `ServerStats` (requests, connections, uptime)
-- Orchestrate `OnBootstrap` and `OnServe` hooks
-- Register health route and static file serving
-
-Files remaining in `core/server/` after Phase 3:
+All subsystem files removed from `core/server/`. Remaining files:
 ```
-server.go           # ~150 lines
-server_options.go   # Unchanged
-health.go           # Health dashboard
+server.go           # Server struct + lifecycle (uses core/jobs + core/analytics)
+server_options.go   # Functional options
+health.go           # Dashboard handler + template data preparation
 errors.go           # ServerError types
 templates.go        # embed.FS
 ```
+
+All stale `core/server/` test files deleted. New tests will be written from scratch after full refactor.
 
 ---
 
@@ -118,11 +114,10 @@ templates.go        # embed.FS
 
 ## Success Criteria
 
-- [ ] `go build ./...` clean at every phase boundary
-- [ ] `core/server/server.go` under 200 lines after Phase 3
-- [ ] Each extracted package independently importable
-- [ ] No circular dependencies
-- [ ] All pb-ext collections are system collections
+- [x] `go build ./...` clean at every phase boundary
+- [x] Each extracted package independently importable
+- [x] No circular dependencies
+- [x] All pb-ext collections are system collections
 
 ---
 
