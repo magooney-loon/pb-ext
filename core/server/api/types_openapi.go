@@ -6,8 +6,58 @@ import (
 )
 
 // =============================================================================
-// OpenAPI 3.0 Schema Types
+// OpenAPI 3.0 Spec Types
 // =============================================================================
+
+// OpenAPIContact represents contact information in OpenAPI 3.0 spec
+type OpenAPIContact struct {
+	Name  string `json:"name,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Email string `json:"email,omitempty"`
+}
+
+// OpenAPILicense represents license information in OpenAPI 3.0 spec
+type OpenAPILicense struct {
+	Name string `json:"name"`
+	URL  string `json:"url,omitempty"`
+}
+
+// OpenAPIInfo represents the info object in OpenAPI 3.0 spec
+type OpenAPIInfo struct {
+	Title          string          `json:"title"`
+	Version        string          `json:"version"`
+	Description    string          `json:"description,omitempty"`
+	TermsOfService string          `json:"termsOfService,omitempty"`
+	Contact        *OpenAPIContact `json:"contact,omitempty"`
+	License        *OpenAPILicense `json:"license,omitempty"`
+}
+
+// OpenAPITag represents a tag in OpenAPI 3.0 spec
+type OpenAPITag struct {
+	Name         string               `json:"name"`
+	Description  string               `json:"description,omitempty"`
+	ExternalDocs *OpenAPIExternalDocs `json:"externalDocs,omitempty"`
+}
+
+// OpenAPIExternalDocs represents an OpenAPI external documentation object
+type OpenAPIExternalDocs struct {
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url"`
+}
+
+// OpenAPIServer represents an OpenAPI server object
+type OpenAPIServer struct {
+	URL         string                            `json:"url"`
+	Description string                            `json:"description,omitempty"`
+	Variables   map[string]*OpenAPIServerVariable `json:"variables,omitempty"`
+}
+
+// OpenAPIServerVariable represents an OpenAPI server variable object
+type OpenAPIServerVariable struct {
+	Enum        []string `json:"enum,omitempty"`
+	Default     string   `json:"default"`
+	Description string   `json:"description,omitempty"`
+}
 
 // OpenAPISchema represents an OpenAPI 3.0 schema object
 type OpenAPISchema struct {
@@ -72,6 +122,56 @@ type OpenAPISchema struct {
 	Extensions map[string]interface{} `json:"-"`
 }
 
+// MarshalJSON implements custom JSON marshaling for OpenAPISchema to handle extensions
+func (s *OpenAPISchema) MarshalJSON() ([]byte, error) {
+	type Alias OpenAPISchema
+
+	schemaMap := make(map[string]interface{})
+
+	aliasBytes, err := json.Marshal((*Alias)(s))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal(aliasBytes, &schemaMap); err != nil {
+		return nil, err
+	}
+
+	for key, value := range s.Extensions {
+		if !strings.HasPrefix(key, "x-") {
+			key = "x-" + key
+		}
+		schemaMap[key] = value
+	}
+
+	return json.Marshal(schemaMap)
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for OpenAPISchema to handle extensions
+func (s *OpenAPISchema) UnmarshalJSON(data []byte) error {
+	type Alias OpenAPISchema
+
+	var schemaMap map[string]interface{}
+	if err := json.Unmarshal(data, &schemaMap); err != nil {
+		return err
+	}
+
+	s.Extensions = make(map[string]interface{})
+	for key, value := range schemaMap {
+		if strings.HasPrefix(key, "x-") {
+			s.Extensions[key] = value
+			delete(schemaMap, key)
+		}
+	}
+
+	cleanBytes, err := json.Marshal(schemaMap)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(cleanBytes, (*Alias)(s))
+}
+
 // OpenAPIExample represents an OpenAPI example object
 type OpenAPIExample struct {
 	Summary       string      `json:"summary,omitempty"`
@@ -86,12 +186,6 @@ type OpenAPIDiscriminator struct {
 	Mapping      map[string]string `json:"mapping,omitempty"`
 }
 
-// OpenAPIExternalDocs represents an OpenAPI external documentation object
-type OpenAPIExternalDocs struct {
-	Description string `json:"description,omitempty"`
-	URL         string `json:"url"`
-}
-
 // OpenAPIParameter represents an OpenAPI parameter object
 type OpenAPIParameter struct {
 	Name            string `json:"name"`
@@ -101,19 +195,15 @@ type OpenAPIParameter struct {
 	Deprecated      *bool  `json:"deprecated,omitempty"`
 	AllowEmptyValue *bool  `json:"allowEmptyValue,omitempty"`
 
-	// Style and explode for serialization
 	Style   string `json:"style,omitempty"`
 	Explode *bool  `json:"explode,omitempty"`
 
-	// Schema or content
 	Schema  *OpenAPISchema               `json:"schema,omitempty"`
 	Content map[string]*OpenAPIMediaType `json:"content,omitempty"`
 
-	// Example
 	Example  interface{}                `json:"example,omitempty"`
 	Examples map[string]*OpenAPIExample `json:"examples,omitempty"`
 
-	// Reference
 	Ref string `json:"$ref,omitempty"`
 }
 
@@ -173,20 +263,6 @@ type OpenAPILink struct {
 	RequestBody  interface{}            `json:"requestBody,omitempty"`
 	Description  string                 `json:"description,omitempty"`
 	Server       *OpenAPIServer         `json:"server,omitempty"`
-}
-
-// OpenAPIServer represents an OpenAPI server object
-type OpenAPIServer struct {
-	URL         string                            `json:"url"`
-	Description string                            `json:"description,omitempty"`
-	Variables   map[string]*OpenAPIServerVariable `json:"variables,omitempty"`
-}
-
-// OpenAPIServerVariable represents an OpenAPI server variable object
-type OpenAPIServerVariable struct {
-	Enum        []string `json:"enum,omitempty"`
-	Default     string   `json:"default"`
-	Description string   `json:"description,omitempty"`
 }
 
 // OpenAPIComponents represents an OpenAPI components object
@@ -266,14 +342,28 @@ type OpenAPIOperation struct {
 	Servers      []*OpenAPIServer            `json:"servers,omitempty"`
 }
 
-// =============================================================================
-// Schema Builder Types
-// =============================================================================
-
 // OpenAPISchemaBuilder provides methods to build OpenAPI schemas from Go types
 type OpenAPISchemaBuilder struct {
 	components *OpenAPIComponents
 	logger     Logger
+}
+
+// NewOpenAPISchemaBuilder creates a new OpenAPI schema builder
+func NewOpenAPISchemaBuilder(logger Logger) *OpenAPISchemaBuilder {
+	return &OpenAPISchemaBuilder{
+		components: &OpenAPIComponents{
+			Schemas:         make(map[string]*OpenAPISchema),
+			Responses:       make(map[string]*OpenAPIResponse),
+			Parameters:      make(map[string]*OpenAPIParameter),
+			Examples:        make(map[string]*OpenAPIExample),
+			RequestBodies:   make(map[string]*OpenAPIRequestBody),
+			Headers:         make(map[string]*OpenAPIHeader),
+			SecuritySchemes: make(map[string]*OpenAPISecurityScheme),
+			Links:           make(map[string]*OpenAPILink),
+			Callbacks:       make(map[string]*OpenAPICallback),
+		},
+		logger: logger,
+	}
 }
 
 // SchemaConversionResult contains the result of schema conversion
@@ -294,92 +384,10 @@ type OpenAPIEndpointSchema struct {
 }
 
 // =============================================================================
-// Conversion Utilities
+// Standard OpenAPI Schema Variables
 // =============================================================================
 
-// NewOpenAPISchemaBuilder creates a new OpenAPI schema builder
-func NewOpenAPISchemaBuilder(logger Logger) *OpenAPISchemaBuilder {
-	return &OpenAPISchemaBuilder{
-		components: &OpenAPIComponents{
-			Schemas:         make(map[string]*OpenAPISchema),
-			Responses:       make(map[string]*OpenAPIResponse),
-			Parameters:      make(map[string]*OpenAPIParameter),
-			Examples:        make(map[string]*OpenAPIExample),
-			RequestBodies:   make(map[string]*OpenAPIRequestBody),
-			Headers:         make(map[string]*OpenAPIHeader),
-			SecuritySchemes: make(map[string]*OpenAPISecurityScheme),
-			Links:           make(map[string]*OpenAPILink),
-			Callbacks:       make(map[string]*OpenAPICallback),
-		},
-		logger: logger,
-	}
-}
-
-// MarshalJSON implements custom JSON marshaling for OpenAPISchema to handle extensions
-func (s *OpenAPISchema) MarshalJSON() ([]byte, error) {
-	type Alias OpenAPISchema
-
-	// Convert to a map to handle extensions
-	schemaMap := make(map[string]interface{})
-
-	// Marshal the main struct first
-	aliasBytes, err := json.Marshal((*Alias)(s))
-	if err != nil {
-		return nil, err
-	}
-
-	// Unmarshal into map
-	if err := json.Unmarshal(aliasBytes, &schemaMap); err != nil {
-		return nil, err
-	}
-
-	// Add extensions
-	for key, value := range s.Extensions {
-		if !strings.HasPrefix(key, "x-") {
-			key = "x-" + key
-		}
-		schemaMap[key] = value
-	}
-
-	return json.Marshal(schemaMap)
-}
-
-// UnmarshalJSON implements custom JSON unmarshaling for OpenAPISchema to handle extensions
-func (s *OpenAPISchema) UnmarshalJSON(data []byte) error {
-	type Alias OpenAPISchema
-
-	// Unmarshal into map first
-	var schemaMap map[string]interface{}
-	if err := json.Unmarshal(data, &schemaMap); err != nil {
-		return err
-	}
-
-	// Extract extensions
-	s.Extensions = make(map[string]interface{})
-	for key, value := range schemaMap {
-		if strings.HasPrefix(key, "x-") {
-			s.Extensions[key] = value
-			delete(schemaMap, key)
-		}
-	}
-
-	// Marshal back to JSON without extensions
-	cleanBytes, err := json.Marshal(schemaMap)
-	if err != nil {
-		return err
-	}
-
-	// Unmarshal into the alias type
-	return json.Unmarshal(cleanBytes, (*Alias)(s))
-}
-
-// =============================================================================
-// Standard OpenAPI Data Types
-// =============================================================================
-
-// Common OpenAPI schema patterns
 var (
-	// Basic types
 	StringSchema  = &OpenAPISchema{Type: "string"}
 	IntegerSchema = &OpenAPISchema{Type: "integer"}
 	NumberSchema  = &OpenAPISchema{Type: "number"}
@@ -387,14 +395,12 @@ var (
 	ArraySchema   = &OpenAPISchema{Type: "array"}
 	ObjectSchema  = &OpenAPISchema{Type: "object"}
 
-	// Common formats
 	DateTimeSchema = &OpenAPISchema{Type: "string", Format: "date-time"}
 	DateSchema     = &OpenAPISchema{Type: "string", Format: "date"}
 	EmailSchema    = &OpenAPISchema{Type: "string", Format: "email"}
 	UUIDSchema     = &OpenAPISchema{Type: "string", Format: "uuid"}
 	URISchema      = &OpenAPISchema{Type: "string", Format: "uri"}
 
-	// PocketBase common schemas
 	PocketBaseRecordSchema = &OpenAPISchema{
 		Type: "object",
 		Properties: map[string]*OpenAPISchema{
@@ -405,7 +411,6 @@ var (
 		Required: []string{"id", "created", "updated"},
 	}
 
-	// Error response schema
 	ErrorResponseSchema = &OpenAPISchema{
 		Type: "object",
 		Properties: map[string]*OpenAPISchema{
