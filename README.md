@@ -14,7 +14,7 @@ Enhanced PocketBase server with monitoring, logging & API docs.
 - **Cron Tracking**: Logs and monitors scheduled cron jobs
 - **System Monitoring**: Real-time CPU, memory, disk, network, and runtime metrics
 - **Structured Logging**: Complete logging with error tracking and request tracing
-- **Visitor Analytics**: Track visitor stats, page views, device types, and browsers
+- **Visitor Analytics**: Track GDPR compliant visitors, page views, device types, and browsers
 - **PocketBase Integration**: Uses PocketBase's auth system and styling
 
 ## Access
@@ -109,3 +109,59 @@ Having issues with Your API Docs?
 ```bash
 127.0.0.1:8090/api/docs/debug/ast
 ```
+
+## Reserved Collections
+
+pb-ext creates the following PocketBase system collections automatically on startup. **Do not create collections with these names in your own code.**
+
+| Collection | Purpose |
+|---|---|
+| `_analytics` | Daily aggregated page view counters (one row per path/date/device/browser). Retention: 90 days. |
+| `_analytics_sessions` | Ring buffer of the 50 most recent visits for the Recent Activity display. No PII stored. |
+| `_job_logs` | Cron job execution logs (start time, end time, duration, status, output). Retention: 72 hours. |
+
+**Schema notes:**
+- All three collections are system collections (hidden from the PocketBase Collections UI).
+- `_analytics` and `_analytics_sessions` store no personal data — no IP, no user agent, no visitor ID. GDPR-compliant by design.
+- On upgrade from an old pb-ext version, incompatible schemas are automatically migrated at startup with no manual steps required.
+
+## Reserved Routes
+
+pb-ext registers the following routes. **Do not register your own routes at these paths.**
+
+### Dashboard
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/_/_` | Superuser | pb-ext health, analytics & jobs dashboard |
+
+### Cron Job API
+All routes require superuser authentication.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/cron/jobs` | List registered cron jobs |
+| `POST` | `/api/cron/jobs/{id}/run` | Trigger a job manually |
+| `DELETE` | `/api/cron/jobs/{id}` | Remove a job from the scheduler |
+| `GET` | `/api/cron/status` | Cron scheduler status |
+| `POST` | `/api/cron/config/timezone` | Update scheduler timezone |
+| `GET` | `/api/cron/logs` | Paginated job execution logs |
+| `GET` | `/api/cron/logs/{job_id}` | Logs for a specific job |
+| `GET` | `/api/cron/logs/analytics` | Aggregated job log statistics |
+
+### API Docs
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/docs/versions` | List registered API versions |
+| `GET` | `/api/docs/debug/ast` | AST parsing debug info |
+| `GET` | `/api/docs/v{n}` | Version metadata |
+| `GET` | `/api/docs/v{n}/openapi.json` | OpenAPI 3.0 spec |
+| `GET` | `/api/docs/v{n}/swagger` | Swagger UI |
+
+### Internal System Jobs
+
+pb-ext registers these cron jobs automatically. They appear in the dashboard with the "System" badge.
+
+| Job ID | Schedule | Description |
+|---|---|---|
+| `__pbExtLogClean__` | `0 0 * * *` (daily midnight) | Purge `_job_logs` records older than 72 hours |
+| `__pbExtAnalyticsClean__` | `0 3 * * *` (daily 3 AM) | Purge `_analytics` rows older than 90 days |

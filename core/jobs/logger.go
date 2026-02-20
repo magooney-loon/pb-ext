@@ -47,11 +47,44 @@ func InitializeLogger(app core.App) (*Logger, error) {
 		return nil, fmt.Errorf("failed to setup job logs collection: %w", err)
 	}
 
+	// Mark any jobs that were left in "started" status (i.e. server crashed
+	// mid-execution) as "timeout" so they don't linger indefinitely.
+	l.markOrphanedJobsAsTimeout()
+
 	go l.backgroundFlushWorker()
 	go l.startFlushTimer()
 
 	app.Logger().Info("Job logging system initialized")
 	return l, nil
+}
+
+// markOrphanedJobsAsTimeout finds _job_logs records stuck in "started" status
+// and updates them to "timeout". Called once at startup.
+func (l *Logger) markOrphanedJobsAsTimeout() {
+	col, err := l.app.FindCollectionByNameOrId(Collection)
+	if err != nil {
+		return
+	}
+
+	records, err := l.app.FindRecordsByFilter(col,
+		"status = {:status}", "-created", 1000, 0,
+		dbx.Params{"status": StatusStarted},
+	)
+	if err != nil || len(records) == 0 {
+		return
+	}
+
+	now := time.Now()
+	for _, rec := range records {
+		rec.Set("status", StatusTimeout)
+		rec.Set("end_time", now)
+		rec.Set("error", "server restarted while job was running")
+		if err := l.app.SaveNoValidate(rec); err != nil {
+			l.app.Logger().Error("Failed to mark orphaned job as timeout", "id", rec.Id, "error", err)
+		}
+	}
+
+	l.app.Logger().Warn("Marked orphaned jobs as timeout on startup", "count", len(records))
 }
 
 // LogJobStart records the start of a scheduled or API-triggered execution.
