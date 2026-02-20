@@ -13,6 +13,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/magooney-loon/pb-ext/core/analytics"
 	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/spf13/cast"
 
@@ -244,11 +245,11 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 	}
 
 	// Get analytics data if available
-	var analyticsData *AnalyticsData
+	var analyticsData *analytics.Data
 	if s.analytics != nil {
-		analyticsData, _ = s.analytics.GetAnalyticsData()
+		analyticsData, _ = s.analytics.GetData()
 	} else {
-		analyticsData = defaultAnalyticsData()
+		analyticsData = analytics.DefaultData()
 	}
 
 	// Prepare template data
@@ -262,7 +263,7 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 		DiskUsageStr     string
 		LastCheckTime    time.Time
 		RequestRate      float64
-		AnalyticsData    *AnalyticsData
+		AnalyticsData    *analytics.Data
 		PBAdminURL       string
 	}{
 		Status:           "Healthy",
