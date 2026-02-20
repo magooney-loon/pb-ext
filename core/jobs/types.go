@@ -25,6 +25,7 @@ var SystemJobIDs = []string{
 	"__pbMFACleanup__",
 	"__pbDBOptimize__",
 	"__pbExtLogClean__",
+	"__pbExtAnalyticsClean__",
 }
 
 // JobMetadata holds registration info for a cron job.

@@ -349,6 +349,67 @@ func (m *Manager) RegisterInternalSystemJobs() error {
 		return fmt.Errorf("failed to register log cleanup job: %w", err)
 	}
 
+	if err := m.RegisterJob(
+		"__pbExtAnalyticsClean__",
+		"__pbExtAnalyticsClean__",
+		"Delete _analytics records older than 90 days",
+		"0 3 * * *",
+		func(el *ExecutionLogger) {
+			el.Start("Analytics Cleanup Job")
+
+			cutoff := time.Now().AddDate(0, 0, -90)
+			el.Info("Deleting analytics records older than: %s", cutoff.Format("2006-01-02"))
+
+			col, err := m.app.FindCollectionByNameOrId("_analytics")
+			if err != nil {
+				el.Error("Failed to find _analytics collection: %v", err)
+				el.Fail(err)
+				return
+			}
+
+			records, err := m.app.FindRecordsByFilter(col,
+				"timestamp < {:cutoff}", "-timestamp", 5000, 0,
+				map[string]any{"cutoff": cutoff.Format("2006-01-02 15:04:05.000Z")},
+			)
+			if err != nil {
+				el.Error("Failed to find old analytics records: %v", err)
+				el.Fail(err)
+				return
+			}
+
+			el.Info("Found %d records to delete", len(records))
+
+			deleted, failed := 0, 0
+			for _, rec := range records {
+				if err := m.app.Delete(rec); err != nil {
+					el.Error("Failed to delete analytics record %s: %v", rec.Id, err)
+					failed++
+				} else {
+					deleted++
+				}
+			}
+
+			el.Statistics(map[string]interface{}{
+				"total_found":    len(records),
+				"deleted":        deleted,
+				"failed":         failed,
+				"retention_days": 90,
+				"cutoff_date":    cutoff.Format("2006-01-02"),
+			})
+
+			if failed > 0 {
+				el.Warn("Cleanup completed with some failures: deleted %d/%d records", deleted, len(records))
+			} else {
+				el.Success("Cleanup completed: deleted %d analytics records", deleted)
+			}
+
+			el.Complete(fmt.Sprintf("Analytics cleanup finished - deleted %d/%d records", deleted, len(records)))
+			m.app.Logger().Info("Analytics cleanup completed", "deleted", deleted, "failed", failed)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to register analytics cleanup job: %w", err)
+	}
+
 	m.app.Logger().Info("✅ Internal system jobs registered")
 	return nil
 }
