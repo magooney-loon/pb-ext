@@ -1443,6 +1443,261 @@ func TestVersionManagerMemoryCleanup(t *testing.T) {
 }
 
 // =============================================================================
+// BindFunc and Plain-Func Bind Tests
+// =============================================================================
+
+// TestVersionedRouteChain_BindFunc_PlainFunc verifies BindFunc executes plain middleware funcs
+func TestVersionedRouteChain_BindFunc_PlainFunc(t *testing.T) {
+	executed := false
+
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		plainMW := func(e *core.RequestEvent) error {
+			executed = true
+			return e.Next()
+		}
+
+		v1Router.GET("/api/v1/bindfunc-test", func(e *core.RequestEvent) error {
+			return e.JSON(200, map[string]string{"ok": "true"})
+		}).BindFunc(plainMW)
+	})
+	defer app.Cleanup()
+
+	executed = false
+
+	(&tests.ApiScenario{
+		Name:            "BindFunc plain func executes",
+		Method:          "GET",
+		URL:             "/api/v1/bindfunc-test",
+		TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus:  200,
+		ExpectedContent: []string{`"ok"`, `"true"`},
+	}).Test(t)
+
+	if !executed {
+		t.Error("Expected BindFunc middleware to execute, but it didn't")
+	}
+}
+
+// TestVersionedRouteChain_BindFunc_MultipleChained verifies multiple BindFunc calls chain correctly
+func TestVersionedRouteChain_BindFunc_MultipleChained(t *testing.T) {
+	var order []string
+	var mu sync.Mutex
+
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		record := func(name string) func(*core.RequestEvent) error {
+			return func(e *core.RequestEvent) error {
+				mu.Lock()
+				order = append(order, name)
+				mu.Unlock()
+				return e.Next()
+			}
+		}
+
+		v1Router.GET("/api/v1/bindfunc-chain", func(e *core.RequestEvent) error {
+			mu.Lock()
+			order = append(order, "handler")
+			mu.Unlock()
+			return e.JSON(200, map[string]string{"ok": "true"})
+		}).BindFunc(record("a"), record("b")).BindFunc(record("c"))
+	})
+	defer app.Cleanup()
+
+	order = nil
+
+	(&tests.ApiScenario{
+		Name:            "BindFunc chain executes in order",
+		Method:          "GET",
+		URL:             "/api/v1/bindfunc-chain",
+		TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus:  200,
+		ExpectedContent: []string{`"ok"`},
+	}).Test(t)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	want := []string{"a", "b", "c", "handler"}
+	if len(order) != len(want) {
+		t.Fatalf("Expected %v, got %v", want, order)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Errorf("Position %d: expected %q, got %q", i, want[i], order[i])
+		}
+	}
+}
+
+// TestVersionedRouteChain_BindFunc_DocsRegistered verifies BindFunc updates the docs registry
+func TestVersionedRouteChain_BindFunc_DocsRegistered(t *testing.T) {
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+		registry := v1Router.GetRegistry()
+
+		v1Router.GET("/api/v1/bindfunc-docs", func(e *core.RequestEvent) error {
+			return e.JSON(200, map[string]string{"ok": "true"})
+		}).BindFunc(func(e *core.RequestEvent) error {
+			return e.Next()
+		})
+
+		endpoint, exists := registry.GetEndpoint("GET", "/api/v1/bindfunc-docs")
+		if !exists {
+			t.Error("Expected endpoint to exist in docs registry after BindFunc")
+		}
+		if endpoint.Path != "/api/v1/bindfunc-docs" {
+			t.Errorf("Unexpected path: %s", endpoint.Path)
+		}
+	})
+	defer app.Cleanup()
+
+	(&tests.ApiScenario{
+		Name:            "BindFunc docs registry updated",
+		Method:          "GET",
+		URL:             "/api/v1/bindfunc-docs",
+		TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus:  200,
+		ExpectedContent: []string{`"ok"`},
+	}).Test(t)
+}
+
+// TestVersionedRouteChain_BindFunc_CanShortCircuit verifies BindFunc middleware can abort the chain
+func TestVersionedRouteChain_BindFunc_CanShortCircuit(t *testing.T) {
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		gate := func(e *core.RequestEvent) error {
+			if e.Request.Header.Get("X-Allow") != "yes" {
+				return e.JSON(403, map[string]string{"error": "forbidden"})
+			}
+			return e.Next()
+		}
+
+		v1Router.GET("/api/v1/gated", func(e *core.RequestEvent) error {
+			return e.JSON(200, map[string]string{"access": "granted"})
+		}).BindFunc(gate)
+	})
+	defer app.Cleanup()
+
+	scenarios := []tests.ApiScenario{
+		{
+			Name:            "no header → 403",
+			Method:          "GET",
+			URL:             "/api/v1/gated",
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  403,
+			ExpectedContent: []string{`"forbidden"`},
+		},
+		{
+			Name:   "correct header → 200",
+			Method: "GET",
+			URL:    "/api/v1/gated",
+			Headers: map[string]string{
+				"X-Allow": "yes",
+			},
+			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			ExpectedStatus:  200,
+			ExpectedContent: []string{`"granted"`},
+		},
+	}
+
+	for _, sc := range scenarios {
+		sc := sc
+		t.Run(sc.Name, sc.Test)
+	}
+}
+
+// TestVersionedRouteChain_Bind_PlainFunc verifies Bind() now also accepts plain funcs (no silent drop)
+func TestVersionedRouteChain_Bind_PlainFunc(t *testing.T) {
+	executed := false
+
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		// Pass a plain func to Bind() — previously silently dropped, now should execute
+		plainMW := func(e *core.RequestEvent) error {
+			executed = true
+			return e.Next()
+		}
+
+		v1Router.GET("/api/v1/bind-plainfunc", func(e *core.RequestEvent) error {
+			return e.JSON(200, map[string]string{"ok": "true"})
+		}).Bind(plainMW)
+	})
+	defer app.Cleanup()
+
+	executed = false
+
+	(&tests.ApiScenario{
+		Name:            "Bind with plain func executes",
+		Method:          "GET",
+		URL:             "/api/v1/bind-plainfunc",
+		TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus:  200,
+		ExpectedContent: []string{`"ok"`, `"true"`},
+	}).Test(t)
+
+	if !executed {
+		t.Error("Expected plain-func passed to Bind() to execute, but it didn't (silent drop regression)")
+	}
+}
+
+// TestVersionedRouteChain_Bind_MixedTypes verifies Bind() handles both hook.Handler and plain funcs together
+func TestVersionedRouteChain_Bind_MixedTypes(t *testing.T) {
+	var order []string
+	var mu sync.Mutex
+
+	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+		v1Router, _ := vm.GetVersionRouter("v1", se)
+
+		hookMW := &hook.Handler[*core.RequestEvent]{
+			Id: "hook-mw",
+			Func: func(e *core.RequestEvent) error {
+				mu.Lock()
+				order = append(order, "hook")
+				mu.Unlock()
+				return e.Next()
+			},
+		}
+
+		plainMW := func(e *core.RequestEvent) error {
+			mu.Lock()
+			order = append(order, "plain")
+			mu.Unlock()
+			return e.Next()
+		}
+
+		v1Router.GET("/api/v1/bind-mixed", func(e *core.RequestEvent) error {
+			mu.Lock()
+			order = append(order, "handler")
+			mu.Unlock()
+			return e.JSON(200, map[string]string{"ok": "true"})
+		}).Bind(hookMW, plainMW)
+	})
+	defer app.Cleanup()
+
+	order = nil
+
+	(&tests.ApiScenario{
+		Name:            "Bind mixed hook.Handler and plain func both execute",
+		Method:          "GET",
+		URL:             "/api/v1/bind-mixed",
+		TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+		ExpectedStatus:  200,
+		ExpectedContent: []string{`"ok"`},
+	}).Test(t)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(order) != 3 {
+		t.Fatalf("Expected hook + plain + handler to execute, got: %v", order)
+	}
+}
+
+// =============================================================================
 // Benchmark Tests
 // =============================================================================
 

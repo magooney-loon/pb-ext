@@ -3,6 +3,9 @@ package main
 // API_SOURCE
 
 import (
+	"log"
+	"time"
+
 	"github.com/magooney-loon/pb-ext/core/server/api"
 
 	"github.com/pocketbase/pocketbase/apis"
@@ -100,11 +103,20 @@ func registerV1Routes(router *api.VersionedAPIRouter) {
 	// }, apis.RequireAuth()) // Auth applied to Create, Update, Patch, Delete
 }
 
+// requestLoggerMW is a simple middleware that logs the method, path, and latency of each request.
+// Demonstrates BindFunc with a plain func — no hook.Handler wrapper needed.
+func requestLoggerMW(e *core.RequestEvent) error {
+	start := time.Now()
+	err := e.Next()
+	log.Printf("[v2] %s %s — %s", e.Request.Method, e.Request.URL.Path, time.Since(start))
+	return err
+}
+
 // registerV2Routes registers all v2 API routes
 func registerV2Routes(router *api.VersionedAPIRouter) {
 	// Using prefixed router for cleaner code
 	v2 := router.SetPrefix("/api/v2")
 
-	// Utility routes (no auth required)
-	v2.GET("/time", timeHandler)
+	// Utility routes — requestLoggerMW is attached via BindFunc (plain func, no hook.Handler wrapper)
+	v2.GET("/time", timeHandler).BindFunc(requestLoggerMW)
 }

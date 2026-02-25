@@ -415,7 +415,9 @@ type VersionedRouteChain struct {
 }
 
 // Bind detects middleware binding and re-registers route with middleware documentation
-// AND binds middleware to the actual PocketBase route so it executes at runtime
+// AND binds middleware to the actual PocketBase route so it executes at runtime.
+// Accepts *hook.Handler[*core.RequestEvent] and plain func(*core.RequestEvent) error values.
+// Plain funcs are wrapped in an anonymous hook.Handler before forwarding to PocketBase.
 func (vrc *VersionedRouteChain) Bind(middlewares ...interface{}) *VersionedRouteChain {
 	// Store middlewares for analysis
 	vrc.middlewares = append(vrc.middlewares, middlewares...)
@@ -426,16 +428,42 @@ func (vrc *VersionedRouteChain) Bind(middlewares ...interface{}) *VersionedRoute
 
 	// Bind middleware to the actual PocketBase route so it executes at runtime
 	if vrc.pbRoute != nil {
-		// Extract only *hook.Handler[*core.RequestEvent] types that PocketBase expects
 		handlers := make([]*hook.Handler[*core.RequestEvent], 0, len(middlewares))
 		for _, mw := range middlewares {
-			if handler, ok := mw.(*hook.Handler[*core.RequestEvent]); ok {
-				handlers = append(handlers, handler)
+			switch v := mw.(type) {
+			case *hook.Handler[*core.RequestEvent]:
+				handlers = append(handlers, v)
+			case func(*core.RequestEvent) error:
+				handlers = append(handlers, &hook.Handler[*core.RequestEvent]{Func: v})
 			}
 		}
 		if len(handlers) > 0 {
 			vrc.pbRoute.Bind(handlers...)
 		}
+	}
+
+	return vrc
+}
+
+// BindFunc registers plain middleware functions to the route.
+// This mirrors PocketBase's Route.BindFunc API and is the ergonomic counterpart
+// to Bind(). Each func is forwarded to the underlying PocketBase route via BindFunc,
+// and also stored (wrapped) for docs registry analysis.
+func (vrc *VersionedRouteChain) BindFunc(middlewareFuncs ...func(*core.RequestEvent) error) *VersionedRouteChain {
+	// Wrap plain funcs as hook.Handlers for storage + registry analysis
+	wrapped := make([]interface{}, 0, len(middlewareFuncs))
+	for _, fn := range middlewareFuncs {
+		fn := fn // capture loop var
+		wrapped = append(wrapped, &hook.Handler[*core.RequestEvent]{Func: fn})
+	}
+	vrc.middlewares = append(vrc.middlewares, wrapped...)
+
+	// Update docs registry
+	vrc.router.registry.RegisterRoute(vrc.method, vrc.path, vrc.handler, vrc.middlewares...)
+
+	// Forward to the real PocketBase route — it handles the hook.Handler wrapping internally
+	if vrc.pbRoute != nil {
+		vrc.pbRoute.BindFunc(middlewareFuncs...)
 	}
 
 	return vrc
