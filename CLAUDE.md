@@ -10,16 +10,16 @@ Users import `github.com/magooney-loon/pb-ext/core` and build their server in `c
 
 ## Build & Run Commands
 
-All operations go through the custom Go build toolchain — there is no Makefile.
+All operations go through `pb-cli`.
 
 | Command | Purpose |
 |---|---|
-| `go run cmd/scripts/main.go` | Build frontend + start dev server |
-| `go run cmd/scripts/main.go --run-only` | Start server only (skip frontend build) |
-| `go run cmd/scripts/main.go --build-only` | Build frontend to `pb_public/`, no server |
-| `go run cmd/scripts/main.go --install` | Install all deps, then build + run |
-| `go run cmd/scripts/main.go --production` | Full production build to `dist/` |
-| `go run cmd/scripts/main.go --test-only` | Run tests with coverage reports |
+| `pb-cli` | Build frontend + start dev server |
+| `pb-cli --run-only` | Start server only (skip frontend build) |
+| `pb-cli --build-only` | Build frontend to `pb_public/`, no server |
+| `pb-cli --install` | Install all deps, then build + run |
+| `pb-cli --production` | Full production build to `dist/` |
+| `pb-cli --test-only` | Run tests with coverage reports |
 | `go test ./...` | Run all Go tests directly |
 | `go test ./core/server/api/...` | Run tests for a specific package |
 

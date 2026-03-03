@@ -190,6 +190,30 @@ func ValidateOpenAPISpecs(rootDir string) error {
 	return nil
 }
 
+// CopyOpenAPISpecsToDist copies OpenAPI specs to the dist directory for production.
+func CopyOpenAPISpecsToDist(rootDir, outputDir string) error {
+	specsSrcDir := filepath.Join(rootDir, "core", "server", "api", "specs")
+	specsDstDir := filepath.Join(outputDir, "specs")
+
+	if _, err := os.Stat(specsSrcDir); os.IsNotExist(err) {
+		PrintInfo("No OpenAPI specs directory found, skipping copy")
+		return nil
+	}
+
+	PrintBuildStep("Copying OpenAPI specs", "core/server/api/specs → dist/specs")
+
+	if err := os.MkdirAll(specsDstDir, 0755); err != nil {
+		return fmt.Errorf("failed to create specs directory in dist: %w", err)
+	}
+
+	if err := copyDir(specsSrcDir, specsDstDir); err != nil {
+		return fmt.Errorf("failed to copy specs to dist: %w", err)
+	}
+
+	PrintSubItem("✓", "OpenAPI specs copied to dist")
+	return nil
+}
+
 // CopyFrontendToPbPublic copies the built frontend to the pb_public directory
 func CopyFrontendToPbPublic(rootDir, frontendDir string) error {
 	pbPublicDir := filepath.Join(rootDir, "pb_public")

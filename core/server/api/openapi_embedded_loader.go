@@ -1,19 +1,14 @@
 package api
 
 import (
-	"embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 )
-
-//go:embed specs
-var embeddedSpecsFS embed.FS
 
 const specsDirEnv = "PB_EXT_OPENAPI_SPECS_DIR"
 const disableEmbeddedSpecsEnv = "PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS"
@@ -131,54 +126,23 @@ func GetEmbeddedSpec(version string) (*APIDocs, error) {
 
 func loadSpecsIndex() {
 	specsOnce.Do(func() {
-		// Prefer disk when override env is set.
-		if dir := strings.TrimSpace(os.Getenv(specsDirEnv)); dir != "" {
-			versions, err := listSpecVersionsFromDisk(dir)
-			if err == nil {
-				specVersions = versions
-				return
-			}
-			// If override was explicitly requested and fails, preserve error.
-			specsIndexErr = fmt.Errorf("failed to read specs directory %q from %s: %w", dir, specsDirEnv, err)
+		dir := specsDirPath()
+		versions, err := listSpecVersionsFromDisk(dir)
+		if err == nil && len(versions) > 0 {
+			specVersions = versions
 			return
 		}
 
-		versions, err := listSpecVersionsFromEmbed()
-		if err != nil {
-			specsIndexErr = fmt.Errorf("failed to read embedded specs: %w", err)
+		// If PB_EXT_OPENAPI_SPECS_DIR was explicitly set, report the error
+		if strings.TrimSpace(os.Getenv(specsDirEnv)) != "" {
+			specsIndexErr = fmt.Errorf("failed to read specs directory %q: %w", dir, err)
 			return
 		}
-		specVersions = versions
+
+		// No specs on disk and no explicit env - this is expected in dev mode
+		// where specs are generated at runtime via AST parsing
+		specVersions = []string{}
 	})
-}
-
-func listSpecVersionsFromEmbed() ([]string, error) {
-	entries, err := fs.ReadDir(embeddedSpecsFS, "specs")
-	if err != nil {
-		entries, err = fs.ReadDir(embeddedSpecsFS, ".")
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	versions := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".json") {
-			continue
-		}
-		base := strings.TrimSuffix(name, ".json")
-		if base == "" {
-			continue
-		}
-		versions = append(versions, base)
-	}
-
-	sort.Strings(versions)
-	return versions, nil
 }
 
 func listSpecVersionsFromDisk(dir string) ([]string, error) {
@@ -215,13 +179,12 @@ func specSourceFor(version string) string {
 	}
 	specsMu.RUnlock()
 
-	// For uncached versions, source selection follows index policy:
-	// - disk when PB_EXT_OPENAPI_SPECS_DIR is set
-	// - embedded otherwise
+	// Prefer disk by default (production). Only use env override.
 	if strings.TrimSpace(os.Getenv(specsDirEnv)) != "" {
 		return "disk"
 	}
-	return "embed"
+	// Default: disk (production) - runtime generation handles dev mode
+	return "disk"
 }
 
 func readSpecBytes(version, source string) ([]byte, error) {
@@ -229,9 +192,6 @@ func readSpecBytes(version, source string) ([]byte, error) {
 	case "disk":
 		specPath := diskSpecPath(version)
 		return os.ReadFile(specPath)
-	case "embed":
-		specPath := filepath.ToSlash(filepath.Join("specs", version+".json"))
-		return embeddedSpecsFS.ReadFile(specPath)
 	default:
 		return nil, fmt.Errorf("unknown spec source %q", source)
 	}
@@ -241,7 +201,10 @@ func specsDirPath() string {
 	if fromEnv := strings.TrimSpace(os.Getenv(specsDirEnv)); fromEnv != "" {
 		return fromEnv
 	}
-	return filepath.Clean(filepath.Join("core", "server", "api", "specs"))
+	if strings.HasSuffix(filepath.Base(os.Args[0]), testBinaryNameSuffix) {
+		return "specs"
+	}
+	return "specs"
 }
 
 func diskSpecPath(version string) string {

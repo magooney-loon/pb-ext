@@ -48,6 +48,11 @@ func ProductionBuild(rootDir string, installDeps bool, distDir string) error {
 		return fmt.Errorf("openapi spec validation failed: %w", err)
 	}
 
+	// Copy OpenAPI specs to dist (they will be read from disk in production)
+	if err := CopyOpenAPISpecsToDist(rootDir, outputDir); err != nil {
+		PrintWarning("Failed to copy OpenAPI specs to dist: %v", err)
+	}
+
 	// Build server binary
 	if err := BuildServerBinary(rootDir, outputDir); err != nil {
 		return fmt.Errorf("server binary build failed: %w", err)

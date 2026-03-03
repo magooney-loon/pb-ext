@@ -10,6 +10,7 @@ import (
 
 func TestMain(m *testing.M) {
 	os.Setenv(disableEmbeddedSpecsEnv, "false")
+	os.Setenv(specsDirEnv, "specs")
 	os.Exit(m.Run())
 }
 
@@ -246,9 +247,9 @@ func TestSpecSourceFor(t *testing.T) {
 	// After GetEmbeddedSpec is called, the source is cached and won't change
 	// So this test just verifies the function works correctly
 
-	// First call will set the cache to "embed" since no env is set
+	// First call will set the cache to "disk" (default for non-embed mode)
 	source := specSourceFor("v1")
-	assert.Equal(t, "embed", source)
+	assert.Equal(t, "disk", source)
 }
 
 func TestReadSpecBytes(t *testing.T) {
@@ -260,23 +261,23 @@ func TestReadSpecBytes(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "embed v1",
+			name:    "disk v1",
 			version: "v1",
-			source:  "embed",
+			source:  "disk",
 			wantLen: 14427,
 			wantErr: false,
 		},
 		{
-			name:    "embed v2",
+			name:    "disk v2",
 			version: "v2",
-			source:  "embed",
+			source:  "disk",
 			wantLen: 6318,
 			wantErr: false,
 		},
 		{
-			name:    "embed non-existent",
+			name:    "disk non-existent",
 			version: "v99",
-			source:  "embed",
+			source:  "disk",
 			wantLen: 0,
 			wantErr: true,
 		},
