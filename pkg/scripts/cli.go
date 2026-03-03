@@ -1,4 +1,4 @@
-package main
+package scripts
 
 import (
 	"flag"
@@ -6,10 +6,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/magooney-loon/pb-ext/cmd/scripts/internal"
+	"github.com/magooney-loon/pb-ext/pkg/scripts/internal"
 )
 
-func main() {
+// RunCLI is the main entry point for the pb-cli tool.
+// It can be called from other packages or used as a standalone CLI.
+func RunCLI() {
 	// Parse command line flags
 	installDeps := flag.Bool("install", false, "Install project dependencies")
 	buildOnly := flag.Bool("build-only", false, "Build frontend without running the server")

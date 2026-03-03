@@ -132,64 +132,50 @@ func initApp(devMode bool) {
 // You can restructure Your project as You wish,
 // just keep this main.go in cmd/server/main.go
 //
+// Build toolchain (pb-cli):
+// go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
+//
 // Need a pre-built Svelte5Kit starter template?
 // https://github.com/magooney-loon/svelte-gui
 //
 // Ready for a production build deployment?
 // https://github.com/magooney-loon/pb-deployer
-
 ```
 
 ```bash
 go mod tidy
-go run cmd/scripts/main.go --run-only
+go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
+pb-cli --run-only
+```
+
+
+# Or install pb-cli globally:
+# go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
+# pb-cli --run-only
 ```
 
 See `**/*/README.md` for detailed docs.
 
 ## OpenAPI Spec Generation & Embedding
 
-pb-ext now supports build-time OpenAPI spec generation with embedded runtime loading.
-
-### Generate specs manually
-
-```bash
-go run ./cmd/server --generate-specs-dir ./core/server/api/specs
-```
-
-Optional: generate only one version:
-
-```bash
-go run ./cmd/server --generate-specs-dir ./core/server/api/specs --generate-spec-version v1
-```
-
-### Validate generated specs
-
-```bash
-go run ./cmd/server --validate-specs-dir ./core/server/api/specs
-```
-
-### Runtime behavior
-
-- At runtime, docs loading is **embedded-first** by version (`v1`, `v2`, etc.).
-- If an embedded spec isn't available or doesn't match runtime config checks, pb-ext falls back to runtime generation.
-- For local/debug overrides, set:
-
-```bash
-PB_EXT_OPENAPI_SPECS_DIR=/absolute/path/to/specs
-```
-
-When set, specs from that directory are preferred for lookup.
-
 ### Build pipeline integration
 
-The script pipeline runs OpenAPI generation + validation automatically before server compilation in relevant modes:
+The pb-cli toolchain runs OpenAPI generation + validation automatically before server compilation. First install it globally:
 
 ```bash
-go run cmd/scripts/main.go
-go run cmd/scripts/main.go --build-only
-go run cmd/scripts/main.go --production
+go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
 ```
+
+Then use it in your project:
+
+```bash
+pb-cli              # Development mode
+pb-cli --build-only # Build frontend only
+pb-cli --production # Production build
+```
+
+For programmatic usage, see `pkg/scripts/README.md`.
+
 
 Having issues with Your API Docs?
 ```bash

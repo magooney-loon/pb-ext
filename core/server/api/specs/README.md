@@ -11,8 +11,14 @@ go run ./cmd/server --generate-specs-dir ./core/server/api/specs
 Validation command:
 go run ./cmd/server --validate-specs-dir ./core/server/api/specs
 
-The script pipeline runs OpenAPI generation + validation automatically before server compilation in relevant modes:
+The pb-cli toolchain runs OpenAPI generation + validation automatically before server compilation. First install it globally:
 
-go run cmd/scripts/main.go
-go run cmd/scripts/main.go --build-only
-go run cmd/scripts/main.go --production
+go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
+
+Then use it in your project:
+
+pb-cli              # Development mode
+pb-cli --build-only # Build frontend only
+pb-cli --production # Production build
+
+For programmatic usage, see pkg/scripts/README.md.

@@ -24,20 +24,21 @@ var SystemJobIDs = []string{
 	"__pbOTPCleanup__",
 	"__pbMFACleanup__",
 	"__pbDBOptimize__",
+	"__pbRateLimitersCleanup__",
 	"__pbExtLogClean__",
 	"__pbExtAnalyticsClean__",
 }
 
 // JobMetadata holds registration info for a cron job.
 type JobMetadata struct {
-	ID          string                    `json:"id"`
-	Name        string                    `json:"name"`
-	Description string                    `json:"description"`
-	Expression  string                    `json:"expression"`
-	IsSystemJob bool                      `json:"is_system_job"`
-	CreatedAt   time.Time                 `json:"created_at"`
-	IsActive    bool                      `json:"is_active"`
-	Function    func(*ExecutionLogger)    `json:"-"`
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Expression  string                 `json:"expression"`
+	IsSystemJob bool                   `json:"is_system_job"`
+	CreatedAt   time.Time              `json:"created_at"`
+	IsActive    bool                   `json:"is_active"`
+	Function    func(*ExecutionLogger) `json:"-"`
 }
 
 // ExecutionResult is the outcome of a single job run.
