@@ -1097,10 +1097,11 @@ func TestGetVersionOpenAPI(t *testing.T) {
 		Enabled:     true,
 	}
 
-	vm.RegisterVersion("v1", config)
+	// Use "test" version instead of "v1" to avoid conflict with embedded specs
+	vm.RegisterVersion("test", config)
 
 	// Register some endpoints
-	registry, _ := vm.GetVersionRegistry("v1")
+	registry, _ := vm.GetVersionRegistry("test")
 	if registry != nil {
 		endpoint := APIEndpoint{
 			Method:      "GET",

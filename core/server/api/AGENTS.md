@@ -36,6 +36,8 @@ This package (`core/server/api/`) is the OpenAPI documentation engine for pb-ext
 | `discovery.go` | `RouteAnalyzer`, `MiddlewareAnalyzer`, `PathAnalyzer` — runtime route analysis utilities |
 | `debug_dump.go` | `BuildDebugData()` — serves the `/api/docs/debug/ast` endpoint with full pipeline introspection |
 | `utils.go` | String helpers: handler name extraction, camelCase/snake_case, description/tag generation, path conversion |
+| `openapi_embedded_loader.go` | Embedded spec loading via `go:embed`, caching, env var override (`PB_EXT_OPENAPI_SPECS_DIR`, `PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS`) |
+| `spec_generator.go` | Spec generation and validation for build-time embedding |
 
 ### Tests
 | File | What it covers |
@@ -49,6 +51,8 @@ This package (`core/server/api/`) is the OpenAPI documentation engine for pb-ext
 | `version_manager_test.go` | `APIVersionManager` and versioned routing |
 | `discovery_test.go` | Route/middleware/path analysis |
 | `utils_test.go` | String helper utilities |
+| `openapi_embedded_loader_test.go` | Embedded spec loading, caching, deep copy, env var handling |
+| `spec_generator_test.go` | Spec generation and validation |
 
 ## Pipeline Overview
 
@@ -334,4 +338,12 @@ go test ./core/server/api/... -v
 go test ./core/server/api/... -run TestHandlerScenario     # handler scenarios
 go test ./core/server/api/... -run TestIndirectParams      # indirect param extraction
 go test ./core/server/api/... -run TestCrossPackage        # import following
+go test ./core/server/api/... -run TestEmbeddedSpec        # embedded spec loading
+go test ./core/server/api/... -run TestGetEmbeddedSpec     # embedded spec caching/deep copy
 ```
+
+### Embedded Spec Testing Notes
+
+- During `go test`, the binary name ends with `.test`, which auto-disables embedded spec loading.
+- Tests must set `PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS=false` to test embedded loading.
+- The key bug to watch for: cached `parseErrs[version] = nil` with key still present can cause `GetEmbeddedSpec` to return `(nil, nil)` on subsequent calls.

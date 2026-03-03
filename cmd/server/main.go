@@ -16,14 +16,20 @@ func main() {
 	flag.Parse()
 
 	if *generateSpecsDir != "" {
-		if err := generateSpecs(*generateSpecsDir, *generateSpecVersion); err != nil {
+		gen := app.NewSpecGeneratorWithInitializer(func() (*app.APIVersionManager, error) {
+			return initVersionedSystem(), nil
+		})
+		if err := gen.Generate(*generateSpecsDir, *generateSpecVersion); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 
 	if *validateSpecsDir != "" {
-		if err := validateSpecs(*validateSpecsDir); err != nil {
+		gen := app.NewSpecGeneratorWithInitializer(func() (*app.APIVersionManager, error) {
+			return initVersionedSystem(), nil
+		})
+		if err := gen.Validate(*validateSpecsDir); err != nil {
 			log.Fatal(err)
 		}
 		return

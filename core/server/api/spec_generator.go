@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"encoding/json"
@@ -6,14 +6,36 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-
-	"github.com/magooney-loon/pb-ext/core/server/api"
 )
 
-const openAPISpecsDirEnv = "PB_EXT_OPENAPI_SPECS_DIR"
-const disableEmbeddedSpecsEnv = "PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS"
+// Note: Uses env vars defined in openapi_embedded_loader.go:
+// - specsDirEnv = "PB_EXT_OPENAPI_SPECS_DIR"
+// - disableEmbeddedSpecsEnv = "PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS"
 
-func generateSpecs(outputDir string, onlyVersion string) error {
+type VersionConfigProvider func() map[string]*APIDocsConfig
+type VersionManagerInitializer func() (*APIVersionManager, error)
+type RouteRegistrar func(vm *APIVersionManager) error
+
+type SpecGenerator struct {
+	versionConfigs VersionConfigProvider
+	routeRegistrar RouteRegistrar
+	vmInitializer  VersionManagerInitializer
+}
+
+func NewSpecGenerator(configs VersionConfigProvider, routes RouteRegistrar) *SpecGenerator {
+	return &SpecGenerator{
+		versionConfigs: configs,
+		routeRegistrar: routes,
+	}
+}
+
+func NewSpecGeneratorWithInitializer(initializer VersionManagerInitializer) *SpecGenerator {
+	return &SpecGenerator{
+		vmInitializer: initializer,
+	}
+}
+
+func (sg *SpecGenerator) Generate(outputDir string, onlyVersion string) error {
 	if outputDir == "" {
 		return fmt.Errorf("spec output directory is required")
 	}
@@ -22,19 +44,19 @@ func generateSpecs(outputDir string, onlyVersion string) error {
 		return fmt.Errorf("failed to create specs directory %q: %w", outputDir, err)
 	}
 
-	originalSpecsDirEnv, hadSpecsDirEnv := os.LookupEnv(openAPISpecsDirEnv)
-	if err := os.Unsetenv(openAPISpecsDirEnv); err != nil {
-		return fmt.Errorf("failed to unset %s for generation: %w", openAPISpecsDirEnv, err)
+	originalspecsDirEnv, hadspecsDirEnv := os.LookupEnv(specsDirEnv)
+	if err := os.Unsetenv(specsDirEnv); err != nil {
+		return fmt.Errorf("failed to unset %s for generation: %w", specsDirEnv, err)
 	}
 	originalDisableEmbeddedEnv, hadDisableEmbeddedEnv := os.LookupEnv(disableEmbeddedSpecsEnv)
 	if err := os.Setenv(disableEmbeddedSpecsEnv, "1"); err != nil {
 		return fmt.Errorf("failed to set %s for generation: %w", disableEmbeddedSpecsEnv, err)
 	}
 	defer func() {
-		if hadSpecsDirEnv {
-			_ = os.Setenv(openAPISpecsDirEnv, originalSpecsDirEnv)
+		if hadspecsDirEnv {
+			_ = os.Setenv(specsDirEnv, originalspecsDirEnv)
 		} else {
-			_ = os.Unsetenv(openAPISpecsDirEnv)
+			_ = os.Unsetenv(specsDirEnv)
 		}
 
 		if hadDisableEmbeddedEnv {
@@ -44,12 +66,27 @@ func generateSpecs(outputDir string, onlyVersion string) error {
 		}
 	}()
 
-	versionManager := initVersionedSystem()
-	if err := registerVersionedRoutesForDocsGeneration(versionManager); err != nil {
-		return fmt.Errorf("failed to register routes for docs generation: %w", err)
+	var vm *APIVersionManager
+	var err error
+
+	if sg.vmInitializer != nil {
+		vm, err = sg.vmInitializer()
+		if err != nil {
+			return fmt.Errorf("failed to initialize version manager: %w", err)
+		}
+		if err := vm.RegisterAllVersionRoutesForDocs(); err != nil {
+			return fmt.Errorf("failed to register routes for docs generation: %w", err)
+		}
+	} else {
+		vm = InitializeVersionedSystem(sg.versionConfigs(), "v1")
+		if sg.routeRegistrar != nil {
+			if err := sg.routeRegistrar(vm); err != nil {
+				return fmt.Errorf("failed to register routes for docs generation: %w", err)
+			}
+		}
 	}
 
-	versions := versionManager.GetAllVersions()
+	versions := vm.GetAllVersions()
 	sort.Strings(versions)
 
 	if onlyVersion != "" {
@@ -67,7 +104,7 @@ func generateSpecs(outputDir string, onlyVersion string) error {
 	}
 
 	for _, version := range versions {
-		registry, err := versionManager.GetVersionRegistry(version)
+		registry, err := vm.GetVersionRegistry(version)
 		if err != nil {
 			return fmt.Errorf("failed to get registry for version %q: %w", version, err)
 		}
@@ -88,29 +125,42 @@ func generateSpecs(outputDir string, onlyVersion string) error {
 		}
 	}
 
-	return validateGeneratedVersions(outputDir, versions)
+	return ValidateSpecs(outputDir, versions)
 }
 
-func validateSpecs(specsDir string) error {
+func (sg *SpecGenerator) Validate(specsDir string) error {
 	if specsDir == "" {
 		return fmt.Errorf("specs directory is required")
 	}
 
-	versionManager := initVersionedSystem()
-	versions := versionManager.GetAllVersions()
-	sort.Strings(versions)
+	var versionList []string
 
-	return validateGeneratedVersions(specsDir, versions)
+	if sg.vmInitializer != nil {
+		vm, err := sg.vmInitializer()
+		if err != nil {
+			return fmt.Errorf("failed to initialize version manager: %w", err)
+		}
+		versionList = vm.GetAllVersions()
+	} else {
+		versions := sg.versionConfigs()
+		versionList = make([]string, 0, len(versions))
+		for v := range versions {
+			versionList = append(versionList, v)
+		}
+	}
+	sort.Strings(versionList)
+
+	return ValidateSpecs(specsDir, versionList)
 }
 
-func validateGeneratedVersions(specsDir string, versions []string) error {
+func ValidateSpecs(specsDir string, versions []string) error {
 	if len(versions) == 0 {
 		return fmt.Errorf("no configured API versions found")
 	}
 
 	for _, version := range versions {
 		specPath := filepath.Join(specsDir, version+".json")
-		if err := validateSingleSpecFile(specPath, version); err != nil {
+		if err := ValidateSpecFile(specPath, version); err != nil {
 			return err
 		}
 	}
@@ -118,13 +168,13 @@ func validateGeneratedVersions(specsDir string, versions []string) error {
 	return nil
 }
 
-func validateSingleSpecFile(specPath string, expectedVersion string) error {
+func ValidateSpecFile(specPath string, expectedVersion string) error {
 	data, err := os.ReadFile(specPath)
 	if err != nil {
 		return fmt.Errorf("missing or unreadable spec file %q: %w", specPath, err)
 	}
 
-	var docs api.APIDocs
+	var docs APIDocs
 	if err := json.Unmarshal(data, &docs); err != nil {
 		return fmt.Errorf("invalid JSON in %q: %w", specPath, err)
 	}
