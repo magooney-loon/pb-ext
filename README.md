@@ -149,11 +149,6 @@ pb-cli --run-only
 ```
 
 
-# Or install pb-cli globally:
-# go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
-# pb-cli --run-only
-```
-
 See `**/*/README.md` for detailed docs.
 
 ## OpenAPI Spec Generation & Embedding
