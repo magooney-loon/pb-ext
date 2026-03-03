@@ -127,7 +127,7 @@ func ShowHelp() {
 		Cyan, Bold, AppName, Reset, Gray, Version, Reset)
 
 	fmt.Printf("%sUSAGE:%s\n", Bold, Reset)
-	fmt.Printf("  go run ./cmd/scripts [options]\n\n")
+	fmt.Printf("  pb-cli [options]\n\n")
 
 	fmt.Printf("%sOPTIONS:%s\n", Bold, Reset)
 	fmt.Printf("  --help          Show this help\n")
@@ -139,9 +139,9 @@ func ShowHelp() {
 	fmt.Printf("  --dist DIR      Output directory\n\n")
 
 	fmt.Printf("%sEXAMPLES:%s\n", Bold, Reset)
-	fmt.Printf("  go run ./cmd/scripts\n")
-	fmt.Printf("  go run ./cmd/scripts --production\n")
-	fmt.Printf("  go run ./cmd/scripts --test-only\n")
+	fmt.Printf("  pb-cli\n")
+	fmt.Printf("  pb-cli --production\n")
+	fmt.Printf("  pb-cli --test-only\n")
 }
 
 // PrintBanner displays app info and operation
