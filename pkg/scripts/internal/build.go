@@ -146,6 +146,50 @@ func BuildFrontendCore(frontendDir string) error {
 	return nil
 }
 
+// GenerateOpenAPISpecs generates versioned OpenAPI JSON files used for binary embedding.
+func GenerateOpenAPISpecs(rootDir string) error {
+	specsDir := filepath.Join(rootDir, "core", "server", "api", "specs")
+
+	if err := os.MkdirAll(specsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create OpenAPI specs directory: %w", err)
+	}
+
+	PrintBuildStep("Generating OpenAPI specs", "cmd/server --generate-specs-dir")
+	start := time.Now()
+
+	cmd := exec.Command("go", "run", "./cmd/server", "--generate-specs-dir", "./core/server/api/specs")
+	cmd.Dir = rootDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("OpenAPI spec generation failed: %w", err)
+	}
+
+	duration := time.Since(start)
+	PrintSubItem("✓", fmt.Sprintf("OpenAPI specs generated (%v)", duration.Round(time.Millisecond)))
+	return nil
+}
+
+// ValidateOpenAPISpecs validates generated OpenAPI specs.
+func ValidateOpenAPISpecs(rootDir string) error {
+	PrintBuildStep("Validating OpenAPI specs", "cmd/server --validate-specs-dir")
+
+	cmd := exec.Command("go", "run", "./cmd/server", "--validate-specs-dir", "./core/server/api/specs")
+	cmd.Dir = rootDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	start := time.Now()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("OpenAPI spec validation failed: %w", err)
+	}
+
+	duration := time.Since(start)
+	PrintSubItem("✓", fmt.Sprintf("OpenAPI specs validated (%v)", duration.Round(time.Millisecond)))
+	return nil
+}
+
 // CopyFrontendToPbPublic copies the built frontend to the pb_public directory
 func CopyFrontendToPbPublic(rootDir, frontendDir string) error {
 	pbPublicDir := filepath.Join(rootDir, "pb_public")

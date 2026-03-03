@@ -20,13 +20,14 @@ import (
 
 // APIVersionManager manages multiple API versions with separate registries
 type APIVersionManager struct {
-	mu             sync.RWMutex
-	versions       []string                  // ordered list of versions
-	defaultVersion string                    // default version to use
-	registries     map[string]*APIRegistry   // separate registry per version
-	configs        map[string]*APIDocsConfig // version-specific configs
-	createdAt      time.Time                 // when manager was created
-	lastModified   time.Time                 // last time versions were modified
+	mu              sync.RWMutex
+	versions        []string                             // ordered list of versions
+	defaultVersion  string                               // default version to use
+	registries      map[string]*APIRegistry              // separate registry per version
+	configs         map[string]*APIDocsConfig            // version-specific configs
+	routeRegistrars map[string]func(*VersionedAPIRouter) // per-version route registration callbacks
+	createdAt       time.Time                            // when manager was created
+	lastModified    time.Time                            // last time versions were modified
 }
 
 // VersionInfo contains information about a specific API version
@@ -86,11 +87,12 @@ func ValidateConfiguration(config *APIDocsConfig) []string {
 // NewAPIVersionManager creates a new version manager
 func NewAPIVersionManager() *APIVersionManager {
 	return &APIVersionManager{
-		versions:     []string{},
-		registries:   make(map[string]*APIRegistry),
-		configs:      make(map[string]*APIDocsConfig),
-		createdAt:    time.Now(),
-		lastModified: time.Now(),
+		versions:        []string{},
+		registries:      make(map[string]*APIRegistry),
+		configs:         make(map[string]*APIDocsConfig),
+		routeRegistrars: make(map[string]func(*VersionedAPIRouter)),
+		createdAt:       time.Now(),
+		lastModified:    time.Now(),
 	}
 }
 
@@ -124,6 +126,7 @@ func (vm *APIVersionManager) RegisterVersion(version string, config *APIDocsConf
 	astParser := NewASTParser()
 	schemaGenerator := NewSchemaGenerator(astParser)
 	registry := NewAPIRegistry(config, astParser, schemaGenerator)
+	registry.SetVersion(version)
 
 	// Set version-specific server URL so each version's OpenAPI spec is self-identifying
 	effectiveConfig := config
@@ -177,6 +180,7 @@ func (vm *APIVersionManager) RemoveVersion(version string) error {
 	// Remove from all maps and slices
 	delete(vm.configs, version)
 	delete(vm.registries, version)
+	delete(vm.routeRegistrars, version)
 
 	for i, v := range vm.versions {
 		if v == version {
@@ -227,9 +231,134 @@ func (vm *APIVersionManager) GetVersionRouter(version string, e *core.ServeEvent
 	}, nil
 }
 
+// NewDocsOnlyVersionRouter creates a versioned router bound only to docs registry state.
+// It does not require a ServeEvent and should be used for build-time/spec generation flows.
+func (vm *APIVersionManager) NewDocsOnlyVersionRouter(version string) (*VersionedAPIRouter, error) {
+	registry, err := vm.GetVersionRegistry(version)
+	if err != nil {
+		return nil, err
+	}
+
+	return &VersionedAPIRouter{
+		serveEvent: nil,
+		version:    version,
+		manager:    vm,
+		registry:   registry,
+	}, nil
+}
+
+// SetVersionRouteRegistrar sets or replaces the route registration callback for a version.
+func (vm *APIVersionManager) SetVersionRouteRegistrar(version string, registrar func(*VersionedAPIRouter)) error {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
+	if _, exists := vm.configs[version]; !exists {
+		return fmt.Errorf("version %s does not exist", version)
+	}
+	if registrar == nil {
+		return fmt.Errorf("route registrar cannot be nil")
+	}
+
+	vm.routeRegistrars[version] = registrar
+	vm.lastModified = time.Now()
+	return nil
+}
+
+// SetVersionRouteRegistrars sets route registration callbacks for multiple versions.
+func (vm *APIVersionManager) SetVersionRouteRegistrars(registrars map[string]func(*VersionedAPIRouter)) error {
+	for version, registrar := range registrars {
+		if err := vm.SetVersionRouteRegistrar(version, registrar); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidateRouteRegistrars ensures every registered API version has a route registrar.
+func (vm *APIVersionManager) ValidateRouteRegistrars() error {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+
+	missing := make([]string, 0)
+	for _, version := range vm.versions {
+		registrar, exists := vm.routeRegistrars[version]
+		if !exists || registrar == nil {
+			missing = append(missing, version)
+		}
+	}
+
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("missing route registrar(s): %s", strings.Join(missing, ", "))
+	}
+
+	return nil
+}
+
+// RegisterAllVersionRoutes registers all version routes to a ServeEvent router and docs registries.
+func (vm *APIVersionManager) RegisterAllVersionRoutes(e *core.ServeEvent) error {
+	if err := vm.ValidateRouteRegistrars(); err != nil {
+		return err
+	}
+
+	versions := vm.GetAllVersions()
+	for _, version := range versions {
+		if err := vm.RegisterVersionRoutes(version, e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RegisterAllVersionRoutesForDocs registers all version routes only to docs registries.
+func (vm *APIVersionManager) RegisterAllVersionRoutesForDocs() error {
+	if err := vm.ValidateRouteRegistrars(); err != nil {
+		return err
+	}
+
+	versions := vm.GetAllVersions()
+	for _, version := range versions {
+		if err := vm.RegisterVersionRoutes(version, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RegisterVersionRoutes registers one version's routes either for serve (when e != nil) or docs-only (when e == nil).
+func (vm *APIVersionManager) RegisterVersionRoutes(version string, e *core.ServeEvent) error {
+	vm.mu.RLock()
+	registrar, exists := vm.routeRegistrars[version]
+	vm.mu.RUnlock()
+
+	if !exists || registrar == nil {
+		return fmt.Errorf("route registrar for version %s not found", version)
+	}
+
+	var (
+		router *VersionedAPIRouter
+		err    error
+	)
+
+	if e != nil {
+		router, err = vm.GetVersionRouter(version, e)
+	} else {
+		router, err = vm.NewDocsOnlyVersionRouter(version)
+	}
+	if err != nil {
+		return err
+	}
+
+	registrar(router)
+	return nil
+}
+
 // GET registers a GET route with automatic documentation
 func (vr *VersionedAPIRouter) GET(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	pbRoute := vr.serveEvent.Router.GET(path, handler)
+	var pbRoute *router.Route[*core.RequestEvent]
+	if vr != nil && vr.serveEvent != nil && vr.serveEvent.Router != nil {
+		pbRoute = vr.serveEvent.Router.GET(path, handler)
+	}
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "GET",
@@ -245,7 +374,10 @@ func (vr *VersionedAPIRouter) GET(path string, handler func(*core.RequestEvent) 
 
 // POST registers a POST route with automatic documentation
 func (vr *VersionedAPIRouter) POST(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	pbRoute := vr.serveEvent.Router.POST(path, handler)
+	var pbRoute *router.Route[*core.RequestEvent]
+	if vr != nil && vr.serveEvent != nil && vr.serveEvent.Router != nil {
+		pbRoute = vr.serveEvent.Router.POST(path, handler)
+	}
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "POST",
@@ -261,7 +393,10 @@ func (vr *VersionedAPIRouter) POST(path string, handler func(*core.RequestEvent)
 
 // PATCH registers a PATCH route with automatic documentation
 func (vr *VersionedAPIRouter) PATCH(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	pbRoute := vr.serveEvent.Router.PATCH(path, handler)
+	var pbRoute *router.Route[*core.RequestEvent]
+	if vr != nil && vr.serveEvent != nil && vr.serveEvent.Router != nil {
+		pbRoute = vr.serveEvent.Router.PATCH(path, handler)
+	}
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "PATCH",
@@ -277,7 +412,10 @@ func (vr *VersionedAPIRouter) PATCH(path string, handler func(*core.RequestEvent
 
 // DELETE registers a DELETE route with automatic documentation
 func (vr *VersionedAPIRouter) DELETE(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	pbRoute := vr.serveEvent.Router.DELETE(path, handler)
+	var pbRoute *router.Route[*core.RequestEvent]
+	if vr != nil && vr.serveEvent != nil && vr.serveEvent.Router != nil {
+		pbRoute = vr.serveEvent.Router.DELETE(path, handler)
+	}
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "DELETE",
@@ -293,7 +431,10 @@ func (vr *VersionedAPIRouter) DELETE(path string, handler func(*core.RequestEven
 
 // PUT registers a PUT route with automatic documentation
 func (vr *VersionedAPIRouter) PUT(path string, handler func(*core.RequestEvent) error) *VersionedRouteChain {
-	pbRoute := vr.serveEvent.Router.PUT(path, handler)
+	var pbRoute *router.Route[*core.RequestEvent]
+	if vr != nil && vr.serveEvent != nil && vr.serveEvent.Router != nil {
+		pbRoute = vr.serveEvent.Router.PUT(path, handler)
+	}
 	chain := &VersionedRouteChain{
 		router:      vr,
 		method:      "PUT",
@@ -647,7 +788,18 @@ func (vm *APIVersionManager) GetVersionOpenAPI(c *core.RequestEvent, version str
 		})
 	}
 
-	// Get documentation from version-specific registry
+	// Prefer direct embedded spec loading first; fall back to registry generation path.
+	if embeddedDocs, err := GetEmbeddedSpec(version); err == nil && embeddedDocs != nil {
+		embeddedDocs.Servers = []*OpenAPIServer{
+			{
+				URL:         fmt.Sprintf("http://%s/api/%s", c.Request.Host, version),
+				Description: fmt.Sprintf("API %s Server", version),
+			},
+		}
+		return c.JSON(http.StatusOK, embeddedDocs)
+	}
+
+	// Get documentation from version-specific registry (fallback)
 	docs := registry.GetDocsWithComponents()
 
 	return c.JSON(http.StatusOK, docs)
@@ -682,6 +834,18 @@ func (vm *APIVersionManager) GetVersionOpenAPIPublic(c *core.RequestEvent, versi
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": fmt.Sprintf("Version %s not found", version),
 		})
+	}
+
+	// Prefer direct embedded spec loading first; fall back to registry generation path.
+	embeddedDocs, embErr := GetEmbeddedSpec(version)
+	if embErr == nil && embeddedDocs != nil {
+		embeddedDocs.Servers = []*OpenAPIServer{
+			{
+				URL:         fmt.Sprintf("http://%s/api/%s", c.Request.Host, version),
+				Description: fmt.Sprintf("API %s Server", version),
+			},
+		}
+		return c.JSON(http.StatusOK, embeddedDocs)
 	}
 
 	docs := registry.GetDocsWithComponents()
@@ -1650,6 +1814,46 @@ func InitializeVersionManager(versions map[string]*APIDocsConfig, defaultVersion
 		if err := vm.RegisterVersion(version, config); err != nil {
 			// Skip failed version registration
 			continue
+		}
+	}
+
+	// Set global instance
+	SetGlobalVersionManager(vm)
+
+	return vm
+}
+
+// VersionSetup combines version configuration and route registration for streamlined setup
+type VersionSetup struct {
+	Config *APIDocsConfig
+	Routes func(*VersionedAPIRouter)
+}
+
+// InitializeVersionedSystemWithRoutes creates a version manager with both configs and route registrars in one call
+// This eliminates the need for separate InitializeVersionedSystem + SetVersionRouteRegistrars calls
+func InitializeVersionedSystemWithRoutes(versions map[string]*VersionSetup, defaultVersion string) *APIVersionManager {
+	vm := NewAPIVersionManagerWithDefault(defaultVersion)
+
+	// Register all versions and their route registrars
+	for version, setup := range versions {
+		if setup == nil {
+			continue
+		}
+
+		// Register version config
+		if setup.Config != nil {
+			if err := vm.RegisterVersion(version, setup.Config); err != nil {
+				// Skip failed version registration
+				continue
+			}
+		}
+
+		// Register route callback
+		if setup.Routes != nil {
+			if err := vm.SetVersionRouteRegistrar(version, setup.Routes); err != nil {
+				// Log error but continue
+				continue
+			}
 		}
 	}
 

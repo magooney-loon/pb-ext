@@ -13,36 +13,23 @@ import (
 )
 
 func registerRoutes(app core.App) {
-	// Initialize version manager with configs
-	versionManager := api.InitializeVersionedSystem(createAPIVersions(), "v1")
+	versionManager := initVersionedSystem()
 
+	// Register routes on serve and setup version management endpoints
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Get version-specific routers
-		v1Router, err := versionManager.GetVersionRouter("v1", e)
-		if err != nil {
+		if err := versionManager.RegisterAllVersionRoutes(e); err != nil {
 			return err
 		}
-
-		v2Router, err := versionManager.GetVersionRouter("v2", e)
-		if err != nil {
-			return err
-		}
-
-		// Register v1 routes
-		registerV1Routes(v1Router)
-
-		// Register v2 routes
-		registerV2Routes(v2Router)
-
 		return e.Next()
 	})
 
-	// Register version management endpoints
 	versionManager.RegisterWithServer(app)
 }
 
-// createAPIVersions creates version configurations with reduced duplication
-func createAPIVersions() map[string]*api.APIDocsConfig {
+// initVersionedSystem creates and configures the API version manager.
+// This function is reused by both the server startup and spec generation/validation.
+func initVersionedSystem() *api.APIVersionManager {
+	// Create version configurations
 	baseConfig := &api.APIDocsConfig{
 		Title:       "pb-ext demo api",
 		Description: "Hello world",
@@ -60,24 +47,31 @@ func createAPIVersions() map[string]*api.APIDocsConfig {
 
 		ExternalDocsURL:  "https://github.com/magooney-loon/pb-ext",
 		ExternalDocsDesc: "pb-ext documentation",
-
-		PublicSwagger: true,
 	}
 
 	// Create v1 config
 	v1Config := *baseConfig
 	v1Config.Version = "1.0.0"
 	v1Config.Status = "stable"
+	v1Config.PublicSwagger = true
 
 	// Create v2 config
 	v2Config := *baseConfig
 	v2Config.Version = "2.0.0"
 	v2Config.Status = "testing"
+	v2Config.PublicSwagger = false
 
-	return map[string]*api.APIDocsConfig{
-		"v1": &v1Config,
-		"v2": &v2Config,
-	}
+	// Initialize version manager with both configs and routes
+	return api.InitializeVersionedSystemWithRoutes(map[string]*api.VersionSetup{
+		"v1": {
+			Config: &v1Config,
+			Routes: registerV1Routes,
+		},
+		"v2": {
+			Config: &v2Config,
+			Routes: registerV2Routes,
+		},
+	}, "v1")
 }
 
 // registerV1Routes registers all v1 API routes
@@ -91,7 +85,6 @@ func registerV1Routes(router *api.VersionedAPIRouter) {
 	router.DELETE(prefix+"/todos/{id}", deleteTodoHandler).Bind(apis.RequireAuth())
 
 	// Option 2: CRUD convenience method (less boilerplate)
-	// Uncomment to use instead of manual registration above:
 	//
 	// v1 := router.SetPrefix("/api/v1")
 	// v1.CRUD("todos", api.CRUDHandlers{

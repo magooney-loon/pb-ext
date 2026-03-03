@@ -46,7 +46,30 @@ import (
 
 func main() {
 	devMode := flag.Bool("dev", false, "Run in developer mode")
+	generateSpecsDir := flag.String("generate-specs-dir", "", "Generate OpenAPI specs into the provided directory and exit")
+	generateSpecVersion := flag.String("generate-spec-version", "", "Optional API version to generate (requires --generate-specs-dir)")
+	validateSpecsDir := flag.String("validate-specs-dir", "", "Validate OpenAPI specs from the provided directory and exit")
 	flag.Parse()
+
+	if *generateSpecsDir != "" {
+		gen := app.NewSpecGeneratorWithInitializer(func() (*app.APIVersionManager, error) {
+			return initVersionedSystem(), nil
+		})
+		if err := gen.Generate(*generateSpecsDir, *generateSpecVersion); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	if *validateSpecsDir != "" {
+		gen := app.NewSpecGeneratorWithInitializer(func() (*app.APIVersionManager, error) {
+			return initVersionedSystem(), nil
+		})
+		if err := gen.Validate(*validateSpecsDir); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	initApp(*devMode)
 }
@@ -59,6 +82,22 @@ func initApp(devMode bool) {
 	} else {
 		opts = append(opts, app.InNormalMode())
 	}
+
+	// Option 1: Use a custom PocketBase config
+	// pbConfig := &pocketbase.Config{
+	// 	DefaultDev:     true,
+	// 	DefaultDataDir: "./custom_pb_data",
+	// }
+	// opts = append(opts, app.WithConfig(pbConfig))
+
+	// Option 2: Use an existing PocketBase instance
+	// pb := pocketbase.New()
+	// opts = append(opts, app.WithPocketbase(pb))
+
+	// Set custom port programmatically
+	// os.Args = []string{"app", "serve", "--http=127.0.0.1:9090"}
+
+	// Note: WithConfig and WithPocketbase cannot be used together
 
 	srv := app.New(opts...)
 
@@ -93,6 +132,9 @@ func initApp(devMode bool) {
 // You can restructure Your project as You wish,
 // just keep this main.go in cmd/server/main.go
 //
+// Build toolchain (pb-cli):
+// go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
+//
 // Need a pre-built Svelte5Kit starter template?
 // https://github.com/magooney-loon/svelte-gui
 //
@@ -102,10 +144,33 @@ func initApp(devMode bool) {
 
 ```bash
 go mod tidy
-go run cmd/scripts/main.go --run-only
+go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
+pb-cli --run-only
 ```
 
+
 See `**/*/README.md` for detailed docs.
+
+## OpenAPI Spec Generation & Embedding
+
+### Build pipeline integration
+
+The pb-cli toolchain runs OpenAPI generation + validation automatically before server compilation. First install it globally:
+
+```bash
+go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
+```
+
+Then use it in your project:
+
+```bash
+pb-cli              # Development mode
+pb-cli --build-only # Build frontend only
+pb-cli --production # Production build
+```
+
+For programmatic usage, see `pkg/scripts/README.md`.
+
 
 Having issues with Your API Docs?
 ```bash

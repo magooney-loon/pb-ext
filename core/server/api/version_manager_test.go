@@ -1016,6 +1016,72 @@ func TestGetAllVersionsInfo(t *testing.T) {
 	}
 }
 
+func TestValidateRouteRegistrars_Missing(t *testing.T) {
+	vm := NewAPIVersionManager()
+
+	vm.RegisterVersion("v2", &APIDocsConfig{Title: "API v2", Version: "2.0.0", Enabled: true})
+	vm.RegisterVersion("v1", &APIDocsConfig{Title: "API v1", Version: "1.0.0", Enabled: true})
+
+	err := vm.ValidateRouteRegistrars()
+	if err == nil {
+		t.Fatal("Expected error when registrars are missing")
+	}
+
+	expected := "missing route registrar(s): v1, v2"
+	if err.Error() != expected {
+		t.Fatalf("Expected %q, got %q", expected, err.Error())
+	}
+}
+
+func TestValidateRouteRegistrars_Ok(t *testing.T) {
+	vm := NewAPIVersionManager()
+
+	vm.RegisterVersion("v1", &APIDocsConfig{Title: "API v1", Version: "1.0.0", Enabled: true})
+	vm.RegisterVersion("v2", &APIDocsConfig{Title: "API v2", Version: "2.0.0", Enabled: true})
+
+	err := vm.SetVersionRouteRegistrars(map[string]func(*VersionedAPIRouter){
+		"v1": func(r *VersionedAPIRouter) {},
+		"v2": func(r *VersionedAPIRouter) {},
+	})
+	if err != nil {
+		t.Fatalf("Unexpected registrar setup error: %v", err)
+	}
+
+	if err := vm.ValidateRouteRegistrars(); err != nil {
+		t.Fatalf("Expected no validation error, got %v", err)
+	}
+}
+
+func TestSetVersionRouteRegistrar_InvalidVersion(t *testing.T) {
+	vm := NewAPIVersionManager()
+
+	err := vm.SetVersionRouteRegistrar("v1", func(r *VersionedAPIRouter) {})
+	if err == nil {
+		t.Fatal("Expected error for non-existent version")
+	}
+}
+
+func TestSetVersionRouteRegistrar_Nil(t *testing.T) {
+	vm := NewAPIVersionManager()
+	vm.RegisterVersion("v1", &APIDocsConfig{Title: "API v1", Version: "1.0.0", Enabled: true})
+
+	err := vm.SetVersionRouteRegistrar("v1", nil)
+	if err == nil {
+		t.Fatal("Expected error for nil registrar")
+	}
+}
+
+func TestRegisterAllVersionRoutesForDocs_MissingRegistrar(t *testing.T) {
+	vm := NewAPIVersionManager()
+
+	vm.RegisterVersion("v1", &APIDocsConfig{Title: "API v1", Version: "1.0.0", Enabled: true})
+
+	err := vm.RegisterAllVersionRoutesForDocs()
+	if err == nil {
+		t.Fatal("Expected error for missing route registrars")
+	}
+}
+
 // =============================================================================
 // OpenAPI Generation Tests
 // =============================================================================
@@ -1031,10 +1097,11 @@ func TestGetVersionOpenAPI(t *testing.T) {
 		Enabled:     true,
 	}
 
-	vm.RegisterVersion("v1", config)
+	// Use "test" version instead of "v1" to avoid conflict with embedded specs
+	vm.RegisterVersion("test", config)
 
 	// Register some endpoints
-	registry, _ := vm.GetVersionRegistry("v1")
+	registry, _ := vm.GetVersionRegistry("test")
 	if registry != nil {
 		endpoint := APIEndpoint{
 			Method:      "GET",

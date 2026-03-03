@@ -11,6 +11,7 @@ import (
 // APIRegistry manages automatic API endpoint documentation with clean separation of concerns
 type APIRegistry struct {
 	mu              sync.RWMutex
+	version         string
 	config          *APIDocsConfig
 	docs            *APIDocs
 	endpoints       map[string]APIEndpoint
@@ -101,6 +102,20 @@ func NewAPIRegistry(config *APIDocsConfig, astParser ASTParserInterface, schemaG
 	}
 
 	return registry
+}
+
+// SetVersion sets the API version associated with this registry.
+func (r *APIRegistry) SetVersion(version string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.version = version
+}
+
+// GetVersion returns the API version associated with this registry.
+func (r *APIRegistry) GetVersion() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.version
 }
 
 // RegisterEndpoint manually registers an API endpoint

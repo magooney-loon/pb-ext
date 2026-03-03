@@ -10,7 +10,30 @@ import (
 
 func main() {
 	devMode := flag.Bool("dev", false, "Run in developer mode")
+	generateSpecsDir := flag.String("generate-specs-dir", "", "Generate OpenAPI specs into the provided directory and exit")
+	generateSpecVersion := flag.String("generate-spec-version", "", "Optional API version to generate (requires --generate-specs-dir)")
+	validateSpecsDir := flag.String("validate-specs-dir", "", "Validate OpenAPI specs from the provided directory and exit")
 	flag.Parse()
+
+	if *generateSpecsDir != "" {
+		gen := app.NewSpecGeneratorWithInitializer(func() (*app.APIVersionManager, error) {
+			return initVersionedSystem(), nil
+		})
+		if err := gen.Generate(*generateSpecsDir, *generateSpecVersion); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	if *validateSpecsDir != "" {
+		gen := app.NewSpecGeneratorWithInitializer(func() (*app.APIVersionManager, error) {
+			return initVersionedSystem(), nil
+		})
+		if err := gen.Validate(*validateSpecsDir); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	initApp(*devMode)
 }
@@ -72,6 +95,9 @@ func initApp(devMode bool) {
 //
 // You can restructure Your project as You wish,
 // just keep this main.go in cmd/server/main.go
+//
+// Build toolchain (pb-cli):
+// go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
 //
 // Need a pre-built Svelte5Kit starter template?
 // https://github.com/magooney-loon/svelte-gui

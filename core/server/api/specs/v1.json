@@ -1,0 +1,769 @@
+{
+	"openapi": "3.0.3",
+	"info": {
+		"title": "pb-ext demo api",
+		"version": "1.0.0",
+		"description": "Hello world",
+		"termsOfService": "https://example.com/terms",
+		"contact": {
+			"name": "pb-ext Team",
+			"url": "https://github.com/magooney-loon/pb-ext",
+			"email": "contact@magooney.org"
+		},
+		"license": {
+			"name": "MIT",
+			"url": "https://opensource.org/licenses/MIT"
+		}
+	},
+	"servers": [
+		{
+			"url": "http://127.0.0.1:8090/api/v1",
+			"description": "API v1 Server (stable)"
+		}
+	],
+	"paths": {
+		"/todos": {
+			"get": {
+				"tags": [
+					"Todos"
+				],
+				"summary": "Get all todos with optional filtering",
+				"description": "Get all todos with optional filtering",
+				"operationId": "getV1Todos",
+				"parameters": [
+					{
+						"name": "completed",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "priority",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/GetTodosResponse"
+								}
+							}
+						}
+					}
+				}
+			},
+			"post": {
+				"tags": [
+					"Todos"
+				],
+				"summary": "Create a new todo item",
+				"description": "Create a new todo item",
+				"operationId": "postV1Todos",
+				"requestBody": {
+					"description": "Request body",
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/TodoRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"description": "Successful response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/CreateTodoResponse"
+								}
+							}
+						}
+					}
+				},
+				"security": [
+					{
+						"bearerAuth": []
+					}
+				]
+			}
+		},
+		"/todos/{id}": {
+			"get": {
+				"tags": [
+					"Todos"
+				],
+				"summary": "Get a specific todo by ID",
+				"description": "Get a specific todo by ID",
+				"operationId": "getV1TodosId",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"description": "The id parameter",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/GetTodoResponse"
+								}
+							}
+						}
+					}
+				}
+			},
+			"delete": {
+				"tags": [
+					"Todos"
+				],
+				"summary": "Delete a todo item",
+				"description": "Delete a todo item",
+				"operationId": "deleteV1TodosId",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"description": "The id parameter",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/DeleteTodoResponse"
+								}
+							}
+						}
+					}
+				},
+				"security": [
+					{
+						"bearerAuth": []
+					}
+				]
+			},
+			"patch": {
+				"tags": [
+					"Todos"
+				],
+				"summary": "Update a todo item (partial update)",
+				"description": "Update a todo item (partial update)",
+				"operationId": "patchV1TodosId",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"description": "The id parameter",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"description": "Request body",
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/TodoPatchRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"description": "Successful response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/UpdateTodoResponse"
+								}
+							}
+						}
+					}
+				},
+				"security": [
+					{
+						"bearerAuth": []
+					}
+				]
+			}
+		}
+	},
+	"components": {
+		"schemas": {
+			"CreateTodoResponse": {
+				"properties": {
+					"message": {
+						"example": "Todo created successfully! ✅",
+						"type": "string"
+					},
+					"todo": {
+						"properties": {
+							"completed": {
+								"type": "boolean"
+							},
+							"created_at": {
+								"format": "date-time",
+								"type": "string"
+							},
+							"created_by": {
+								"type": "string"
+							},
+							"description": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"priority": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"user_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"title",
+							"priority",
+							"completed",
+							"created_at",
+							"user_id",
+							"created_by"
+						],
+						"type": "object"
+					}
+				},
+				"required": [
+					"todo"
+				],
+				"type": "object"
+			},
+			"DeleteTodoResponse": {
+				"properties": {
+					"deleted_at": {
+						"format": "date-time",
+						"type": "string"
+					},
+					"deleted_todo": {
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"title"
+						],
+						"type": "object"
+					},
+					"message": {
+						"example": "Todo deleted successfully! 🗑️",
+						"type": "string"
+					}
+				},
+				"required": [
+					"deleted_todo",
+					"deleted_at"
+				],
+				"type": "object"
+			},
+			"Error": {
+				"properties": {
+					"code": {
+						"description": "Error code",
+						"type": "integer"
+					},
+					"data": {
+						"description": "Additional error data",
+						"type": "object"
+					},
+					"message": {
+						"description": "Error message",
+						"type": "string"
+					}
+				},
+				"required": [
+					"code",
+					"message"
+				],
+				"type": "object"
+			},
+			"GetTodoResponse": {
+				"properties": {
+					"message": {
+						"example": "Todo retrieved successfully 📖",
+						"type": "string"
+					},
+					"todo": {
+						"properties": {
+							"completed": {
+								"type": "boolean"
+							},
+							"created_at": {
+								"format": "date-time",
+								"type": "string"
+							},
+							"description": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"priority": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"updated_at": {
+								"format": "date-time",
+								"type": "string"
+							},
+							"user_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"title",
+							"priority",
+							"completed",
+							"created_at",
+							"updated_at",
+							"user_id"
+						],
+						"type": "object"
+					}
+				},
+				"required": [
+					"todo"
+				],
+				"type": "object"
+			},
+			"GetTodosResponse": {
+				"properties": {
+					"count": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"filters": {
+						"properties": {
+							"completed": {
+								"type": "string"
+							},
+							"priority": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"completed",
+							"priority"
+						],
+						"type": "object"
+					},
+					"message": {
+						"example": "Todos retrieved successfully 📋",
+						"type": "string"
+					},
+					"todos": {
+						"items": {
+							"properties": {
+								"completed": {
+									"type": "boolean"
+								},
+								"created_at": {
+									"format": "date-time",
+									"type": "string"
+								},
+								"description": {
+									"type": "string"
+								},
+								"id": {
+									"type": "string"
+								},
+								"priority": {
+									"type": "string"
+								},
+								"title": {
+									"type": "string"
+								},
+								"updated_at": {
+									"format": "date-time",
+									"type": "string"
+								}
+							},
+							"required": [
+								"id",
+								"title",
+								"priority",
+								"completed",
+								"created_at",
+								"updated_at"
+							],
+							"type": "object"
+						},
+						"type": "array"
+					}
+				},
+				"required": [
+					"todos",
+					"count",
+					"filters"
+				],
+				"type": "object"
+			},
+			"PocketBaseRecord": {
+				"properties": {
+					"created": {
+						"description": "Creation timestamp",
+						"format": "date-time",
+						"type": "string"
+					},
+					"id": {
+						"description": "Record ID",
+						"type": "string"
+					},
+					"updated": {
+						"description": "Last update timestamp",
+						"format": "date-time",
+						"type": "string"
+					}
+				},
+				"required": [
+					"id",
+					"created",
+					"updated"
+				],
+				"type": "object"
+			},
+			"TodoPatchRequest": {
+				"properties": {
+					"completed": {
+						"nullable": true,
+						"type": "boolean"
+					},
+					"description": {
+						"nullable": true,
+						"type": "string"
+					},
+					"priority": {
+						"nullable": true,
+						"type": "string"
+					},
+					"title": {
+						"nullable": true,
+						"type": "string"
+					}
+				},
+				"type": "object"
+			},
+			"TodoRequest": {
+				"properties": {
+					"completed": {
+						"type": "boolean"
+					},
+					"description": {
+						"type": "string"
+					},
+					"priority": {
+						"type": "string"
+					},
+					"title": {
+						"type": "string"
+					}
+				},
+				"type": "object"
+			},
+			"UpdateTodoResponse": {
+				"properties": {
+					"message": {
+						"example": "Todo updated successfully! ✏️",
+						"type": "string"
+					},
+					"todo": {
+						"properties": {
+							"completed": {
+								"type": "boolean"
+							},
+							"description": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"priority": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"updated_at": {
+								"format": "date-time",
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"title",
+							"priority",
+							"completed",
+							"updated_at"
+						],
+						"type": "object"
+					},
+					"updates": {
+						"properties": {
+							"completed": {
+								"type": "boolean"
+							},
+							"description": {
+								"type": "string"
+							},
+							"priority": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"type": "object"
+					}
+				},
+				"required": [
+					"todo",
+					"updates"
+				],
+				"type": "object"
+			}
+		},
+		"responses": {
+			"BadRequest": {
+				"description": "Bad Request",
+				"content": {
+					"application/json": {
+						"schema": {
+							"properties": {
+								"code": {
+									"description": "Error code",
+									"type": "integer"
+								},
+								"data": {
+									"description": "Additional error data",
+									"type": "object"
+								},
+								"message": {
+									"description": "Error message",
+									"type": "string"
+								}
+							},
+							"required": [
+								"code",
+								"message"
+							],
+							"type": "object"
+						}
+					}
+				}
+			},
+			"Forbidden": {
+				"description": "Forbidden",
+				"content": {
+					"application/json": {
+						"schema": {
+							"properties": {
+								"code": {
+									"description": "Error code",
+									"type": "integer"
+								},
+								"data": {
+									"description": "Additional error data",
+									"type": "object"
+								},
+								"message": {
+									"description": "Error message",
+									"type": "string"
+								}
+							},
+							"required": [
+								"code",
+								"message"
+							],
+							"type": "object"
+						}
+					}
+				}
+			},
+			"InternalServerError": {
+				"description": "Internal Server Error",
+				"content": {
+					"application/json": {
+						"schema": {
+							"properties": {
+								"code": {
+									"description": "Error code",
+									"type": "integer"
+								},
+								"data": {
+									"description": "Additional error data",
+									"type": "object"
+								},
+								"message": {
+									"description": "Error message",
+									"type": "string"
+								}
+							},
+							"required": [
+								"code",
+								"message"
+							],
+							"type": "object"
+						}
+					}
+				}
+			},
+			"NotFound": {
+				"description": "Not Found",
+				"content": {
+					"application/json": {
+						"schema": {
+							"properties": {
+								"code": {
+									"description": "Error code",
+									"type": "integer"
+								},
+								"data": {
+									"description": "Additional error data",
+									"type": "object"
+								},
+								"message": {
+									"description": "Error message",
+									"type": "string"
+								}
+							},
+							"required": [
+								"code",
+								"message"
+							],
+							"type": "object"
+						}
+					}
+				}
+			},
+			"Unauthorized": {
+				"description": "Unauthorized",
+				"content": {
+					"application/json": {
+						"schema": {
+							"properties": {
+								"code": {
+									"description": "Error code",
+									"type": "integer"
+								},
+								"data": {
+									"description": "Additional error data",
+									"type": "object"
+								},
+								"message": {
+									"description": "Error message",
+									"type": "string"
+								}
+							},
+							"required": [
+								"code",
+								"message"
+							],
+							"type": "object"
+						}
+					}
+				}
+			}
+		},
+		"parameters": {
+			"CollectionParam": {
+				"name": "collection",
+				"in": "path",
+				"description": "Collection name",
+				"required": true,
+				"schema": {
+					"type": "string"
+				}
+			},
+			"PageParam": {
+				"name": "page",
+				"in": "query",
+				"description": "Page number",
+				"required": false,
+				"schema": {
+					"default": 1,
+					"minimum": 1,
+					"type": "integer"
+				}
+			},
+			"PerPageParam": {
+				"name": "perPage",
+				"in": "query",
+				"description": "Items per page",
+				"required": false,
+				"schema": {
+					"default": 30,
+					"maximum": 500,
+					"minimum": 1,
+					"type": "integer"
+				}
+			},
+			"RecordIdParam": {
+				"name": "id",
+				"in": "path",
+				"description": "Record ID",
+				"required": true,
+				"schema": {
+					"type": "string"
+				}
+			}
+		},
+		"securitySchemes": {
+			"bearerAuth": {
+				"type": "http",
+				"scheme": "bearer"
+			}
+		}
+	},
+	"tags": [
+		{
+			"name": "Todos"
+		}
+	]
+}
