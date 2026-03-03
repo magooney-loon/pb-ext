@@ -150,16 +150,7 @@ func handleDevelopmentMode(rootDir string, installDeps bool) error {
 		return fmt.Errorf("frontend build failed: %w", err)
 	}
 
-	// Generate and validate OpenAPI specs before running dev server
-	if err := internal.GenerateOpenAPISpecs(rootDir); err != nil {
-		return fmt.Errorf("openapi spec generation failed: %w", err)
-	}
-
-	if err := internal.ValidateOpenAPISpecs(rootDir); err != nil {
-		return fmt.Errorf("openapi spec validation failed: %w", err)
-	}
-
-	// Prepare and start server
+	// Prepare and start server (specs are generated at runtime via AST parsing in dev mode)
 	if err := internal.ValidateServerSetup(rootDir); err != nil {
 		return fmt.Errorf("server setup validation failed: %w", err)
 	}

@@ -151,22 +151,21 @@ pb-cli --run-only
 
 See `**/*/README.md` for detailed docs.
 
-## OpenAPI Spec Generation & Embedding
+## OpenAPI Spec Generation
 
-### Build pipeline integration
+### Dev vs Production
 
-The pb-cli toolchain runs OpenAPI generation + validation automatically before server compilation. First install it globally:
+- **Development**: Specs are generated at runtime via AST parsing - no disk files needed
+- **Production**: Specs are generated at build time and read from disk (`dist/specs/`)
+
+### Build pipeline
+
+The pb-cli toolchain runs OpenAPI generation automatically for production builds:
 
 ```bash
-go install github.com/magooney-loon/pb-ext/cmd/pb-cli@latest
-```
-
-Then use it in your project:
-
-```bash
-pb-cli              # Development mode
-pb-cli --build-only # Build frontend only
-pb-cli --production # Production build
+pb-cli              # Development mode (no spec generation)
+pb-cli --build-only # Build frontend + generate specs
+pb-cli --production # Production build with specs
 ```
 
 For programmatic usage, see `pkg/scripts/README.md`.

@@ -4,5 +4,5 @@ import (
 	"embed"
 )
 
-//go:embed templates/*.tmpl templates/components/*.tmpl templates/scripts/*.tmpl templates/scripts/api/*.tmpl templates/scripts/cron/*.tmpl templates/css/*.tmpl api/specs/README.md
+//go:embed templates/*.tmpl templates/components/*.tmpl templates/scripts/*.tmpl templates/scripts/api/*.tmpl templates/scripts/cron/*.tmpl templates/css/*.tmpl
 var TemplateFS embed.FS

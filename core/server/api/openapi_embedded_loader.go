@@ -11,7 +11,7 @@ import (
 )
 
 const specsDirEnv = "PB_EXT_OPENAPI_SPECS_DIR"
-const disableEmbeddedSpecsEnv = "PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS"
+const disableSpecsEnv = "PB_EXT_DISABLE_OPENAPI_SPECS"
 const testBinaryNameSuffix = ".test"
 
 var (
@@ -19,35 +19,33 @@ var (
 	specVersions  []string
 	specsIndexErr error
 
-	specsMu     sync.RWMutex
-	parsedDocs  = make(map[string]*APIDocs)
-	parseErrs   = make(map[string]error)
-	specSources = make(map[string]string) // version -> "embed" | "disk"
+	specsMu    sync.RWMutex
+	parsedDocs = make(map[string]*APIDocs)
+	parseErrs  = make(map[string]error)
 )
 
-// HasEmbeddedSpec returns true if a spec exists for the provided version.
-// If PB_EXT_OPENAPI_SPECS_DIR is set, disk specs are preferred over embedded specs.
-// If PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS is truthy, this always returns false.
-func HasEmbeddedSpec(version string) bool {
+// HasSpec returns true if a spec exists for the provided version on disk.
+// If PB_EXT_OPENAPI_SPECS_DIR is set, specs are read from that directory.
+// If PB_EXT_DISABLE_OPENAPI_SPECS is truthy, this always returns false.
+func HasSpec(version string) bool {
 	version = strings.TrimSpace(version)
 	if version == "" {
 		return false
 	}
 
-	if embeddedSpecsDisabled() {
+	if specsDisabled() {
 		return false
 	}
 
-	source := specSourceFor(version)
-	_, err := readSpecBytes(version, source)
+	_, err := readSpecBytes(version)
 	return err == nil
 }
 
-// ListEmbeddedSpecVersions returns discovered versions in stable sorted order.
-// If PB_EXT_OPENAPI_SPECS_DIR is set, disk specs are preferred over embedded specs.
-// If PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS is truthy, this returns an empty list.
-func ListEmbeddedSpecVersions() []string {
-	if embeddedSpecsDisabled() {
+// ListSpecVersions returns discovered versions in stable sorted order from disk.
+// If PB_EXT_OPENAPI_SPECS_DIR is set, specs are read from that directory.
+// If PB_EXT_DISABLE_OPENAPI_SPECS is truthy, this returns an empty list.
+func ListSpecVersions() []string {
+	if specsDisabled() {
 		return []string{}
 	}
 
@@ -60,22 +58,18 @@ func ListEmbeddedSpecVersions() []string {
 	return out
 }
 
-// GetEmbeddedSpec loads a spec for version, caches parsed results, and returns a deep copy.
-// If PB_EXT_OPENAPI_SPECS_DIR is set, disk specs are preferred over embedded specs.
-// If PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS is truthy, this returns a disabled error.
-func GetEmbeddedSpec(version string) (*APIDocs, error) {
+// GetSpec loads a spec for version from disk, caches parsed results, and returns a deep copy.
+// If PB_EXT_OPENAPI_SPECS_DIR is set, specs are read from that directory.
+// If PB_EXT_DISABLE_OPENAPI_SPECS is truthy, this returns a disabled error.
+func GetSpec(version string) (*APIDocs, error) {
 	version = strings.TrimSpace(version)
 	if version == "" {
 		return nil, fmt.Errorf("version is required")
 	}
 
-	if embeddedSpecsDisabled() {
-		return nil, fmt.Errorf("embedded openapi specs are disabled via %s", disableEmbeddedSpecsEnv)
+	if specsDisabled() {
+		return nil, fmt.Errorf("openapi specs are disabled via %s", disableSpecsEnv)
 	}
-
-	// Read directly from source instead of relying on a separate existence pre-check.
-	// This avoids stale/partial gating outcomes when the source is available but
-	// index-based checks disagree.
 
 	specsMu.RLock()
 	if err, ok := parseErrs[version]; ok && err != nil {
@@ -92,10 +86,9 @@ func GetEmbeddedSpec(version string) (*APIDocs, error) {
 	}
 	specsMu.RUnlock()
 
-	source := specSourceFor(version)
-	raw, err := readSpecBytes(version, source)
+	raw, err := readSpecBytes(version)
 	if err != nil {
-		parseErr := fmt.Errorf("failed to read %s spec for version %q: %w", source, version, err)
+		parseErr := fmt.Errorf("failed to read spec for version %q: %w", version, err)
 		specsMu.Lock()
 		parseErrs[version] = parseErr
 		specsMu.Unlock()
@@ -104,7 +97,7 @@ func GetEmbeddedSpec(version string) (*APIDocs, error) {
 
 	var docs APIDocs
 	if err := json.Unmarshal(raw, &docs); err != nil {
-		parseErr := fmt.Errorf("failed to parse %s spec for version %q: %w", source, version, err)
+		parseErr := fmt.Errorf("failed to parse spec for version %q: %w", version, err)
 		specsMu.Lock()
 		parseErrs[version] = parseErr
 		specsMu.Unlock()
@@ -114,7 +107,6 @@ func GetEmbeddedSpec(version string) (*APIDocs, error) {
 	specsMu.Lock()
 	parsedDocs[version] = &docs
 	parseErrs[version] = nil
-	specSources[version] = source
 	specsMu.Unlock()
 
 	cp, err := deepCopyAPIDocs(&docs)
@@ -133,14 +125,11 @@ func loadSpecsIndex() {
 			return
 		}
 
-		// If PB_EXT_OPENAPI_SPECS_DIR was explicitly set, report the error
 		if strings.TrimSpace(os.Getenv(specsDirEnv)) != "" {
 			specsIndexErr = fmt.Errorf("failed to read specs directory %q: %w", dir, err)
 			return
 		}
 
-		// No specs on disk and no explicit env - this is expected in dev mode
-		// where specs are generated at runtime via AST parsing
 		specVersions = []string{}
 	})
 }
@@ -171,38 +160,14 @@ func listSpecVersionsFromDisk(dir string) ([]string, error) {
 	return versions, nil
 }
 
-func specSourceFor(version string) string {
-	specsMu.RLock()
-	if source, ok := specSources[version]; ok && source != "" {
-		specsMu.RUnlock()
-		return source
-	}
-	specsMu.RUnlock()
-
-	// Prefer disk by default (production). Only use env override.
-	if strings.TrimSpace(os.Getenv(specsDirEnv)) != "" {
-		return "disk"
-	}
-	// Default: disk (production) - runtime generation handles dev mode
-	return "disk"
-}
-
-func readSpecBytes(version, source string) ([]byte, error) {
-	switch source {
-	case "disk":
-		specPath := diskSpecPath(version)
-		return os.ReadFile(specPath)
-	default:
-		return nil, fmt.Errorf("unknown spec source %q", source)
-	}
+func readSpecBytes(version string) ([]byte, error) {
+	specPath := diskSpecPath(version)
+	return os.ReadFile(specPath)
 }
 
 func specsDirPath() string {
 	if fromEnv := strings.TrimSpace(os.Getenv(specsDirEnv)); fromEnv != "" {
 		return fromEnv
-	}
-	if strings.HasSuffix(filepath.Base(os.Args[0]), testBinaryNameSuffix) {
-		return "specs"
 	}
 	return "specs"
 }
@@ -211,18 +176,15 @@ func diskSpecPath(version string) string {
 	return filepath.Join(specsDirPath(), version+".json")
 }
 
-func embeddedSpecsDisabled() bool {
-	// During go test, compiled test binaries end with ".test".
-	// Auto-disable embedded spec reads so unit tests exercise runtime generation paths
-	// unless explicitly overridden via environment variable.
+func specsDisabled() bool {
 	if strings.HasSuffix(filepath.Base(os.Args[0]), testBinaryNameSuffix) {
-		v := strings.TrimSpace(os.Getenv(disableEmbeddedSpecsEnv))
+		v := strings.TrimSpace(os.Getenv(disableSpecsEnv))
 		if v == "" {
 			return true
 		}
 	}
 
-	v := strings.TrimSpace(os.Getenv(disableEmbeddedSpecsEnv))
+	v := strings.TrimSpace(os.Getenv(disableSpecsEnv))
 	if v == "" {
 		return false
 	}

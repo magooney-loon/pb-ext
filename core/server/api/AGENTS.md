@@ -36,8 +36,8 @@ This package (`core/server/api/`) is the OpenAPI documentation engine for pb-ext
 | `discovery.go` | `RouteAnalyzer`, `MiddlewareAnalyzer`, `PathAnalyzer` — runtime route analysis utilities |
 | `debug_dump.go` | `BuildDebugData()` — serves the `/api/docs/debug/ast` endpoint with full pipeline introspection |
 | `utils.go` | String helpers: handler name extraction, camelCase/snake_case, description/tag generation, path conversion |
-| `openapi_embedded_loader.go` | Embedded spec loading via `go:embed`, caching, env var override (`PB_EXT_OPENAPI_SPECS_DIR`, `PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS`) |
-| `spec_generator.go` | Spec generation and validation for build-time embedding |
+| `openapi_embedded_loader.go` | Spec loading from disk, caching, env var override (`PB_EXT_OPENAPI_SPECS_DIR`, `PB_EXT_DISABLE_OPENAPI_SPECS`) |
+| `spec_generator.go` | Spec generation and validation for build-time generation |
 
 ### Tests
 | File | What it covers |
@@ -51,7 +51,7 @@ This package (`core/server/api/`) is the OpenAPI documentation engine for pb-ext
 | `version_manager_test.go` | `APIVersionManager` and versioned routing |
 | `discovery_test.go` | Route/middleware/path analysis |
 | `utils_test.go` | String helper utilities |
-| `openapi_embedded_loader_test.go` | Embedded spec loading, caching, deep copy, env var handling |
+| `openapi_embedded_loader_test.go` | Spec loading from disk, caching, deep copy, env var handling |
 | `spec_generator_test.go` | Spec generation and validation |
 
 ## Pipeline Overview
@@ -105,9 +105,9 @@ endpointToOperation()
   \-- build OpenAPIOperation with parameters, request body, responses, security
   v
 GetDocsWithComponents()
-  |-- embedded-first lookup by registry version
-  |     |-- HasEmbeddedSpec(version)
-  |     |-- GetEmbeddedSpec(version)
+  |-- disk-first lookup by registry version
+  |     |-- HasSpec(version)
+  |     |-- GetSpec(version)
   |     \-- optional PB_EXT_OPENAPI_SPECS_DIR disk override
   |-- fallback: GenerateComponentSchemas()
   |     |-- struct schemas from AST
@@ -118,14 +118,20 @@ GetDocsWithComponents()
   \-- return OpenAPI 3.0.3 spec
 ```
 
-## Embedded OpenAPI Specs (Build-Time + Runtime)
+## OpenAPI Specs (Build-Time + Runtime)
 
-`openapi_embedded_loader.go` is the runtime loader for build-generated specs in `core/server/api/specs`.
+`openapi_embedded_loader.go` loads specs from disk. No embedding — specs are generated at build time and read from disk at runtime.
 
 ### Source selection policy
 
-1. If `PB_EXT_OPENAPI_SPECS_DIR` is set, specs are discovered and read from that directory on disk.
-2. Otherwise, specs are loaded from `go:embed` data bundled in the binary.
+1. If `PB_EXT_OPENAPI_SPECS_DIR` is set, specs are read from that directory.
+2. Otherwise, specs are read from `specs/` relative to the binary (or `PB_EXT_OPENAPI_SPECS_DIR` env must be set).
+3. If no specs found on disk, runtime generation via AST parsing handles it (dev mode).
+
+### Dev vs Production
+
+- **Dev**: No disk specs → AST parser generates specs at runtime
+- **Production**: Specs generated during `pb-cli --production` build, copied to `dist/specs/`, binary reads from disk
 
 ### Loader API
 
@@ -138,7 +144,7 @@ GetDocsWithComponents()
 - Parsed specs are cached per version.
 - Parse/read errors are cached per version.
 - Returned specs are deep-copied to avoid mutation leaks across requests.
-- Runtime selection in `registry_spec.go` is embedded-first by version, then AST/runtime generation fallback.
+- Runtime selection in `registry_spec.go` is disk-first by version, then AST/runtime generation fallback.
 
 ### AST Parser Internals
 
@@ -338,12 +344,12 @@ go test ./core/server/api/... -v
 go test ./core/server/api/... -run TestHandlerScenario     # handler scenarios
 go test ./core/server/api/... -run TestIndirectParams      # indirect param extraction
 go test ./core/server/api/... -run TestCrossPackage        # import following
-go test ./core/server/api/... -run TestEmbeddedSpec        # embedded spec loading
-go test ./core/server/api/... -run TestGetEmbeddedSpec     # embedded spec caching/deep copy
+go test ./core/server/api/... -run TestSpec                # disk spec loading
+go test ./core/server/api/... -run TestGetSpec              # spec caching/deep copy
 ```
 
-### Embedded Spec Testing Notes
+### Spec Testing Notes
 
-- During `go test`, the binary name ends with `.test`, which auto-disables embedded spec loading.
-- Tests must set `PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS=false` to test embedded loading.
-- The key bug to watch for: cached `parseErrs[version] = nil` with key still present can cause `GetEmbeddedSpec` to return `(nil, nil)` on subsequent calls.
+- During `go test`, the binary name ends with `.test`, which auto-disables spec loading from disk.
+- Tests must set `PB_EXT_DISABLE_OPENAPI_SPECS=false` to test disk loading.
+- The key bug to watch for: cached `parseErrs[version] = nil` with key still present can cause `GetSpec` to return `(nil, nil)` on subsequent calls.

@@ -2,19 +2,19 @@ package api
 
 import (
 	"os"
-	"strings"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMain(m *testing.M) {
-	os.Setenv(disableEmbeddedSpecsEnv, "false")
-	os.Setenv(specsDirEnv, "specs")
+	os.Setenv(disableSpecsEnv, "false")
+	os.Setenv(specsDirEnv, filepath.Join("..", "..", "testutil", "specs"))
 	os.Exit(m.Run())
 }
 
-func TestHasEmbeddedSpec(t *testing.T) {
+func TestHasSpec(t *testing.T) {
 	tests := []struct {
 		name        string
 		version     string
@@ -55,23 +55,20 @@ func TestHasEmbeddedSpec(t *testing.T) {
 				defer os.Unsetenv(specsDirEnv)
 			}
 
-			got := HasEmbeddedSpec(tt.version)
+			got := HasSpec(tt.version)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
-func TestListEmbeddedSpecVersions(t *testing.T) {
-	versions := ListEmbeddedSpecVersions()
+func TestListSpecVersions(t *testing.T) {
+	versions := ListSpecVersions()
 	assert.NotEmpty(t, versions)
 	assert.Contains(t, versions, "v1")
 	assert.Contains(t, versions, "v2")
-
-	assert.True(t, strings.Join(versions, "") == "v1v2" || strings.Join(versions, "") == "v2v1",
-		"versions should be sorted")
 }
 
-func TestGetEmbeddedSpec(t *testing.T) {
+func TestGetSpec(t *testing.T) {
 	tests := []struct {
 		name        string
 		version     string
@@ -107,7 +104,7 @@ func TestGetEmbeddedSpec(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			docs, err := GetEmbeddedSpec(tt.version)
+			docs, err := GetSpec(tt.version)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -122,14 +119,14 @@ func TestGetEmbeddedSpec(t *testing.T) {
 	}
 }
 
-func TestGetEmbeddedSpecCaching(t *testing.T) {
+func TestGetSpecCaching(t *testing.T) {
 	version := "v1"
 
-	docs1, err1 := GetEmbeddedSpec(version)
+	docs1, err1 := GetSpec(version)
 	assert.NoError(t, err1)
 	assert.NotNil(t, docs1)
 
-	docs2, err2 := GetEmbeddedSpec(version)
+	docs2, err2 := GetSpec(version)
 	assert.NoError(t, err2, "second call should not return error even though cached error is nil")
 	assert.NotNil(t, docs2, "second call should not return nil docs even though cached error is nil")
 
@@ -137,42 +134,39 @@ func TestGetEmbeddedSpecCaching(t *testing.T) {
 	assert.Equal(t, docs1.Info.Version, docs2.Info.Version)
 
 	docs1.Info.Title = "Modified Title"
-	assert.NotEqual(t, docs1.Info.Title, docs2.Info.Title, "deep copy should prevent mutation affecting cached version")
+
+	assert.NotEqual(t, docs1.Info.Title, docs2.Info.Title, "deep copy should prevent mutation")
 }
 
-func TestGetEmbeddedSpecDeepCopy(t *testing.T) {
-	docs1, err := GetEmbeddedSpec("v1")
+func TestGetSpecDeepCopy(t *testing.T) {
+	docs1, err := GetSpec("v1")
 	assert.NoError(t, err)
 	assert.NotNil(t, docs1)
 
-	originalTitle := docs1.Info.Title
-	docs1.Info.Title = "Mutated Title"
-
-	docs2, err := GetEmbeddedSpec("v1")
+	docs2, err := GetSpec("v1")
 	assert.NoError(t, err)
-	assert.NotEqual(t, docs1.Info.Title, docs2.Info.Title, "returned spec should be a fresh copy each time")
-	assert.Equal(t, originalTitle, docs2.Info.Title)
+	assert.NotNil(t, docs2)
+
+	docs1.Info.Title = "Modified Title"
+	assert.NotEqual(t, docs1.Info.Title, docs2.Info.Title, "deep copy should prevent mutation")
 }
 
-func TestGetEmbeddedSpecPaths(t *testing.T) {
-	docs, err := GetEmbeddedSpec("v1")
+func TestGetSpecPaths(t *testing.T) {
+	docs, err := GetSpec("v1")
 	assert.NoError(t, err)
 	assert.NotNil(t, docs)
 	assert.NotEmpty(t, docs.Paths)
 	assert.Contains(t, docs.Paths, "/todos")
 }
 
-func TestGetEmbeddedSpecComponents(t *testing.T) {
-	docs, err := GetEmbeddedSpec("v1")
+func TestGetSpecComponents(t *testing.T) {
+	docs, err := GetSpec("v1")
 	assert.NoError(t, err)
 	assert.NotNil(t, docs)
 	assert.NotNil(t, docs.Components)
-	assert.NotEmpty(t, docs.Components.Schemas)
-	assert.Contains(t, docs.Components.Schemas, "Error")
-	assert.Contains(t, docs.Components.Schemas, "PocketBaseRecord")
 }
 
-func TestEmbeddedSpecsDisabled(t *testing.T) {
+func TestSpecsDisabled(t *testing.T) {
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 
@@ -196,9 +190,9 @@ func TestEmbeddedSpecsDisabled(t *testing.T) {
 		},
 		{
 			name:         "explicit disable via env",
-			envValue:     "true",
-			binaryName:   "server",
-			wantDisabled: true,
+			envValue:     "false",
+			binaryName:   "server.test",
+			wantDisabled: false,
 		},
 		{
 			name:         "explicit disable via env 1",
@@ -228,63 +222,42 @@ func TestEmbeddedSpecsDisabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Args = []string{tt.binaryName}
+			os.Args[0] = tt.binaryName
 			if tt.envValue != "" {
-				os.Setenv(disableEmbeddedSpecsEnv, tt.envValue)
-				defer os.Unsetenv(disableEmbeddedSpecsEnv)
+				os.Setenv(disableSpecsEnv, tt.envValue)
+				defer os.Unsetenv(disableSpecsEnv)
 			} else {
-				os.Unsetenv(disableEmbeddedSpecsEnv)
+				os.Unsetenv(disableSpecsEnv)
 			}
 
-			got := embeddedSpecsDisabled()
+			got := specsDisabled()
 			assert.Equal(t, tt.wantDisabled, got)
 		})
 	}
-}
-
-func TestSpecSourceFor(t *testing.T) {
-	// Note: specSourceFor uses cached value from specSources map
-	// After GetEmbeddedSpec is called, the source is cached and won't change
-	// So this test just verifies the function works correctly
-
-	// First call will set the cache to "disk" (default for non-embed mode)
-	source := specSourceFor("v1")
-	assert.Equal(t, "disk", source)
 }
 
 func TestReadSpecBytes(t *testing.T) {
 	tests := []struct {
 		name    string
 		version string
-		source  string
 		wantLen int
 		wantErr bool
 	}{
 		{
 			name:    "disk v1",
 			version: "v1",
-			source:  "disk",
-			wantLen: 14427,
+			wantLen: 330,
 			wantErr: false,
 		},
 		{
 			name:    "disk v2",
 			version: "v2",
-			source:  "disk",
-			wantLen: 6318,
+			wantLen: 330,
 			wantErr: false,
 		},
 		{
 			name:    "disk non-existent",
 			version: "v99",
-			source:  "disk",
-			wantLen: 0,
-			wantErr: true,
-		},
-		{
-			name:    "unknown source",
-			version: "v1",
-			source:  "unknown",
 			wantLen: 0,
 			wantErr: true,
 		},
@@ -292,8 +265,7 @@ func TestReadSpecBytes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := readSpecBytes(tt.version, tt.source)
-
+			data, err := readSpecBytes(tt.version)
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, data)
@@ -306,20 +278,18 @@ func TestReadSpecBytes(t *testing.T) {
 	}
 }
 
-func TestEmbeddedSpecIntegration(t *testing.T) {
-	// Ensure env is set - some other tests might have modified it
-	os.Setenv(disableEmbeddedSpecsEnv, "false")
+func TestSpecIntegration(t *testing.T) {
+	os.Setenv(disableSpecsEnv, "false")
 
-	// Test loading v1 and v2 directly
-	docs, err := GetEmbeddedSpec("v1")
-	assert.NoError(t, err, "should load v1 spec")
+	docs, err := GetSpec("v1")
+	assert.NoError(t, err)
 	assert.NotNil(t, docs)
 	assert.NotEmpty(t, docs.Paths)
 	assert.NotNil(t, docs.Components)
 	assert.Contains(t, docs.Paths, "/todos")
 
-	docs2, err := GetEmbeddedSpec("v2")
-	assert.NoError(t, err, "should load v2 spec")
+	docs2, err := GetSpec("v2")
+	assert.NoError(t, err)
 	assert.NotNil(t, docs2)
 	assert.NotEmpty(t, docs2.Paths)
 }

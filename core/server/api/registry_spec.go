@@ -17,7 +17,7 @@ func (r *APIRegistry) GetDocsWithComponents() *APIDocs {
 	if r != nil {
 		version := r.GetVersion()
 		if version != "" {
-			if embeddedDocs, err := GetEmbeddedSpec(version); err == nil && embeddedDocs != nil {
+			if embeddedDocs, err := GetSpec(version); err == nil && embeddedDocs != nil {
 				r.mu.RLock()
 				servers := r.docs.Servers
 				r.mu.RUnlock()

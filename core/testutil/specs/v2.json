@@ -1,0 +1,22 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "pb-ext demo api",
+    "version": "2.0.0"
+  },
+  "paths": {
+    "/todos": {
+      "get": {
+        "summary": "List todos",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {}
+  }
+}

@@ -10,7 +10,7 @@ import (
 
 // Note: Uses env vars defined in openapi_embedded_loader.go:
 // - specsDirEnv = "PB_EXT_OPENAPI_SPECS_DIR"
-// - disableEmbeddedSpecsEnv = "PB_EXT_DISABLE_EMBEDDED_OPENAPI_SPECS"
+// - disableSpecsEnv = "PB_EXT_DISABLE_OPENAPI_SPECS"
 
 type VersionConfigProvider func() map[string]*APIDocsConfig
 type VersionManagerInitializer func() (*APIVersionManager, error)
@@ -48,9 +48,9 @@ func (sg *SpecGenerator) Generate(outputDir string, onlyVersion string) error {
 	if err := os.Unsetenv(specsDirEnv); err != nil {
 		return fmt.Errorf("failed to unset %s for generation: %w", specsDirEnv, err)
 	}
-	originalDisableEmbeddedEnv, hadDisableEmbeddedEnv := os.LookupEnv(disableEmbeddedSpecsEnv)
-	if err := os.Setenv(disableEmbeddedSpecsEnv, "1"); err != nil {
-		return fmt.Errorf("failed to set %s for generation: %w", disableEmbeddedSpecsEnv, err)
+	originalDisableEmbeddedEnv, hadDisableEmbeddedEnv := os.LookupEnv(disableSpecsEnv)
+	if err := os.Setenv(disableSpecsEnv, "1"); err != nil {
+		return fmt.Errorf("failed to set %s for generation: %w", disableSpecsEnv, err)
 	}
 	defer func() {
 		if hadspecsDirEnv {
@@ -60,9 +60,9 @@ func (sg *SpecGenerator) Generate(outputDir string, onlyVersion string) error {
 		}
 
 		if hadDisableEmbeddedEnv {
-			_ = os.Setenv(disableEmbeddedSpecsEnv, originalDisableEmbeddedEnv)
+			_ = os.Setenv(disableSpecsEnv, originalDisableEmbeddedEnv)
 		} else {
-			_ = os.Unsetenv(disableEmbeddedSpecsEnv)
+			_ = os.Unsetenv(disableSpecsEnv)
 		}
 	}()
 

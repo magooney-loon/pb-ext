@@ -788,8 +788,8 @@ func (vm *APIVersionManager) GetVersionOpenAPI(c *core.RequestEvent, version str
 		})
 	}
 
-	// Prefer direct embedded spec loading first; fall back to registry generation path.
-	if embeddedDocs, err := GetEmbeddedSpec(version); err == nil && embeddedDocs != nil {
+	// Prefer direct spec loading first; fall back to registry generation path.
+	if embeddedDocs, err := GetSpec(version); err == nil && embeddedDocs != nil {
 		embeddedDocs.Servers = []*OpenAPIServer{
 			{
 				URL:         fmt.Sprintf("http://%s/api/%s", c.Request.Host, version),
@@ -836,8 +836,8 @@ func (vm *APIVersionManager) GetVersionOpenAPIPublic(c *core.RequestEvent, versi
 		})
 	}
 
-	// Prefer direct embedded spec loading first; fall back to registry generation path.
-	embeddedDocs, embErr := GetEmbeddedSpec(version)
+	// Prefer direct spec loading first; fall back to registry generation path.
+	embeddedDocs, embErr := GetSpec(version)
 	if embErr == nil && embeddedDocs != nil {
 		embeddedDocs.Servers = []*OpenAPIServer{
 			{
