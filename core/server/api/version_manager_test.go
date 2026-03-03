@@ -1,7 +1,9 @@
 package api
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -1761,6 +1763,309 @@ func TestVersionedRouteChain_Bind_MixedTypes(t *testing.T) {
 
 	if len(order) != 3 {
 		t.Fatalf("Expected hook + plain + handler to execute, got: %v", order)
+	}
+}
+
+// =============================================================================
+// getScheme() Tests
+// =============================================================================
+
+func TestGetScheme_HTTP(t *testing.T) {
+	req := &http.Request{
+		Host:   "example.com",
+		TLS:    nil,
+		Header: http.Header{},
+	}
+
+	scheme := getScheme(req)
+	if scheme != "http" {
+		t.Errorf("Expected scheme 'http', got '%s'", scheme)
+	}
+}
+
+func TestGetScheme_HTTPS(t *testing.T) {
+	req := &http.Request{
+		Host:   "example.com",
+		TLS:    &tls.ConnectionState{},
+		Header: http.Header{},
+	}
+
+	scheme := getScheme(req)
+	if scheme != "https" {
+		t.Errorf("Expected scheme 'https', got '%s'", scheme)
+	}
+}
+
+func TestGetScheme_XForwardedProtoHTTP(t *testing.T) {
+	req := &http.Request{
+		Host: "example.com",
+		TLS:  nil,
+		Header: http.Header{
+			"X-Forwarded-Proto": []string{"http"},
+		},
+	}
+
+	scheme := getScheme(req)
+	if scheme != "http" {
+		t.Errorf("Expected scheme 'http' from X-Forwarded-Proto, got '%s'", scheme)
+	}
+}
+
+func TestGetScheme_XForwardedProtoHTTPS(t *testing.T) {
+	req := &http.Request{
+		Host: "example.com",
+		TLS:  nil,
+		Header: http.Header{
+			"X-Forwarded-Proto": []string{"https"},
+		},
+	}
+
+	scheme := getScheme(req)
+	if scheme != "https" {
+		t.Errorf("Expected scheme 'https' from X-Forwarded-Proto, got '%s'", scheme)
+	}
+}
+
+func TestGetScheme_XForwardedProtoTakesPrecedence(t *testing.T) {
+	// When both TLS and X-Forwarded-Proto are present, X-Forwarded-Proto should win
+	req := &http.Request{
+		Host: "example.com",
+		TLS:  &tls.ConnectionState{},
+		Header: http.Header{
+			"X-Forwarded-Proto": []string{"http"},
+		},
+	}
+
+	scheme := getScheme(req)
+	if scheme != "http" {
+		t.Errorf("Expected X-Forwarded-Proto 'http' to take precedence over TLS, got '%s'", scheme)
+	}
+}
+
+func TestGetScheme_XForwardedProtoMultipleValues(t *testing.T) {
+	// X-Forwarded-Proto with multiple values - should use the first one
+	req := &http.Request{
+		Host: "example.com",
+		TLS:  nil,
+		Header: http.Header{
+			"X-Forwarded-Proto": []string{"https", "http"},
+		},
+	}
+
+	scheme := getScheme(req)
+	if scheme != "https" {
+		t.Errorf("Expected first X-Forwarded-Proto value 'https', got '%s'", scheme)
+	}
+}
+
+func TestGetScheme_XForwardedProtoEmpty(t *testing.T) {
+	// Empty X-Forwarded-Proto should be ignored, fall back to http
+	req := &http.Request{
+		Host: "example.com",
+		TLS:  nil,
+		Header: http.Header{
+			"X-Forwarded-Proto": []string{""},
+		},
+	}
+
+	scheme := getScheme(req)
+	if scheme != "http" {
+		t.Errorf("Expected scheme 'http' when X-Forwarded-Proto is empty, got '%s'", scheme)
+	}
+}
+
+func TestGetScheme_XForwardedProtoCaseSensitive(t *testing.T) {
+	// X-Forwarded-Proto is case-sensitive per RFC
+	testCases := []struct {
+		headerValue string
+		expected    string
+	}{
+		{"https", "https"},
+		{"http", "http"},
+		{"HTTPS", "HTTPS"}, // non-standard but should be passed through
+		{"HTTP", "HTTP"},   // non-standard but should be passed through
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.headerValue, func(t *testing.T) {
+			req := &http.Request{
+				Host: "example.com",
+				TLS:  nil,
+				Header: http.Header{
+					"X-Forwarded-Proto": []string{tc.headerValue},
+				},
+			}
+
+			scheme := getScheme(req)
+			if scheme != tc.expected {
+				t.Errorf("Expected scheme '%s', got '%s'", tc.expected, scheme)
+			}
+		})
+	}
+}
+
+func TestIsLocalhostURL(t *testing.T) {
+	tests := []struct {
+		url      string
+		expected bool
+	}{
+		{"http://localhost:8090/api/v1", true},
+		{"https://localhost:8443/api/v1", true},
+		{"http://127.0.0.1:8090/api/v1", true},
+		{"https://127.0.0.1:8443/api/v1", true},
+		{"http://localhost.example.com:8090", false},
+		{"https://myapp.com/api/v1", false},
+		{"https://api.example.com/v1", false},
+		{"http://192.168.1.1:8090", false},
+		{"https://10.0.0.1/api/v1", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			result := isLocalhostURL(tt.url)
+			if result != tt.expected {
+				t.Errorf("isLocalhostURL(%q) = %v, want %v", tt.url, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetServerURL_UsesConfiguredProductionURL(t *testing.T) {
+	// Create a registry with a production BaseURL
+	config := &APIDocsConfig{
+		Title:       "Production API",
+		Version:     "1.0.0",
+		Description: "Test",
+		BaseURL:     "https://api.example.com/v1",
+		Enabled:     true,
+	}
+	registry := NewAPIRegistry(config, nil, nil)
+
+	// Create a mock HTTPS request
+	req := &http.Request{
+		Host: "localhost:8090",
+		TLS:  &tls.ConnectionState{},
+		Header: http.Header{
+			"X-Forwarded-Proto": []string{"https"},
+		},
+	}
+
+	servers := getServerURL(registry, req, "v1")
+
+	if len(servers) != 1 {
+		t.Fatalf("Expected 1 server, got %d", len(servers))
+	}
+
+	if servers[0].URL != "https://api.example.com/v1" {
+		t.Errorf("Expected configured production URL, got %s", servers[0].URL)
+	}
+}
+
+func TestGetServerURL_UsesDynamicURLForLocalhost(t *testing.T) {
+	// Create a registry with a localhost BaseURL (dev default)
+	config := &APIDocsConfig{
+		Title:       "Dev API",
+		Version:     "1.0.0",
+		Description: "Test",
+		BaseURL:     "http://localhost:8090",
+		Enabled:     true,
+	}
+	registry := NewAPIRegistry(config, nil, nil)
+
+	// Create a mock HTTPS request
+	req := &http.Request{
+		Host:   "example.com",
+		TLS:    &tls.ConnectionState{},
+		Header: http.Header{},
+	}
+
+	servers := getServerURL(registry, req, "v1")
+
+	if len(servers) != 1 {
+		t.Fatalf("Expected 1 server, got %d", len(servers))
+	}
+
+	// Should use dynamic construction since configured URL is localhost
+	expected := "https://example.com/api/v1"
+	if servers[0].URL != expected {
+		t.Errorf("Expected dynamic URL %q, got %q", expected, servers[0].URL)
+	}
+
+	if servers[0].Description != "API v1 Server" {
+		t.Errorf("Expected description 'API v1 Server', got %q", servers[0].Description)
+	}
+}
+
+func TestGetServerURL_UsesDynamicURLFor127(t *testing.T) {
+	// Create a registry with a 127.0.0.1 BaseURL (dev default)
+	config := &APIDocsConfig{
+		Title:       "Dev API",
+		Version:     "1.0.0",
+		Description: "Test",
+		BaseURL:     "http://127.0.0.1:8090",
+		Enabled:     true,
+	}
+	registry := NewAPIRegistry(config, nil, nil)
+
+	// Create a mock HTTP request with X-Forwarded-Proto
+	req := &http.Request{
+		Host: "myapp.com",
+		TLS:  nil,
+		Header: http.Header{
+			"X-Forwarded-Proto": []string{"https"},
+		},
+	}
+
+	servers := getServerURL(registry, req, "v2")
+
+	if len(servers) != 1 {
+		t.Fatalf("Expected 1 server, got %d", len(servers))
+	}
+
+	// Should use dynamic construction since configured URL is 127.0.0.1
+	expected := "https://myapp.com/api/v2"
+	if servers[0].URL != expected {
+		t.Errorf("Expected dynamic URL %q, got %q", expected, servers[0].URL)
+	}
+}
+
+func TestGetServerURL_UsesDynamicURLWhenNoServers(t *testing.T) {
+	// Create a registry with empty BaseURL
+	config := &APIDocsConfig{
+		Title:       "Test API",
+		Version:     "1.0.0",
+		Description: "Test",
+		BaseURL:     "",
+		Enabled:     true,
+	}
+	registry := NewAPIRegistry(config, nil, nil)
+
+	// Clear any servers that might have been set
+	registry.UpdateConfig(&APIDocsConfig{
+		Title:       "Test API",
+		Version:     "1.0.0",
+		Description: "Test",
+		BaseURL:     "",
+		Enabled:     true,
+	})
+
+	// Create a mock HTTP request
+	req := &http.Request{
+		Host:   "api.example.com",
+		TLS:    nil,
+		Header: http.Header{},
+	}
+
+	servers := getServerURL(registry, req, "v1")
+
+	if len(servers) != 1 {
+		t.Fatalf("Expected 1 server, got %d", len(servers))
+	}
+
+	// Should use dynamic construction
+	expected := "http://api.example.com/api/v1"
+	if servers[0].URL != expected {
+		t.Errorf("Expected dynamic URL %q, got %q", expected, servers[0].URL)
 	}
 }
 

@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -773,6 +774,55 @@ func (vm *APIVersionManager) VersionsHandler(c *core.RequestEvent) error {
 	})
 }
 
+// getScheme determines the request scheme (http or https) from the request context.
+// It checks X-Forwarded-Proto header first (for reverse proxies), then TLS connection,
+// and defaults to http.
+func getScheme(r *http.Request) string {
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		return proto
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+// isLocalhostURL checks if a URL is pointing to localhost (used to detect dev defaults).
+// This helps identify when a configured BaseURL is a development default rather than
+// a production URL that should be respected.
+func isLocalhostURL(urlStr string) bool {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1"
+}
+
+// getServerURL returns the appropriate server URL for the OpenAPI spec.
+// It prioritizes user-configured BaseURL (from registry) if it's not a localhost default,
+// falling back to dynamically constructed URL from the current request for dev environments.
+func getServerURL(registry *APIRegistry, r *http.Request, version string) []*OpenAPIServer {
+	// Check if registry has servers configured
+	configuredDocs := registry.GetDocs()
+	if len(configuredDocs.Servers) > 0 {
+		// Check if the configured server is not a localhost default and not empty
+		serverURL := configuredDocs.Servers[0].URL
+		if serverURL != "" && !isLocalhostURL(serverURL) {
+			// User has configured a production URL - respect it
+			return configuredDocs.Servers
+		}
+	}
+
+	// Fall back to dynamic URL construction for localhost/dev environments
+	return []*OpenAPIServer{
+		{
+			URL:         fmt.Sprintf("%s://%s/api/%s", getScheme(r), r.Host, version),
+			Description: fmt.Sprintf("API %s Server", version),
+		},
+	}
+}
+
 // GetVersionOpenAPI returns the complete OpenAPI schema for a specific version
 func (vm *APIVersionManager) GetVersionOpenAPI(c *core.RequestEvent, version string) error {
 	// Check authentication
@@ -790,12 +840,8 @@ func (vm *APIVersionManager) GetVersionOpenAPI(c *core.RequestEvent, version str
 
 	// Prefer direct spec loading first; fall back to registry generation path.
 	if embeddedDocs, err := GetSpec(version); err == nil && embeddedDocs != nil {
-		embeddedDocs.Servers = []*OpenAPIServer{
-			{
-				URL:         fmt.Sprintf("http://%s/api/%s", c.Request.Host, version),
-				Description: fmt.Sprintf("API %s Server", version),
-			},
-		}
+		// Use configured BaseURL if available and not localhost, otherwise construct dynamically
+		embeddedDocs.Servers = getServerURL(registry, c.Request, version)
 		return c.JSON(http.StatusOK, embeddedDocs)
 	}
 
@@ -839,12 +885,8 @@ func (vm *APIVersionManager) GetVersionOpenAPIPublic(c *core.RequestEvent, versi
 	// Prefer direct spec loading first; fall back to registry generation path.
 	embeddedDocs, embErr := GetSpec(version)
 	if embErr == nil && embeddedDocs != nil {
-		embeddedDocs.Servers = []*OpenAPIServer{
-			{
-				URL:         fmt.Sprintf("http://%s/api/%s", c.Request.Host, version),
-				Description: fmt.Sprintf("API %s Server", version),
-			},
-		}
+		// Use configured BaseURL if available and not localhost, otherwise construct dynamically
+		embeddedDocs.Servers = getServerURL(registry, c.Request, version)
 		return c.JSON(http.StatusOK, embeddedDocs)
 	}
 
