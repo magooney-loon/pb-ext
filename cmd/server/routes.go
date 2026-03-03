@@ -13,32 +13,48 @@ import (
 )
 
 func registerRoutes(app core.App) {
-	// Initialize version manager with configs
-	versionManager := api.InitializeVersionedSystem(createAPIVersions(), "v1")
+	versionManager := initVersionedSystem()
 
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		// Get version-specific routers
-		v1Router, err := versionManager.GetVersionRouter("v1", e)
-		if err != nil {
+		if err := versionManager.RegisterAllVersionRoutes(e); err != nil {
 			return err
 		}
-
-		v2Router, err := versionManager.GetVersionRouter("v2", e)
-		if err != nil {
-			return err
-		}
-
-		// Register v1 routes
-		registerV1Routes(v1Router)
-
-		// Register v2 routes
-		registerV2Routes(v2Router)
-
 		return e.Next()
 	})
 
 	// Register version management endpoints
 	versionManager.RegisterWithServer(app)
+}
+
+// initVersionedSystem initializes the version manager with configured API versions.
+func initVersionedSystem() *api.APIVersionManager {
+	vm := api.InitializeVersionedSystem(createAPIVersions(), "v1")
+	registerVersionRouteRegistrars(vm)
+	return vm
+}
+
+// registerVersionedRoutesForDocsGeneration registers all versioned routes against docs registries
+// without requiring a running PocketBase server.
+func registerVersionedRoutesForDocsGeneration(versionManager *api.APIVersionManager) error {
+	if versionManager == nil {
+		return nil
+	}
+	return versionManager.RegisterAllVersionRoutesForDocs()
+}
+
+// registerVersionRouteRegistrars wires per-version route registration callbacks once,
+// then APIVersionManager reuses them for both serve-time and docs-only registration flows.
+func registerVersionRouteRegistrars(versionManager *api.APIVersionManager) {
+	if versionManager == nil {
+		return
+	}
+
+	if err := versionManager.SetVersionRouteRegistrars(map[string]func(*api.VersionedAPIRouter){
+		"v1": registerV1Routes,
+		"v2": registerV2Routes,
+	}); err != nil {
+		panic(err)
+	}
 }
 
 // createAPIVersions creates version configurations with reduced duplication

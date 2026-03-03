@@ -101,7 +101,19 @@ func handleBuildOnlyMode(rootDir string, installDeps bool) error {
 		return fmt.Errorf("system requirements not met: %w", err)
 	}
 
-	return internal.BuildFrontend(rootDir, installDeps)
+	if err := internal.BuildFrontend(rootDir, installDeps); err != nil {
+		return err
+	}
+
+	if err := internal.GenerateOpenAPISpecs(rootDir); err != nil {
+		return fmt.Errorf("openapi spec generation failed: %w", err)
+	}
+
+	if err := internal.ValidateOpenAPISpecs(rootDir); err != nil {
+		return fmt.Errorf("openapi spec validation failed: %w", err)
+	}
+
+	return nil
 }
 
 // handleRunOnlyMode starts the server without building
@@ -134,6 +146,15 @@ func handleDevelopmentMode(rootDir string, installDeps bool) error {
 	// Build frontend first
 	if err := internal.BuildFrontend(rootDir, installDeps); err != nil {
 		return fmt.Errorf("frontend build failed: %w", err)
+	}
+
+	// Generate and validate OpenAPI specs before running dev server
+	if err := internal.GenerateOpenAPISpecs(rootDir); err != nil {
+		return fmt.Errorf("openapi spec generation failed: %w", err)
+	}
+
+	if err := internal.ValidateOpenAPISpecs(rootDir); err != nil {
+		return fmt.Errorf("openapi spec validation failed: %w", err)
 	}
 
 	// Prepare and start server

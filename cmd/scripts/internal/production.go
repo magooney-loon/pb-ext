@@ -40,6 +40,14 @@ func ProductionBuild(rootDir string, installDeps bool, distDir string) error {
 		return fmt.Errorf("frontend copy to dist failed: %w", err)
 	}
 
+	// Generate and validate embedded OpenAPI specs before compiling the server binary
+	if err := GenerateOpenAPISpecs(rootDir); err != nil {
+		return fmt.Errorf("openapi spec generation failed: %w", err)
+	}
+	if err := ValidateOpenAPISpecs(rootDir); err != nil {
+		return fmt.Errorf("openapi spec validation failed: %w", err)
+	}
+
 	// Build server binary
 	if err := BuildServerBinary(rootDir, outputDir); err != nil {
 		return fmt.Errorf("server binary build failed: %w", err)
@@ -211,3 +219,7 @@ func CleanProductionBuild(rootDir, distDir string) error {
 	PrintSuccess("Previous production builds cleaned")
 	return nil
 }
+
+// GenerateOpenAPISpecs is implemented in build.go.
+
+// ValidateOpenAPISpecs is implemented in build.go.

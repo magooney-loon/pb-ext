@@ -107,6 +107,50 @@ go run cmd/scripts/main.go --run-only
 
 See `**/*/README.md` for detailed docs.
 
+## OpenAPI Spec Generation & Embedding
+
+pb-ext now supports build-time OpenAPI spec generation with embedded runtime loading.
+
+### Generate specs manually
+
+```bash
+go run ./cmd/server --generate-specs-dir ./core/server/api/specs
+```
+
+Optional: generate only one version:
+
+```bash
+go run ./cmd/server --generate-specs-dir ./core/server/api/specs --generate-spec-version v1
+```
+
+### Validate generated specs
+
+```bash
+go run ./cmd/server --validate-specs-dir ./core/server/api/specs
+```
+
+### Runtime behavior
+
+- At runtime, docs loading is **embedded-first** by version (`v1`, `v2`, etc.).
+- If an embedded spec isn't available or doesn't match runtime config checks, pb-ext falls back to runtime generation.
+- For local/debug overrides, set:
+
+```bash
+PB_EXT_OPENAPI_SPECS_DIR=/absolute/path/to/specs
+```
+
+When set, specs from that directory are preferred for lookup.
+
+### Build pipeline integration
+
+The script pipeline runs OpenAPI generation + validation automatically before server compilation in relevant modes:
+
+```bash
+go run cmd/scripts/main.go
+go run cmd/scripts/main.go --build-only
+go run cmd/scripts/main.go --production
+```
+
 Having issues with Your API Docs?
 ```bash
 127.0.0.1:8090/api/docs/debug/ast

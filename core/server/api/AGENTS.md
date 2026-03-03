@@ -101,7 +101,11 @@ endpointToOperation()
   \-- build OpenAPIOperation with parameters, request body, responses, security
   v
 GetDocsWithComponents()
-  |-- GenerateComponentSchemas()
+  |-- embedded-first lookup by registry version
+  |     |-- HasEmbeddedSpec(version)
+  |     |-- GetEmbeddedSpec(version)
+  |     \-- optional PB_EXT_OPENAPI_SPECS_DIR disk override
+  |-- fallback: GenerateComponentSchemas()
   |     |-- struct schemas from AST
   |     |-- promoteHandlerResponseSchemas(): inline response → named component + $ref
   |     \-- PocketBaseRecord, Error always included
@@ -110,7 +114,29 @@ GetDocsWithComponents()
   \-- return OpenAPI 3.0.3 spec
 ```
 
-## AST Parser Internals
+## Embedded OpenAPI Specs (Build-Time + Runtime)
+
+`openapi_embedded_loader.go` is the runtime loader for build-generated specs in `core/server/api/specs`.
+
+### Source selection policy
+
+1. If `PB_EXT_OPENAPI_SPECS_DIR` is set, specs are discovered and read from that directory on disk.
+2. Otherwise, specs are loaded from `go:embed` data bundled in the binary.
+
+### Loader API
+
+- `HasEmbeddedSpec(version string) bool`
+- `ListEmbeddedSpecVersions() []string`
+- `GetEmbeddedSpec(version string) (*APIDocs, error)`
+
+### Behavior guarantees
+
+- Parsed specs are cached per version.
+- Parse/read errors are cached per version.
+- Returned specs are deep-copied to avoid mutation leaks across requests.
+- Runtime selection in `registry_spec.go` is embedded-first by version, then AST/runtime generation fallback.
+
+### AST Parser Internals
 
 ### Two-Pass Struct Extraction
 

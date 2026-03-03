@@ -14,6 +14,22 @@ import (
 // Only includes component schemas that are actually referenced by this version's endpoints.
 // The assembled spec is cached and only regenerated when endpoints change.
 func (r *APIRegistry) GetDocsWithComponents() *APIDocs {
+	if r != nil {
+		version := r.GetVersion()
+		if version != "" {
+			if embeddedDocs, err := GetEmbeddedSpec(version); err == nil && embeddedDocs != nil {
+				r.mu.RLock()
+				servers := r.docs.Servers
+				r.mu.RUnlock()
+
+				if len(servers) > 0 {
+					embeddedDocs.Servers = servers
+				}
+				return embeddedDocs
+			}
+		}
+	}
+
 	r.mu.RLock()
 	if !r.specDirty && r.cachedSpecDocs != nil {
 		cached := r.cachedSpecDocs
@@ -282,6 +298,21 @@ func (r *APIRegistry) endpointToOperation(endpoint APIEndpoint) *OpenAPIOperatio
 		}
 	}
 
+	// Runtime safety: if a promoted response $ref target schema is missing,
+	// backfill with the original inline endpoint response schema so Swagger
+	// never receives unresolved component references.
+	if endpoint.Response != nil {
+		if resp200, ok := operation.Responses["200"]; ok && resp200 != nil {
+			if mt, ok := resp200.Content["application/json"]; ok && mt != nil && mt.Schema != nil && mt.Schema.Ref != "" {
+				if schemaName := schemaNameFromRef(mt.Schema.Ref); schemaName != "" {
+					if !r.hasComponentSchema(schemaName) {
+						mt.Schema = endpoint.Response
+					}
+				}
+			}
+		}
+	}
+
 	// Add security requirement if auth is required
 	if endpoint.Auth != nil && endpoint.Auth.Required {
 		operation.Security = []map[string][]string{
@@ -336,6 +367,24 @@ func (r *APIRegistry) generateOperationId(endpoint APIEndpoint) string {
 	}
 
 	return result.String()
+}
+
+func (r *APIRegistry) hasComponentSchema(name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+
+	if r == nil || r.schemaGenerator == nil {
+		return false
+	}
+
+	components := r.schemaGenerator.GenerateComponentSchemas()
+	if components == nil || components.Schemas == nil {
+		return false
+	}
+
+	_, ok := components.Schemas[name]
+	return ok
 }
 
 // buildTags collects unique tags from endpoints
