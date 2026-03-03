@@ -10,3 +10,9 @@ go run ./cmd/server --generate-specs-dir ./core/server/api/specs
 
 Validation command:
 go run ./cmd/server --validate-specs-dir ./core/server/api/specs
+
+The script pipeline runs OpenAPI generation + validation automatically before server compilation in relevant modes:
+
+go run cmd/scripts/main.go
+go run cmd/scripts/main.go --build-only
+go run cmd/scripts/main.go --production

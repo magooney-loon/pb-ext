@@ -1823,6 +1823,46 @@ func InitializeVersionManager(versions map[string]*APIDocsConfig, defaultVersion
 	return vm
 }
 
+// VersionSetup combines version configuration and route registration for streamlined setup
+type VersionSetup struct {
+	Config *APIDocsConfig
+	Routes func(*VersionedAPIRouter)
+}
+
+// InitializeVersionedSystemWithRoutes creates a version manager with both configs and route registrars in one call
+// This eliminates the need for separate InitializeVersionedSystem + SetVersionRouteRegistrars calls
+func InitializeVersionedSystemWithRoutes(versions map[string]*VersionSetup, defaultVersion string) *APIVersionManager {
+	vm := NewAPIVersionManagerWithDefault(defaultVersion)
+
+	// Register all versions and their route registrars
+	for version, setup := range versions {
+		if setup == nil {
+			continue
+		}
+
+		// Register version config
+		if setup.Config != nil {
+			if err := vm.RegisterVersion(version, setup.Config); err != nil {
+				// Skip failed version registration
+				continue
+			}
+		}
+
+		// Register route callback
+		if setup.Routes != nil {
+			if err := vm.SetVersionRouteRegistrar(version, setup.Routes); err != nil {
+				// Log error but continue
+				continue
+			}
+		}
+	}
+
+	// Set global instance
+	SetGlobalVersionManager(vm)
+
+	return vm
+}
+
 // =============================================================================
 // Utility Functions
 // =============================================================================
