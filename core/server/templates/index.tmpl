@@ -3,8 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>pb-ext Dashboard</title>
+    <script>
+        // Apply color scheme immediately to prevent flash of wrong theme
+        (function() {
+            var stored = localStorage.getItem('pbColorScheme') || '';
+            var scheme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-color-scheme', scheme);
+        })();
+    </script>
+
+    <script>
+        // Theme management — synced with PocketBase's pbColorScheme localStorage key
+        var PB_THEME_KEY = 'pbColorScheme';
+        var PB_THEMES = ['light', 'dark', 'auto']; // cycle order
+
+        function getCurrentScheme() {
+            var stored = localStorage.getItem(PB_THEME_KEY) || '';
+            if (stored === 'light' || stored === 'dark') return stored;
+            return 'auto';
+        }
+
+        function getEffectiveScheme(scheme) {
+            if (scheme === 'light' || scheme === 'dark') return scheme;
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyScheme(scheme) {
+            // Disable transitions during switch
+            document.documentElement.style.setProperty('--animationSpeed', '0');
+            var effective = getEffectiveScheme(scheme);
+            document.documentElement.setAttribute('data-color-scheme', effective);
+            updateThemeIcon(effective, scheme);
+            // Re-enable transitions after a beat
+            setTimeout(function() {
+                document.documentElement.style.removeProperty('--animationSpeed');
+            }, 100);
+        }
+
+        function updateThemeIcon(effective, scheme) {
+            var btn = document.getElementById('theme-toggle');
+            if (!btn) return;
+            var icon = btn.querySelector('i');
+            if (!icon) return;
+            if (scheme === 'auto') {
+                icon.className = effective === 'dark' ? 'ri-moon-line' : 'ri-sun-line';
+            } else {
+                icon.className = scheme === 'dark' ? 'ri-moon-line' : 'ri-sun-line';
+            }
+            // Show a small indicator for auto mode
+            btn.title = scheme === 'auto' ? 'Auto (' + effective + ')' : scheme.charAt(0).toUpperCase() + scheme.slice(1);
+        }
+
+        function cycleColorScheme() {
+            var current = getCurrentScheme();
+            var idx = PB_THEMES.indexOf(current);
+            var next = PB_THEMES[(idx + 1) % PB_THEMES.length];
+            if (next === 'auto') {
+                localStorage.removeItem(PB_THEME_KEY);
+            } else {
+                localStorage.setItem(PB_THEME_KEY, next);
+            }
+            applyScheme(next);
+            // Also sync PocketBase admin if it's open (same origin)
+            try { localStorage.setItem(PB_THEME_KEY, next === 'auto' ? '' : next); } catch(e) {}
+        }
+
+        // Listen for system preference changes (for auto mode)
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+            if (getCurrentScheme() === 'auto') {
+                applyScheme('auto');
+            }
+        });
+
+        // Initialize icon on load
+        document.addEventListener('DOMContentLoaded', function() {
+            applyScheme(getCurrentScheme());
+        });
+    </script>
     <link rel="shortcut icon" type="image/png" href="../_/images/favicon/favicon.png">
     {{template "dashboard_base_css"}}
     <script>
@@ -38,6 +114,7 @@
                     <a href="#cron" class="menu-item cron-tab" aria-label="Cron Jobs" title="Cron Jobs"><i class="ri-time-line"></i></a>
                     <a href="#rules" class="menu-item rules-tab" aria-label="Rules" title="Rules"><i class="ri-lock-line"></i></a>
                 </nav>
+                <div onclick="cycleColorScheme()" class="menu-item thumb thumb-circle link-hint" aria-label="Theme" title="Toggle theme" id="theme-toggle"><i class="ri-sun-line"></i></div>
                 <div onclick="openDebugAPI(event)" target="_blank" class="menu-item thumb thumb-circle link-hint" aria-label="Debug" title="Debug AST"><i class="ri-bug-line"></i></div>
             </aside>
             <div class="app-body" id="content" style="opacity: 0;">
