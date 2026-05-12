@@ -84,6 +84,12 @@
 .card-body {
     padding: 15px;
 }
+/* Compensate for nested grid negative margins */
+.card-body > .grid {
+    margin-left: 0;
+    margin-right: 0;
+    padding: 0 2px;
+}
 .card-sm {
     background: var(--surfaceColor);
     border-radius: var(--borderRadius, 4px);
