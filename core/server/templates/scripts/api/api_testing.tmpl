@@ -1181,16 +1181,9 @@
             switch (authMode) {
                 case 'admin':
                     // Get superuser token from localStorage
-                    const adminAuth = localStorage.getItem('__pb_superuser_auth__');
-                    if (adminAuth) {
-                        try {
-                            const adminData = JSON.parse(adminAuth);
-                            if (adminData.token) {
-                                headers['Authorization'] = `Bearer ${adminData.token}`;
-                            }
-                        } catch (e) {
-                            console.warn('Invalid admin auth data in localStorage');
-                        }
+                    var authResult = findPBSuperuserToken();
+                    if (authResult.token) {
+                        headers['Authorization'] = `Bearer ${authResult.token}`;
                     }
                     break;
                 case 'auth':

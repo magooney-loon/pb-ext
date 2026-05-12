@@ -18,27 +18,8 @@ class CronAPI {
      * @returns {string|null} Auth token
      */
     getAuthToken() {
-        const possibleTokenKeys = [
-            '__pb_superuser_auth__'
-        ];
-
-        for (const key of possibleTokenKeys) {
-            const stored = localStorage.getItem(key);
-            if (stored) {
-                try {
-                    const parsed = JSON.parse(stored);
-                    if (parsed && parsed.token) {
-                        return parsed.token;
-                    }
-                } catch (e) {
-                    // If it's not JSON, try as plain string
-                    if (stored.length > 10) {
-                        return stored;
-                    }
-                }
-            }
-        }
-        return null;
+        var result = findPBSuperuserToken();
+        return result.token;
     }
 
     /**

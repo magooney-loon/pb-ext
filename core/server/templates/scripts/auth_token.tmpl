@@ -1,0 +1,92 @@
+{{define "auth_token_script"}}
+<script>
+    /**
+     * Find the PocketBase superuser auth token from localStorage.
+     *
+     * Supports both legacy keys (__pb_superuser_auth__) and the v0.38+ format
+     * (__pb_superusers__<path>, e.g. __pb_superusers__/_).
+     *
+     * @param {object}  [opts]              Options.
+     * @param {function} [opts.debug]        Called with debug messages (string).
+     * @returns {Object} result
+     *          result.token  – the raw JWT string, or null when nothing was found
+     *          result.key    – the localStorage key it came from
+     *          result.source – "primary" | "fallback" | null
+     */
+    function findPBSuperuserToken(opts) {
+        var dbg = (opts && typeof opts.debug === 'function') ? opts.debug : function(){};
+
+        // --- Phase 1: known keys -------------------------------------------------
+        var primaryKeys = ['__pb_superuser_auth__'];
+
+        // PocketBase v0.38+ stores under __pb_superusers__* (path-suffixed).
+        for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf('__pb_superusers__') === 0) {
+                primaryKeys.unshift(k); // prefer newest keys first
+            }
+        }
+
+        dbg('Checking keys: ' + primaryKeys.join(', '));
+
+        for (var ki = 0; ki < primaryKeys.length; ki++) {
+            var raw = localStorage.getItem(primaryKeys[ki]);
+            if (!raw) continue;
+
+            dbg('Found value for key: ' + primaryKeys[ki]);
+
+            try {
+                var parsed = JSON.parse(raw);
+                if (parsed && parsed.token) {
+                    dbg('Extracted token.token from JSON');
+                    return { token: parsed.token, key: primaryKeys[ki], source: 'primary' };
+                }
+            } catch (_) {
+                dbg('Value is not JSON – using raw string');
+                return { token: raw, key: primaryKeys[ki], source: 'primary' };
+            }
+        }
+
+        // --- Phase 2: broad localStorage scan ------------------------------------
+        dbg('Primary keys yielded nothing – scanning full localStorage');
+
+        for (var li = 0; li < localStorage.length; li++) {
+            var lKey = localStorage.key(li);
+
+            if (!lKey) continue;
+
+            // Match old keys with 'auth' OR new v0.38+ keys with 'superusers'
+            var hasNS  = lKey.indexOf('pb') !== -1 || lKey.indexOf('pocketbase') !== -1 || lKey.indexOf('__pb_') === 0;
+            var hasTag = lKey.indexOf('auth') !== -1 || lKey.indexOf('superusers') !== -1;
+            if (!hasNS || !hasTag) continue;
+
+            dbg('Checking potential token: ' + lKey);
+            var val = localStorage.getItem(lKey);
+
+            try {
+                var p = JSON.parse(val);
+                if (p && p.token) {
+                    var rec = p.record || {};
+                    var isSuper =
+                        rec.collectionName === '_superusers' ||
+                        lKey.indexOf('superuser') !== -1 ||
+                        lKey.indexOf('admin') !== -1;
+                    if (isSuper) {
+                        dbg('Found valid superuser token in fallback scan');
+                        return { token: p.token, key: lKey, source: 'fallback' };
+                    }
+                    dbg('Token found but not a superuser – skipping');
+                }
+            } catch (_e) {
+                if (lKey.indexOf('superuser') !== -1 || lKey.indexOf('admin') !== -1) {
+                    dbg('Using raw fallback value');
+                    return { token: val, key: lKey, source: 'fallback' };
+                }
+            }
+        }
+
+        dbg('No superuser token found');
+        return { token: null, key: null, source: null };
+    }
+</script>
+{{end}}

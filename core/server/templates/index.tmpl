@@ -172,30 +172,15 @@
         })();
     </script>
 
+    {{template "auth_token_script"}}
+
     <script>
         async function openDebugAPI(event) {
             event.preventDefault();
 
-            const possibleTokenKeys = [
-                '__pb_superuser_auth__',
-            ];
+            var result = findPBSuperuserToken();
 
-            let authToken = null;
-            for (const key of possibleTokenKeys) {
-                const tokenData = localStorage.getItem(key);
-                if (tokenData) {
-                    try {
-                        const parsed = JSON.parse(tokenData);
-                        authToken = parsed.token || tokenData;
-                        break;
-                    } catch {
-                        authToken = tokenData;
-                        break;
-                    }
-                }
-            }
-
-            if (!authToken) {
+            if (!result.token) {
                 alert('No superuser auth token found in localStorage');
                 return;
             }
@@ -204,7 +189,7 @@
                 const response = await fetch('http://127.0.0.1:8090/api/docs/debug/ast', {
                     method: 'GET',
                     headers: {
-                        'Authorization': 'Bearer ' + authToken,
+                        'Authorization': 'Bearer ' + result.token,
                         'Content-Type': 'application/json'
                     }
                 });

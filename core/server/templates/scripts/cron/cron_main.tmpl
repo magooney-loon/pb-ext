@@ -26,26 +26,8 @@ if (!window.cronSystemInitialized) {
          * @returns {string|null} Auth token
          */
         getAuthToken() {
-            const possibleTokenKeys = [
-                '__pb_superuser_auth__'
-            ];
-
-            for (const key of possibleTokenKeys) {
-                const stored = localStorage.getItem(key);
-                if (stored) {
-                    try {
-                        const parsed = JSON.parse(stored);
-                        if (parsed && parsed.token) {
-                            return parsed.token;
-                        }
-                    } catch (e) {
-                        if (stored.length > 10) {
-                            return stored;
-                        }
-                    }
-                }
-            }
-            return null;
+            var result = findPBSuperuserToken();
+            return result.token;
         }
 
         /**
@@ -567,22 +549,8 @@ if (!window.cronSystemInitialized) {
         }
 
         getAuthTokenFallback() {
-            const possibleTokenKeys = [
-                '__pb_superuser_auth__'
-            ];
-
-            for (const key of possibleTokenKeys) {
-                const authData = localStorage.getItem(key);
-                if (authData) {
-                    try {
-                        const parsed = JSON.parse(authData);
-                        return parsed.token;
-                    } catch (e) {
-                        continue;
-                    }
-                }
-            }
-            return null;
+            var result = findPBSuperuserToken();
+            return result.token;
         }
 
         formatDuration(nanoseconds) {
