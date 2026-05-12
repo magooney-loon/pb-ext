@@ -749,7 +749,7 @@ func TestCRUDHandlers(t *testing.T) {
 		Name string `json:"name"`
 	}
 
-	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+	registerRoutes := func(se *core.ServeEvent, vm *APIVersionManager) {
 		v1Router, _ := vm.GetVersionRouter("v1", se)
 
 		// List
@@ -772,15 +772,20 @@ func TestCRUDHandlers(t *testing.T) {
 		v1Router.DELETE("/api/v1/items/{id}", func(e *core.RequestEvent) error {
 			return e.NoContent(204)
 		})
-	})
-	defer app.Cleanup()
+	}
+
+	// Each scenario gets a fresh TestApp to avoid duplicate route registration
+	// when ApiScenario rebuilds PocketBase's mux between sub-tests.
+	factory := func(t testing.TB) *tests.TestApp {
+		return setupMiddlewareTestApp(t.(*testing.T), registerRoutes)
+	}
 
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "list items",
 			Method:          "GET",
 			URL:             "/api/v1/items",
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  200,
 			ExpectedContent: []string{`"id"`, `"item-one"`},
 		},
@@ -788,7 +793,7 @@ func TestCRUDHandlers(t *testing.T) {
 			Name:            "create item",
 			Method:          "POST",
 			URL:             "/api/v1/items",
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  201,
 			ExpectedContent: []string{`"new-item"`},
 		},
@@ -796,7 +801,7 @@ func TestCRUDHandlers(t *testing.T) {
 			Name:            "get item by id",
 			Method:          "GET",
 			URL:             "/api/v1/items/42",
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  200,
 			ExpectedContent: []string{`"id"`, `"fetched"`},
 		},
@@ -804,7 +809,7 @@ func TestCRUDHandlers(t *testing.T) {
 			Name:            "update item",
 			Method:          "PATCH",
 			URL:             "/api/v1/items/42",
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  200,
 			ExpectedContent: []string{`"updated"`},
 		},
@@ -812,7 +817,7 @@ func TestCRUDHandlers(t *testing.T) {
 			Name:           "delete item",
 			Method:         "DELETE",
 			URL:            "/api/v1/items/42",
-			TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory: factory,
 			ExpectedStatus: 204,
 		},
 	}
@@ -821,14 +826,12 @@ func TestCRUDHandlers(t *testing.T) {
 		sc := sc
 		t.Run(sc.Name, sc.Test)
 	}
-
 }
 
 func TestCRUDHandlersWithAuth(t *testing.T) {
-	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+	registerRoutes := func(se *core.ServeEvent, vm *APIVersionManager) {
 		v1Router, _ := vm.GetVersionRouter("v1", se)
 
-		// Auth-gated middleware
 		authMW := &hook.Handler[*core.RequestEvent]{
 			Id: "require-auth",
 			Func: func(e *core.RequestEvent) error {
@@ -847,8 +850,11 @@ func TestCRUDHandlersWithAuth(t *testing.T) {
 		v1Router.DELETE("/api/v1/secure/items/{id}", func(e *core.RequestEvent) error {
 			return e.NoContent(204)
 		}).Bind(authMW)
-	})
-	defer app.Cleanup()
+	}
+
+	factory := func(t testing.TB) *tests.TestApp {
+		return setupMiddlewareTestApp(t.(*testing.T), registerRoutes)
+	}
 
 	scenarios := []tests.ApiScenario{
 		{
@@ -858,7 +864,7 @@ func TestCRUDHandlersWithAuth(t *testing.T) {
 			Headers: map[string]string{
 				"Authorization": "",
 			},
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  401,
 			ExpectedContent: []string{`"unauthorized"`},
 		},
@@ -869,7 +875,7 @@ func TestCRUDHandlersWithAuth(t *testing.T) {
 			Headers: map[string]string{
 				"Authorization": "Bearer valid-token",
 			},
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  200,
 			ExpectedContent: []string{`"alice"`, `"admin"`},
 		},
@@ -880,7 +886,7 @@ func TestCRUDHandlersWithAuth(t *testing.T) {
 			Headers: map[string]string{
 				"Authorization": "",
 			},
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  401,
 			ExpectedContent: []string{`"unauthorized"`},
 		},
@@ -891,7 +897,7 @@ func TestCRUDHandlersWithAuth(t *testing.T) {
 			Headers: map[string]string{
 				"Authorization": "Bearer valid-token",
 			},
-			TestAppFactory: func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory: factory,
 			ExpectedStatus: 204,
 		},
 	}
@@ -1634,7 +1640,7 @@ func TestVersionedRouteChain_BindFunc_DocsRegistered(t *testing.T) {
 
 // TestVersionedRouteChain_BindFunc_CanShortCircuit verifies BindFunc middleware can abort the chain
 func TestVersionedRouteChain_BindFunc_CanShortCircuit(t *testing.T) {
-	app := setupMiddlewareTestApp(t, func(se *core.ServeEvent, vm *APIVersionManager) {
+	registerRoutes := func(se *core.ServeEvent, vm *APIVersionManager) {
 		v1Router, _ := vm.GetVersionRouter("v1", se)
 
 		gate := func(e *core.RequestEvent) error {
@@ -1647,15 +1653,18 @@ func TestVersionedRouteChain_BindFunc_CanShortCircuit(t *testing.T) {
 		v1Router.GET("/api/v1/gated", func(e *core.RequestEvent) error {
 			return e.JSON(200, map[string]string{"access": "granted"})
 		}).BindFunc(gate)
-	})
-	defer app.Cleanup()
+	}
+
+	factory := func(t testing.TB) *tests.TestApp {
+		return setupMiddlewareTestApp(t.(*testing.T), registerRoutes)
+	}
 
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "no header → 403",
 			Method:          "GET",
 			URL:             "/api/v1/gated",
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  403,
 			ExpectedContent: []string{`"forbidden"`},
 		},
@@ -1666,7 +1675,7 @@ func TestVersionedRouteChain_BindFunc_CanShortCircuit(t *testing.T) {
 			Headers: map[string]string{
 				"X-Allow": "yes",
 			},
-			TestAppFactory:  func(t testing.TB) *tests.TestApp { return app },
+			TestAppFactory:  factory,
 			ExpectedStatus:  200,
 			ExpectedContent: []string{`"granted"`},
 		},

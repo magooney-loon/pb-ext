@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>pb-ext://dashboard/auth</title>
-    <link rel="shortcut icon" type="image/png" href="../_/images/favicon/favicon.png">
+    <link rel="shortcut icon" type="image/png" href="../_/images/favicon.png">
     <style>
         * {
             box-sizing: border-box;
@@ -296,6 +296,8 @@
         </div>
 
 
+    {{template "auth_token_script"}}
+
     <script>
         // Matrix rain effect
         function initMatrix() {
@@ -405,80 +407,17 @@
 
             // Simulate some loading delay for effect
             setTimeout(() => {
-                const possibleTokenKeys = [
-                    '__pb_superuser_auth__',
-                ];
+                var result = findPBSuperuserToken({
+                    debug: function(msg) { showDebug('TOKEN: ' + msg); }
+                });
 
-                showDebug(`TOKEN: Checking keys: ${possibleTokenKeys.join(', ')}`);
-
-                let foundSuperuserToken = false;
-                for (const tokenKey of possibleTokenKeys) {
-                    const token = localStorage.getItem(tokenKey);
-                    if (token) {
-                        showDebug(`TOKEN: Found token with key: ${tokenKey}`);
-                        foundSuperuserToken = true;
-
-                        try {
-                            const tokenObj = JSON.parse(token);
-                            showDebug(`TOKEN: Parsed as JSON successfully`);
-
-                            if (tokenObj && tokenObj.token) {
-                                showDebug(`TOKEN: Using token.token property`);
-                                tryAuth(tokenObj.token);
-                                return;
-                            }
-                        } catch (e) {
-                            showDebug(`TOKEN: Not JSON, using raw string`);
-                            tryAuth(token);
-                            return;
-                        }
-                    }
+                if (result.token) {
+                    showDebug('AUTH: Token found via ' + result.source + ' (key: ' + result.key + ')');
+                    tryAuth(result.token);
+                } else {
+                    showDebug('AUTH: No valid authentication found');
+                    showError();
                 }
-
-                if (!foundSuperuserToken) {
-                    showDebug('TOKEN: No superuser tokens found, scanning localStorage...');
-
-                    let pbTokenFound = false;
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i);
-
-                        if (key && (key.includes('pb') || key.includes('pocketbase')) && key.includes('auth')) {
-                            pbTokenFound = true;
-                            const value = localStorage.getItem(key);
-                            showDebug(`TOKEN: Checking potential token: ${key}`);
-
-                            try {
-                                const parsed = JSON.parse(value);
-                                if (parsed && parsed.token) {
-                                    const record = parsed.record || {};
-                                    if (record.collectionName === '_superusers' ||
-                                        key.includes('superuser') ||
-                                        key.includes('admin')) {
-                                        showDebug('TOKEN: Found valid superuser token!');
-                                        tryAuth(parsed.token);
-                                        return;
-                                    } else {
-                                        showDebug('TOKEN: Not a superuser token, skipping');
-                                    }
-                                }
-                            } catch (e) {
-                                if (key.includes('superuser') || key.includes('admin')) {
-                                    tryAuth(value);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-
-                    if (!pbTokenFound) {
-                        showDebug('TOKEN: No PocketBase tokens found in localStorage');
-                    } else {
-                        showDebug('TOKEN: Found PB tokens but none were superuser tokens');
-                    }
-                }
-
-                showDebug('AUTH: No valid authentication found');
-                showError();
             }, 1500);
         });
 

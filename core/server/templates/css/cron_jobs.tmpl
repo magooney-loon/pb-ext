@@ -1,10 +1,14 @@
 {{define "cron_jobs_css"}}
 <style>
 /* =============================================================================
-   CRON JOBS MANAGEMENT - CLEAN CSS
+   CRON JOBS MANAGEMENT CSS
+   Extends dashboard_base_css — popup, animate-spin, @keyframes spin are defined
+   in the base template and must NOT be duplicated here.
    ============================================================================= */
 
-/* Base Variables */
+/* ---------------------------------------------------------------------------
+   Cron-specific custom properties
+   --------------------------------------------------------------------------- */
 :root {
     --cron-border-radius: 6px;
     --cron-transition: all 0.15s ease-in-out;
@@ -15,14 +19,10 @@
    ============================================================================= */
 
 .cron-jobs-container {
-    background: var(--baseColor);
+    background: var(--surfaceColor);
     border-radius: var(--cron-border-radius);
     overflow: hidden;
 }
-
-
-
-
 
 .cron-loading {
     display: flex;
@@ -30,7 +30,7 @@
     justify-content: center;
     gap: 12px;
     padding: 3rem 2rem;
-    color: var(--txtHintColor);
+    color: var(--surfaceTxtHintColor);
     font-size: 14px;
 }
 
@@ -45,15 +45,14 @@
 
 .cron-empty i {
     font-size: 3rem;
-    color: var(--txtHintColor);
+    color: var(--surfaceTxtHintColor);
     margin-bottom: 1rem;
 }
 
 /* =============================================================================
-   TABLE STYLING - WORK WITH POCKETBASE CSS
+   TABLE STYLING — extends .table from dashboard_base_css
    ============================================================================= */
 
-/* Use PocketBase table classes and extend them */
 .cron-jobs-container .table {
     table-layout: auto;
 }
@@ -61,16 +60,16 @@
 /* Job name styling */
 .cron-job-name {
     font-weight: 600;
-    color: var(--txtPrimaryColor);
+    color: var(--surfaceTxtColor);
     display: block;
     margin-bottom: 6px;
     font-size: 14px;
 }
 
-/* Job description - use PocketBase hint styling */
+/* Job description */
 .cron-job-description {
     font-size: 11px;
-    color: var(--txtHintColor);
+    color: var(--surfaceTxtHintColor);
     opacity: 0.7;
     line-height: 1.4;
     margin-top: 3px;
@@ -94,25 +93,25 @@
 }
 
 .cron-job-type.system {
-    background: rgba(255, 152, 0, 0.1);
-    color: #f57c00;
-    border: 1px solid rgba(255, 152, 0, 0.2);
+    background: var(--surfaceWarningColor, rgba(236, 165, 58, 0.1));
+    color: var(--warningColor, #eca53a);
+    border: 1px solid var(--surfaceWarningColor, rgba(236, 165, 58, 0.2));
 }
 
 .cron-job-type.user {
-    background: rgba(76, 175, 80, 0.1);
-    color: #388e3c;
-    border: 1px solid rgba(76, 175, 80, 0.2);
+    background: var(--surfaceSuccessColor, rgba(51, 181, 111, 0.1));
+    color: var(--successColor, #33b56f);
+    border: 1px solid var(--surfaceSuccessColor, rgba(51, 181, 111, 0.2));
 }
 
 /* Schedule column styling */
 .cron-expression {
-    background: var(--baseAlt1Color);
+    background: var(--surfaceAlt1Color);
     padding: 2px 5px;
     border-radius: 3px;
     font-size: 11px;
-    font-family: var(--monospaceFontFamily);
-    color: var(--txtPrimaryColor);
+    font-family: var(--baseFontFamily);
+    color: var(--surfaceTxtColor);
     display: inline-block;
     margin-bottom: 4px;
     font-weight: 500;
@@ -120,7 +119,7 @@
 
 .cron-description {
     font-size: 10px;
-    color: var(--txtHintColor);
+    color: var(--surfaceTxtHintColor);
     opacity: 0.75;
     display: block;
     line-height: 1.3;
@@ -157,76 +156,11 @@
 }
 
 /* =============================================================================
-   MODALS
-   ============================================================================= */
-
-.popup {
-    background: var(--baseColor);
-    border-radius: var(--cron-border-radius);
-    max-width: 90vw;
-    max-height: 90vh;
-    overflow: hidden;
-    position: relative;
-}
-
-.popup-lg {
-    width: 800px;
-    max-width: 90vw;
-}
-
-.popup-header {
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--baseAlt2Color);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--baseColor);
-}
-
-.popup-title {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--txtPrimaryColor);
-}
-
-.popup-close-btn {
-    background: none;
-    border: none;
-    font-size: 20px;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    color: var(--txtHintColor);
-    transition: var(--cron-transition);
-}
-
-.popup-close-btn:hover {
-    background: var(--baseAlt1Color);
-    color: var(--txtPrimaryColor);
-}
-
-.popup-content {
-    padding: 24px;
-    max-height: calc(90vh - 120px);
-    overflow-y: auto;
-}
-
-.popup-footer {
-    padding: 16px 24px;
-    border-top: 1px solid var(--baseAlt2Color);
-    display: flex;
-    gap: 12px;
-    justify-content: flex-end;
-    background: var(--baseColor);
-}
-
-/* =============================================================================
    JOB DETAILS
    ============================================================================= */
 
 .cron-job-details {
-    color: var(--txtPrimaryColor);
+    color: var(--surfaceTxtColor);
 }
 
 .cron-job-details__section {
@@ -245,15 +179,13 @@
     font-weight: 600;
     margin-bottom: 12px;
     padding-bottom: 8px;
-    border-bottom: 1px solid var(--baseAlt2Color);
-    color: var(--txtPrimaryColor);
+    border-bottom: 1px solid var(--surfaceAlt3Color);
+    color: var(--surfaceTxtColor);
 }
 
 .cron-job-details__section-header i {
-    color: var(--primaryColor);
+    color: var(--accentColor, var(--primaryColor, #5b8def));
 }
-
-/* Compact job details styling - using inline styles for better control */
 
 /* =============================================================================
    CRON LOGS
@@ -262,7 +194,7 @@
 .cron-logs {
     max-height: 300px;
     overflow-y: auto;
-    border: 1px solid var(--baseAlt2Color);
+    border: 1px solid var(--surfaceAlt3Color);
     border-radius: var(--cron-border-radius);
 }
 
@@ -271,7 +203,7 @@
     align-items: center;
     gap: 12px;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--baseAlt2Color);
+    border-bottom: 1px solid var(--surfaceAlt3Color);
     font-size: 13px;
     transition: var(--cron-transition);
     cursor: default;
@@ -286,7 +218,7 @@
 }
 
 .cron-log-entry:hover {
-    background: var(--baseAlt1Color);
+    background: var(--surfaceAlt1Color);
 }
 
 .cron-log-entry--success {
@@ -298,7 +230,7 @@
 }
 
 .cron-log-entry__timestamp {
-    color: var(--txtHintColor);
+    color: var(--surfaceTxtHintColor);
     font-size: 12px;
     min-width: 140px;
 }
@@ -319,7 +251,7 @@
 
 .cron-log-entry__message {
     flex: 1;
-    color: var(--txtPrimaryColor);
+    color: var(--surfaceTxtColor);
 }
 
 .cron-log-entry.has-details {
@@ -328,27 +260,27 @@
 }
 
 .cron-log-entry.has-details::after {
-    content: '▶';
+    content: '\25B6';
     position: absolute;
     right: 12px;
     top: 50%;
     transform: translateY(-50%);
-    color: var(--txtHintColor);
+    color: var(--surfaceTxtHintColor);
     font-size: 10px;
     transition: all 0.2s ease;
 }
 
 .cron-log-entry.has-details:hover::after {
-    color: var(--primaryColor);
+    color: var(--accentColor, var(--primaryColor, #5b8def));
 }
 
 .cron-log-entry.has-details.expanded::after {
-    content: '▼';
+    content: '\25BC';
     transform: translateY(-50%);
 }
 
 .cron-log-entry.expanded {
-    background: var(--baseAlt1Color);
+    background: var(--surfaceAlt1Color);
     border-left-width: 4px;
 }
 
@@ -356,8 +288,7 @@
     display: none;
     margin-top: 12px;
     padding-top: 12px;
-    border-top: 1px solid var(--baseAlt2Color);
-    animation: fadeIn 0.15s ease-out;
+    border-top: 1px solid var(--surfaceAlt3Color);
 }
 
 .cron-log-entry.expanded .log-details {
@@ -368,7 +299,7 @@
     margin: 4px 0 0 0;
     max-height: 200px;
     overflow-y: auto;
-    font-family: var(--monospaceFontFamily);
+    font-family: var(--baseFontFamily);
     font-size: 11px;
     line-height: 1.4;
     cursor: text;
@@ -379,23 +310,23 @@
 }
 
 .cron-log-entry .log-details pre:hover {
-    background: var(--baseAlt2Color) !important;
+    background: var(--surfaceAlt3Color) !important;
     transition: background-color 0.15s ease;
 }
 
 .cron-log-entry .log-details pre::selection {
-    background: var(--primaryColor);
-    color: var(--baseColor);
+    background: var(--accentColor, var(--primaryColor, #5b8def));
+    color: var(--surfaceColor);
 }
 
 .cron-log-entry .log-details pre::-moz-selection {
-    background: var(--primaryColor);
-    color: var(--baseColor);
+    background: var(--accentColor, var(--primaryColor, #5b8def));
+    color: var(--surfaceColor);
 }
 
 .cron-logs-pagination {
-    background: var(--baseAlt1Color);
-    border-top: 1px solid var(--baseAlt2Color);
+    background: var(--surfaceAlt1Color);
+    border-top: 1px solid var(--surfaceAlt3Color);
     border-radius: 0 0 var(--cron-border-radius) var(--cron-border-radius);
 }
 
@@ -409,34 +340,6 @@
 .cron-logs-pagination .btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-}
-
-/* =============================================================================
-   ANIMATIONS
-   ============================================================================= */
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-5px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.cron-loading i.animate-spin {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
 }
 
 /* =============================================================================

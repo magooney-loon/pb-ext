@@ -7,7 +7,7 @@
         </h4>
 
         <!-- Version Selector -->
-        <div class="flex align-center gap-2" style="margin-bottom:4px">
+        <div class="flex align-center gap-5" style="margin-bottom:4px">
             <span class="txt-sm txt-hint">Version:</span>
             <select id="version-select" class="form-control form-control-sm" style="min-width: 200px;">
                 <option value="">Loading versions...</option>
@@ -20,13 +20,13 @@
         <div class="txt-sm txt-hint" style="display:flex; flex-direction:column; gap:4px;">
             <div id="version-description">Loading description...</div>
             <div style="display:flex; align-items:center; justify-content:space-between;">
-                <span id="version-base-url" class="txt-xs" style="opacity:0.7;"></span>
+                <span id="version-base-url" class="txt-sm" style="opacity:0.7;"></span>
                 <span id="swagger-link" style="display: none;">
-                    <a href="#" target="_blank" class="txt-xs" style="text-decoration:none; color:var(--successColor); display:inline-flex; align-items:center; gap:3px;">
+                    <a href="#" target="_blank" class="txt-sm" style="text-decoration:none; color:var(--successColor); display:inline-flex; align-items:center; gap:3px;">
                         <i class="ri-external-link-line"></i> Open Swagger UI
                     </a>
                 </span>
-                <span id="swagger-status-private" style="display: none;" class="txt-xs" style="opacity:0.7;">
+                <span id="swagger-status-private" style="display: none;" class="txt-sm" style="opacity:0.7;">
                     <i class="ri-lock-line"></i> Swagger UI not public
                 </span>
             </div>
@@ -39,9 +39,9 @@
                 <div class="card-body">
 
                     <!-- API Statistics and Filters -->
-                    <div id="api-filters" class="m-t-base ml-2">
+                    <div id="api-filters" class="m-t-base m-l-10">
                         <!-- Search and Filters with Integrated Statistics -->
-                        <div class="flex flex-gap-10 mb-3">
+                        <div class="flex gap-10 m-b-5">
                             <div class="form-field">
                                 <label class="form-label txt-sm">
                                     <span id="api-endpoints-count" class="txt-primary txt-bold">0</span> Endpoints
@@ -75,18 +75,18 @@
                         </div>
 
                         <!-- Active Filters Display -->
-                        <div id="active-filters" class="mb-2" style="display: none;">
-                            <div class="flex align-center gap-2" style="flex-wrap: nowrap;">
+                        <div id="active-filters" class="m-b-5" style="display: none;">
+                            <div class="flex align-center gap-5" style="flex-wrap: nowrap;">
                                 <span class="txt-sm txt-hint" style="flex-shrink: 0;">Active filters:</span>
-                                <div id="filter-tags" class="flex gap-1" style="flex-wrap: wrap; flex-grow: 1;"></div>
-                                <button id="clear-filters-btn" class="btn btn-xs btn-secondary" title="Clear all filters" style="flex-shrink: 0;">
+                                <div id="filter-tags" class="flex gap-5" style="flex-wrap: wrap; flex-grow: 1;"></div>
+                                <button id="clear-filters-btn" class="btn btn-xs secondary" title="Clear all filters" style="flex-shrink: 0;">
                                     <i class="ri-close-line"></i> Clear
                                 </button>
                             </div>
                         </div>
 
                         <!-- Results Summary -->
-                        <div id="results-summary" class="mb-2">
+                        <div id="results-summary" class="m-b-5">
                             <div class="txt-sm txt-hint">
                                 Showing <span id="filtered-count">0</span> of <span id="total-count">0</span> endpoints
                             </div>
@@ -115,8 +115,8 @@
                     <div class="tabs-content">
                         <!-- Endpoints Tab -->
                         <div id="endpoints-tab" class="tab-content active">
-                            <div id="endpoints-list" class="mb-3">
-                                <div class="txt-center txt-hint p-4">
+                            <div id="endpoints-list" class="m-b-5">
+                                <div class="txt-center txt-hint p-15">
                                     <i class="ri-loader-4-line ri-xl"></i>
                                     <p>Loading API endpoints...</p>
                                 </div>
@@ -126,14 +126,14 @@
                         <!-- Components Tab -->
                         <div id="components-tab" class="tab-content" style="display: none;">
                             <div class="flex justify-between align-center" style="padding-top:4.5px;padding-bottom:4.5px">
-                                <div class="flex gap-2 align-center">
+                                <div class="flex gap-5 align-center">
                                     <span class="txt-sm txt-hint">Format:</span>
                                     <div class="inline-flex">
-                                        <button id="components-json-format-btn" class="btn btn-xs btn-secondary active" data-format="json">JSON</button>
-                                        <button id="components-yaml-format-btn" class="btn btn-xs btn-secondary" data-format="yaml">YAML</button>
+                                        <button id="components-json-format-btn" class="btn btn-xs secondary active" data-format="json">JSON</button>
+                                        <button id="components-yaml-format-btn" class="btn btn-xs secondary" data-format="yaml">YAML</button>
                                     </div>
                                 </div>
-                                <button id="copy-components-btn" class="btn btn-xs btn-secondary" type="button">
+                                <button id="copy-components-btn" class="btn btn-xs secondary" type="button">
                                     <i class="ri-file-copy-line"></i>
                                     Copy
                                 </button>
@@ -148,14 +148,14 @@
                         <!-- Raw Schema Tab -->
                         <div id="raw-tab" class="tab-content" style="display: none;">
                             <div class="flex justify-between align-center" style="padding-top:4.5px;padding-bottom:4.5px">
-                                <div class="flex gap-2 align-center">
+                                <div class="flex gap-5 align-center">
                                     <span class="txt-sm txt-hint">Format:</span>
                                     <div class="inline-flex">
-                                        <button id="json-format-btn" class="btn btn-xs btn-secondary active" data-format="json">JSON</button>
-                                        <button id="yaml-format-btn" class="btn btn-xs btn-secondary" data-format="yaml">YAML</button>
+                                        <button id="json-format-btn" class="btn btn-xs secondary active" data-format="json">JSON</button>
+                                        <button id="yaml-format-btn" class="btn btn-xs secondary" data-format="yaml">YAML</button>
                                     </div>
                                 </div>
-                                <button id="copy-schema-btn" class="btn btn-xs btn-secondary" type="button">
+                                <button id="copy-schema-btn" class="btn btn-xs secondary" type="button">
                                     <i class="ri-file-copy-line"></i>
                                     Copy
                                 </button>

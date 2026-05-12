@@ -40,23 +40,14 @@
 
         tbody.innerHTML = '<tr><td colspan="6" class="txt-center txt-hint">Loading collections...</td></tr>';
 
-        const tokenData = localStorage.getItem('__pb_superuser_auth__');
-        if (!tokenData) return;
-
-        let token;
-        try {
-            token = JSON.parse(tokenData).token;
-        } catch {
-            return;
-        }
-
-        if (!token) return;
+        var authResult = findPBSuperuserToken();
+        if (!authResult.token) return;
 
         try {
             const response = await fetch(window.location.origin + '/api/collections?perPage=1000', {
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': token
+                    'Authorization': authResult.token
                 }
             });
 
@@ -108,11 +99,11 @@
         if (rule === null || rule === undefined) {
             cell.innerHTML = '<i class="ri-lock-line"></i> Superuser Only';
             cell.title = 'Superuser Only';
-            cell.style.background = 'var(--successAltColor)';
+            cell.style.background = 'var(--surfaceSuccessColor)';
         } else if (rule === '') {
             cell.innerHTML = '<i class="ri-lock-unlock-line"></i> Public';
             cell.title = 'Public';
-            cell.style.background = 'var(--dangerAltColor)';
+            cell.style.background = 'var(--surfaceDangerColor)';
         } else {
             cell.innerText = rule;
             cell.title = rule;

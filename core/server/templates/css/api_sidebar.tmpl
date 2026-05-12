@@ -17,8 +17,8 @@
     top: 0;
     width: 540px;
     height: 100vh;
-    background: var(--baseColor, #ffffff);
-    border-left: 1px solid var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceColor);
+    border-left: 1px solid var(--surfaceAlt3Color);
     box-shadow: -4px 0 12px rgba(0, 0, 0, 0.05);
     display: flex;
     flex-direction: column;
@@ -34,8 +34,8 @@
 /* Sidebar Header */
 .api-tester-header {
     padding: 16px 20px;
-    border-bottom: 1px solid var(--baseAlt2Color, #e5e5e5);
-    background: var(--baseAlt1Color, #f8f9fa);
+    border-bottom: 1px solid var(--surfaceAlt3Color);
+    background: var(--surfaceAlt1Color);
     flex-shrink: 0;
 }
 
@@ -43,19 +43,19 @@
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: var(--txtPrimaryColor, #333);
+    color: var(--surfaceTxtColor);
 }
 
 /* Endpoint Info Section */
 .endpoint-info {
     padding: 16px 20px;
-    background: linear-gradient(135deg, var(--baseAlt1Color, #f8f9fa) 0%, var(--baseColor, #ffffff) 100%);
-    border-bottom: 1px solid var(--baseAlt2Color, #e5e5e5);
+    background: linear-gradient(135deg, var(--surfaceAlt1Color) 0%, var(--surfaceColor) 100%);
+    border-bottom: 1px solid var(--surfaceAlt3Color);
 }
 
 .endpoint-info code {
-    background: var(--baseColor, #ffffff);
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceColor);
+    border: 1px solid var(--surfaceAlt3Color);
     border-radius: 4px;
     padding: 4px 4px;
     font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
@@ -93,15 +93,15 @@
 }
 
 .auth-badge.auth-required {
-    background-color: rgba(245, 158, 11, 0.1);
-    color: #f59e0b;
-    border: 1px solid rgba(245, 158, 11, 0.3);
+    background-color: color-mix(in srgb, var(--warningColor) 10%, transparent);
+    color: var(--warningColor);
+    border: 1px solid color-mix(in srgb, var(--warningColor) 30%, transparent);
 }
 
 .auth-badge.auth-optional {
-    background-color: rgba(34, 197, 94, 0.1);
-    color: #22c55e;
-    border: 1px solid rgba(34, 197, 94, 0.3);
+    background-color: color-mix(in srgb, var(--successColor) 10%, transparent);
+    color: var(--successColor);
+    border: 1px solid color-mix(in srgb, var(--successColor) 30%, transparent);
 }
 
 /* =============================================================================
@@ -113,8 +113,8 @@
     display: flex;
     gap: 4px;
     padding: 0 20px;
-    background: var(--baseAlt1Color, #f8f9fa);
-    border-bottom: 1px solid var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceAlt1Color);
+    border-bottom: 1px solid var(--surfaceAlt3Color);
 }
 
 .tester-tab {
@@ -122,7 +122,7 @@
     padding: 10px 16px;
     border: none;
     background: transparent;
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -136,14 +136,14 @@
 }
 
 .tester-tab:hover {
-    color: var(--txtPrimaryColor, #333);
-    background: rgba(0, 0, 0, 0.02);
+    color: var(--surfaceTxtColor);
+    background: var(--surfaceAlt2Color);
 }
 
 .tester-tab.active {
-    color: var(--primaryColor, #3b82f6);
-    border-bottom-color: var(--primaryColor, #3b82f6);
-    background: var(--baseColor, #ffffff);
+    color: var(--accentColor);
+    border-bottom-color: var(--accentColor);
+    background: var(--surfaceColor);
 }
 
 .tester-tab i {
@@ -153,7 +153,7 @@
 /* Content Area */
 .api-tester-content {
     flex: 1;
-    background: var(--baseColor, #ffffff);
+    background: var(--surfaceColor);
     min-height: 0;
     position: relative;
 }
@@ -180,19 +180,19 @@
 }
 
 .tester-tab-content::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.05);
+    background: var(--surfaceAlt1Color);
     border-radius: 5px;
 }
 
 .tester-tab-content::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.15);
+    background: var(--surfaceAlt3Color);
     border-radius: 5px;
     border: 2px solid transparent;
     background-clip: content-box;
 }
 
 .tester-tab-content::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.25);
+    background: var(--surfaceAlt4Color);
     background-clip: content-box;
 }
 
@@ -223,18 +223,18 @@
 .query-param-value {
     flex: 1;
     padding: 6px 10px;
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    border: 1px solid var(--surfaceAlt3Color);
     border-radius: 4px;
     font-size: 13px;
-    background: var(--baseColor, #ffffff);
-    color: var(--txtPrimaryColor, #333);
+    background: var(--surfaceColor);
+    color: var(--surfaceTxtColor);
 }
 
 .query-param-name:focus,
 .query-param-value:focus {
     outline: none;
-    border-color: var(--primaryColor, #3b82f6);
-    box-shadow: 0 0 0 1px var(--primaryColor, #3b82f6);
+    border-color: var(--primaryColor);
+    box-shadow: 0 0 0 1px var(--primaryColor);
 }
 
 .remove-param-btn {
@@ -244,16 +244,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--dangerColor, #ef4444);
+    background: var(--dangerColor);
     color: white;
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: filter 0.2s ease;
 }
 
 .remove-param-btn:hover {
-    background: #dc2626;
+    filter: brightness(0.85);
 }
 
 .add-query-param-btn {
@@ -264,18 +264,18 @@
     justify-content: center;
     gap: 6px;
     padding: 8px;
-    background: var(--baseAlt1Color, #f8f9fa);
-    border: 1px dashed var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceAlt1Color);
+    border: 1px dashed var(--surfaceAlt3Color);
     border-radius: 4px;
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .add-query-param-btn:hover {
-    background: var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceAlt3Color);
     border-style: solid;
-    color: var(--txtPrimaryColor, #333);
+    color: var(--surfaceTxtColor);
 }
 
 /* Request Body Textarea Styling */
@@ -283,8 +283,8 @@
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
     font-size: 13px !important;
     line-height: 1.4;
-    background: var(--baseAlt1Color, #f8f9fa);
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceAlt1Color);
+    border: 1px solid var(--surfaceAlt3Color);
     border-radius: 6px;
     padding: 12px;
     resize: vertical;
@@ -293,26 +293,26 @@
 
 .code-input:focus {
     outline: none;
-    border-color: var(--primaryColor, #3b82f6);
-    box-shadow: 0 0 0 1px var(--primaryColor, #3b82f6);
-    background: var(--baseColor, #ffffff);
+    border-color: var(--primaryColor);
+    box-shadow: 0 0 0 1px var(--primaryColor);
+    background: var(--surfaceColor);
 }
 
 .code-input::placeholder {
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     font-style: italic;
 }
 
 /* Empty State Styling */
 .json-null {
-    color: #6b7280;
+    color: var(--surfaceTxtHintColor);
     font-style: italic;
     font-size: 14px;
     padding: 20px;
     text-align: center;
     display: block;
-    background: var(--baseAlt1Color, #f8f9fa);
-    border: 1px dashed var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceAlt1Color);
+    border: 1px dashed var(--surfaceAlt3Color);
     border-radius: 4px;
     margin: 8px 0;
 }
@@ -325,7 +325,7 @@
     display: flex;
     gap: 2px;
     margin-top: 12px;
-    background: var(--baseAlt1Color, #f8f9fa);
+    background: var(--surfaceAlt1Color);
     padding: 4px;
     border-radius: 6px;
 }
@@ -335,7 +335,7 @@
     padding: 6px 12px;
     border: none;
     background: transparent;
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
@@ -344,12 +344,12 @@
 }
 
 .response-tab:hover {
-    background: rgba(0, 0, 0, 0.05);
+    background: var(--surfaceAlt2Color);
 }
 
 .response-tab.active {
-    background: var(--baseColor, #ffffff);
-    color: var(--primaryColor, #3b82f6);
+    background: var(--surfaceColor);
+    color: var(--accentColor);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
@@ -376,7 +376,7 @@
 }
 
 .response-empty-state .txt-center {
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
 }
 
 .response-empty-state i {
@@ -418,7 +418,7 @@
 #response-body .code-block code:empty::before,
 #response-headers .code-block code:empty::before {
     content: "No data available";
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     font-style: italic;
     opacity: 0.7;
 }
@@ -431,8 +431,8 @@
 .response-tab-content .code-block,
 #response-body .code-block,
 #response-headers .code-block {
-    background: var(--baseAlt1Color, #f8f9fa);
-    border: 1px solid var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceAlt1Color);
+    border: 1px solid var(--surfaceAlt3Color);
     border-radius: 6px;
     margin: 0;
     padding: 12px;
@@ -456,7 +456,7 @@
     word-wrap: break-word;
     word-break: break-word;
     overflow-wrap: break-word;
-    color: var(--txtPrimaryColor, #333);
+    color: var(--surfaceTxtColor);
     width: 100%;
     box-sizing: border-box;
 }
@@ -495,12 +495,12 @@
 
 .response-status.success .status-code,
 .response-status-info.success .status-code {
-    color: #22c55e;
+    color: var(--successColor);
 }
 
 .response-status.error .status-code,
 .response-status-info.error .status-code {
-    color: #ef4444;
+    color: var(--dangerColor);
 }
 
 .status-code {
@@ -509,11 +509,11 @@
 }
 
 .status-text {
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
 }
 
 .duration {
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     font-size: 11px;
 }
 
@@ -526,37 +526,37 @@
 }
 
 .status-badge.status-ready {
-    background: var(--baseAlt2Color, #e5e5e5);
-    color: var(--txtHintColor, #666);
+    background: var(--surfaceAlt3Color);
+    color: var(--surfaceTxtHintColor);
 }
 
 .status-badge.status-success {
-    background: rgba(34, 197, 94, 0.1);
-    color: #22c55e;
+    background: color-mix(in srgb, var(--successColor) 10%, transparent);
+    color: var(--successColor);
 }
 
 .status-badge.status-info {
-    background: rgba(59, 130, 246, 0.1);
-    color: #3b82f6;
+    background: color-mix(in srgb, var(--primaryColor) 10%, transparent);
+    color: var(--primaryColor);
 }
 
 .status-badge.status-warning {
-    background: rgba(245, 158, 11, 0.1);
-    color: #f59e0b;
+    background: color-mix(in srgb, var(--warningColor) 10%, transparent);
+    color: var(--warningColor);
 }
 
 .status-badge.status-error {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
+    background: color-mix(in srgb, var(--dangerColor) 10%, transparent);
+    color: var(--dangerColor);
 }
 
 .status-badge.status-unknown {
-    background: var(--baseAlt2Color, #e5e5e5);
-    color: var(--txtHintColor, #666);
+    background: var(--surfaceAlt3Color);
+    color: var(--surfaceTxtHintColor);
 }
 
 .response-time {
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     font-size: 11px;
 }
 
@@ -592,37 +592,33 @@
 
 /* Different colors for each auth mode */
 #send-request-admin-btn {
-    background: var(--dangerColor, #ef4444);
-    border-color: var(--dangerColor, #ef4444);
+    background: var(--dangerColor);
+    border-color: var(--dangerColor);
     color: white;
 }
 
 #send-request-admin-btn:hover {
-    background: #dc2626;
-    border-color: #dc2626;
+    filter: brightness(0.85);
 }
 
 #send-request-auth-btn {
-    background: var(--primaryColor, #3b82f6);
-    border-color: var(--primaryColor, #3b82f6);
+    background: var(--primaryColor);
+    border-color: var(--primaryColor);
     color: white;
 }
 
 #send-request-auth-btn:hover {
-    background: #2563eb;
-    border-color: #2563eb;
+    filter: brightness(0.85);
 }
 
 #send-request-guest-btn {
-    background: #6b7280;
-    border-color: #6b7280;
-    color: white;
+    background: var(--surfaceAlt4Color);
+    border-color: var(--surfaceAlt4Color);
+    color: var(--surfaceTxtColor);
 }
 
 #send-request-guest-btn:hover {
-    background: #4b5563;
-    border-color: #4b5563;
-    color: white;
+    filter: brightness(0.85);
 }
 
 /* =============================================================================
@@ -644,55 +640,11 @@
     text-decoration: none;
 }
 
-.btn-primary {
-    background: var(--primaryColor, #3b82f6);
-    color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-    background: #2563eb;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-.btn-secondary {
-    background: var(--baseAlt2Color, #e5e5e5);
-    color: var(--txtPrimaryColor, #333);
-}
-
-.btn-secondary:hover:not(:disabled) {
-    background: var(--baseAlt3Color, #d4d4d4);
-}
-
-.btn-success {
-    background: var(--successColor, #22c55e);
-    color: white;
-}
-
-.btn-success:hover:not(:disabled) {
-    background: var(--successColorHover, #16a34a);
-}
-
-.btn-transparent {
-    background: transparent;
-    color: var(--txtHintColor, #666);
-}
-
-.btn-transparent:hover {
-    background: var(--baseAlt1Color, #f8f9fa);
-    color: var(--txtPrimaryColor, #333);
-}
-
+/* btn-xs and btn-block are custom — PB v0.38 doesn't provide these */
 .btn-xs {
     padding: 4px 8px;
     font-size: 12px;
 }
-
-.btn-sm {
-    padding: 6px 12px;
-    font-size: 13px;
-}
-
 .btn-block {
     width: 100%;
 }
@@ -709,8 +661,8 @@
 /* Actions */
 .tester-actions {
     padding: 20px;
-    border-top: 1px solid var(--baseAlt2Color, #e5e5e5);
-    background: var(--baseAlt1Color, #f8f9fa);
+    border-top: 1px solid var(--surfaceAlt3Color);
+    background: var(--surfaceAlt1Color);
     flex-shrink: 0;
 }
 
@@ -731,17 +683,17 @@
 
 .http-method.get,
 .http-method.method-get {
-    background: #2196f3;
+    background: var(--primaryColor);
 }
 
 .http-method.post,
 .http-method.method-post {
-    background: #4caf50;
+    background: var(--successColor);
 }
 
 .http-method.put,
 .http-method.method-put {
-    background: #ff9800;
+    background: var(--warningColor);
 }
 
 .http-method.patch,
@@ -751,7 +703,7 @@
 
 .http-method.delete,
 .http-method.method-delete {
-    background: #f44336;
+    background: var(--dangerColor);
 }
 
 .http-method.options {
@@ -768,8 +720,8 @@
 
 .empty-fields-state {
     padding: 24px;
-    background: var(--baseAlt1Color, #f8f9fa);
-    border: 2px dashed var(--baseAlt2Color, #e5e5e5);
+    background: var(--surfaceAlt1Color);
+    border: 2px dashed var(--surfaceAlt3Color);
     border-radius: 8px;
     margin: 16px 0;
     text-align: center;
@@ -777,7 +729,7 @@
 
 .empty-fields-state i {
     font-size: 32px;
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     opacity: 0.5;
     margin-bottom: 8px;
 }
@@ -786,7 +738,7 @@
 .request-info {
     margin-top: 12px;
     padding: 12px;
-    background: var(--baseAlt1Color, #f8f9fa);
+    background: var(--surfaceAlt1Color);
     border-radius: 6px;
     font-size: 13px;
 }
@@ -799,27 +751,18 @@
     margin-bottom: 0;
 }
 
-
-
 /* =============================================================================
    ANIMATIONS & LOADING STATES
    ============================================================================= */
 
-.animate-spin {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
+/* animate-spin and @keyframes spin defined in dashboard_base_css */
 
 .api-loading {
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 20px;
-    color: var(--txtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
 }
 
 .api-loading i {

@@ -37,16 +37,8 @@
 
         // Get superuser authentication token
         getAuthToken() {
-            try {
-                const authData = localStorage.getItem('__pb_superuser_auth__');
-                if (!authData) return null;
-
-                const parsed = JSON.parse(authData);
-                return parsed.token || null;
-            } catch (error) {
-                console.error('Failed to parse auth token:', error);
-                return null;
-            }
+            var result = findPBSuperuserToken();
+            return result.token || null;
         },
 
         // Create authenticated fetch options
