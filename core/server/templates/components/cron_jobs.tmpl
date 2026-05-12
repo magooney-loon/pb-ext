@@ -9,7 +9,7 @@
     </header>
 
     <div class="card">
-        <div class="flex justify-between align-center m-b-base" style="padding: 10px 0; border-bottom: 1px solid var(--baseAlt2Color);">
+        <div class="flex justify-between align-center m-b-base" style="padding: 10px 0; border-bottom: 1px solid var(--surfaceAlt3Color);">
             <div class="txt-sm">
                 <span class="txt-hint">Running:</span>
                 <span class="txt-bold txt-success" id="active-jobs">0</span>
@@ -79,8 +79,8 @@
 
 <!-- Cron Job Information Modal -->
 <div class="overlay" id="cron-info-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
-    <div class="popup" style="background: var(--baseColor); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 90vw; max-height: 90vh; overflow: hidden; position: relative; width: 700px;">
-        <div class="popup-header" style="padding: 20px 24px; border-bottom: 1px solid var(--baseAlt2Color); display: flex; align-items: center; justify-content: space-between;">
+    <div class="popup" style="background: var(--surfaceColor); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 90vw; max-height: 90vh; overflow: hidden; position: relative; width: 700px;">
+        <div class="popup-header" style="padding: 20px 24px; border-bottom: 1px solid var(--surfaceAlt3Color); display: flex; align-items: center; justify-content: space-between;">
             <h4 class="popup-title" style="margin: 0; font-size: 18px; font-weight: 600;">How to Add Cron Jobs</h4>
             <button type="button" class="popup-close-btn" onclick="hideCronJobInfo()" style="background: none; border: none; font-size: 20px; cursor: pointer; padding: 4px; border-radius: 4px;">
                 <i class="ri-close-line"></i>
@@ -93,13 +93,13 @@
                         <i class="ri-information-line" style="color: #3b82f6;"></i>
                         <strong>PocketBase Cron Jobs</strong>
                     </div>
-                    <p style="margin: 0; color: var(--txtHintColor);">
+                    <p style="margin: 0; color: var(--surfaceTxtHintColor);">
                         PocketBase cron jobs must be registered in your Go application code. They cannot be created or edited through the web interface.
                     </p>
                 </div>
 
                 <h6 style="margin-top: 20px; margin-bottom: 12px;">Registration Example</h6>
-                <pre style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.4;"><code>// In your main.go or hooks file
+                <pre style="background: var(--surfaceAlt1Color); border: 1px solid var(--surfaceAlt3Color); border-radius: 6px; padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.4;"><code>// In your main.go or hooks file
 app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
     // Add a daily cleanup job
     app.Cron().MustAdd("dailyCleanup", "0 2 * * *", func() {
@@ -117,7 +117,7 @@ app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 })</code></pre>
 
                 <h6 style="margin-top: 20px; margin-bottom: 12px;">Cron Expression Format</h6>
-                <div style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 16px;">
+                <div style="background: var(--surfaceAlt1Color); border: 1px solid var(--surfaceAlt3Color); border-radius: 6px; padding: 16px;">
                     <div style="display: grid; grid-template-columns: 1fr 3fr; gap: 8px; font-size: 13px;">
                         <div style="font-weight: 600;">Format:</div>
                         <div><code>minute hour day month weekday</code></div>
@@ -128,9 +128,9 @@ app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
                 </div>
 
                 <h6 style="margin-top: 20px; margin-bottom: 12px;">Job Descriptions</h6>
-                <div style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); border-radius: 6px; padding: 16px;">
+                <div style="background: var(--surfaceAlt1Color); border: 1px solid var(--surfaceAlt3Color); border-radius: 6px; padding: 16px;">
                     <p style="margin: 0; font-size: 13px;">Use the <code>// JOB_DESC:</code> directive to add descriptions to your cron jobs:</p>
-                    <pre style="background: var(--baseColor); border: 1px solid var(--baseAlt2Color); border-radius: 4px; padding: 12px; margin: 8px 0 0; font-size: 12px;"><code>// JOB_SOURCE
+                    <pre style="background: var(--surfaceColor); border: 1px solid var(--surfaceAlt3Color); border-radius: 4px; padding: 12px; margin: 8px 0 0; font-size: 12px;"><code>// JOB_SOURCE
 // JOB_DESC: This job cleans up old records daily
 func cleanupJob(app core.App) error {
     return server.JobSourceWithDescription(app, "cleanup",
@@ -176,7 +176,7 @@ func cleanupJob(app core.App) error {
                 </div>
             </div>
         </div>
-        <div class="popup-footer" style="padding: 16px 24px; border-top: 1px solid var(--baseAlt2Color); display: flex; gap: 12px; justify-content: flex-end;">
+        <div class="popup-footer" style="padding: 16px 24px; border-top: 1px solid var(--surfaceAlt3Color); display: flex; gap: 12px; justify-content: flex-end;">
             <button type="button" class="btn btn-outline" onclick="hideCronJobInfo()">Close</button>
             <a href="https://github.com/pocketbase/pocketbase/discussions" target="_blank" class="btn btn-success">
                 <i class="ri-external-link-line"></i>
@@ -188,8 +188,8 @@ func cleanupJob(app core.App) error {
 
 <!-- Job Details Modal -->
 <div class="overlay" id="cron-details-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
-    <div class="popup popup-lg" style="background: var(--baseColor); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 90vw; max-height: 90vh; overflow: hidden; position: relative;">
-        <div class="popup-header" style="padding: 20px 24px; border-bottom: 1px solid var(--baseAlt2Color); display: flex; align-items: center; justify-content: space-between;">
+    <div class="popup popup-lg" style="background: var(--surfaceColor); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 90vw; max-height: 90vh; overflow: hidden; position: relative;">
+        <div class="popup-header" style="padding: 20px 24px; border-bottom: 1px solid var(--surfaceAlt3Color); display: flex; align-items: center; justify-content: space-between;">
             <h4 class="popup-title" style="margin: 0; font-size: 18px; font-weight: 600;">Job Details</h4>
             <button type="button" class="popup-close-btn" onclick="hideCronDetailsModal()" style="background: none; border: none; font-size: 20px; cursor: pointer; padding: 4px; border-radius: 4px;">
                 <i class="ri-close-line"></i>
@@ -200,7 +200,7 @@ func cleanupJob(app core.App) error {
                 <!-- Job details will be populated here -->
             </div>
         </div>
-        <div class="popup-footer" style="padding: 16px 24px; border-top: 1px solid var(--baseAlt2Color); display: flex; gap: 12px; justify-content: flex-end;">
+        <div class="popup-footer" style="padding: 16px 24px; border-top: 1px solid var(--surfaceAlt3Color); display: flex; gap: 12px; justify-content: flex-end;">
             <button type="button" class="btn btn-outline" onclick="hideCronDetailsModal()">Close</button>
             <button type="button" class="btn btn-success" onclick="runJobFromDetails()" id="run-job-from-details">
                 <i class="ri-play-line"></i>

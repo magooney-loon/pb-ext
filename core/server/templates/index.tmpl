@@ -6,6 +6,7 @@
 
     <title>pb-ext Dashboard</title>
     <link rel="shortcut icon" type="image/png" href="../_/images/favicon/favicon.png">
+    {{template "dashboard_base_css"}}
     <script>
         // Preserve hash on page refresh
         document.addEventListener('DOMContentLoaded', function() {
@@ -131,39 +132,32 @@
         // Piggyback PocketBase CSS
         (async function() {
             try {
-                // Try to fetch PocketBase admin UI styles
-                const response = await fetch('{{.PBAdminURL}}');
+                // Try to fetch PocketBase admin UI index page
+                const pbBase = new URL('{{.PBAdminURL}}', window.location.origin);
+                const response = await fetch(pbBase.pathname);
                 if (response.ok) {
                     const text = await response.text();
                     const parser = new DOMParser();
                     const pbDOM = parser.parseFromString(text, 'text/html');
 
+                    // Resolve asset URLs relative to the PB admin base
+                    const baseUrl = pbBase.href.replace(/\/+$/, '');
+
                     // Get all CSS links from PocketBase admin UI
                     const cssLinks = pbDOM.querySelectorAll('link[rel="stylesheet"]');
                     if (cssLinks.length > 0) {
-                        // Add PocketBase CSS to our page
                         for (let link of cssLinks) {
                             const clonedLink = document.createElement('link');
                             clonedLink.rel = 'stylesheet';
-                            clonedLink.href = link.href;
+                            // Resolve relative paths against the PB admin base
+                            clonedLink.href = new URL(link.getAttribute('href'), baseUrl + '/').href;
                             document.head.appendChild(clonedLink);
                         }
 
                         // Add a class to body to apply PocketBase styled versions
                         document.body.classList.add('pb-styled');
 
-                        console.log('Successfully piggybacked PocketBase CSS');
-                    }
-
-                    // Also get Remix icons if available
-                    const remixLinks = pbDOM.querySelectorAll('link[href*="remixicon"]');
-                    if (remixLinks.length > 0) {
-                        for (let link of remixLinks) {
-                            const clonedLink = document.createElement('link');
-                            clonedLink.rel = 'stylesheet';
-                            clonedLink.href = link.href;
-                            document.head.appendChild(clonedLink);
-                        }
+                        console.log('Successfully piggybacked PocketBase CSS (' + cssLinks.length + ' stylesheets)');
                     }
                 }
             } catch (error) {

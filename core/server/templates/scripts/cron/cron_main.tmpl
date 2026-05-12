@@ -314,25 +314,25 @@ if (!window.cronSystemInitialized) {
             return `
                 <div class="cron-job-details">
                     <!-- Compact Basic Information -->
-                    <div style="background: var(--baseAlt1Color); border-radius: 6px; padding: 16px; margin-bottom: 20px;">
+                    <div style="background: var(--surfaceAlt1Color); border-radius: 6px; padding: 16px; margin-bottom: 20px;">
                         <div style="display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 12px 20px; align-items: center;">
-                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase;">Name:</strong>
+                            <strong style="color: var(--surfaceTxtHintColor); font-size: 12px; text-transform: uppercase;">Name:</strong>
                             <span style="font-weight: 600;">${this.escapeHtml(job.name || job.id)}</span>
 
-                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase;">Type:</strong>
+                            <strong style="color: var(--surfaceTxtHintColor); font-size: 12px; text-transform: uppercase;">Type:</strong>
                             <span class="cron-job-type ${job.is_system_job ? 'system' : 'user'}">
                                 ${job.is_system_job ? '🔧 System Job' : '👤 User Job'}
                             </span>
 
-                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase;">Expression:</strong>
-                            <code style="background: var(--baseColor); padding: 3px 6px; border-radius: 3px; font-family: var(--monospaceFontFamily);">${this.escapeHtml(job.expression)}</code>
+                            <strong style="color: var(--surfaceTxtHintColor); font-size: 12px; text-transform: uppercase;">Expression:</strong>
+                            <code style="background: var(--surfaceColor); padding: 3px 6px; border-radius: 3px; font-family: var(--baseFontFamily);">${this.escapeHtml(job.expression)}</code>
 
-                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase;">Schedule:</strong>
-                            <span style="color: var(--txtPrimaryColor);">${this.getCronDescription(job.expression)}</span>
+                            <strong style="color: var(--surfaceTxtHintColor); font-size: 12px; text-transform: uppercase;">Schedule:</strong>
+                            <span style="color: var(--surfaceTxtColor);">${this.getCronDescription(job.expression)}</span>
 
                             ${job.description ? `
-                            <strong style="color: var(--txtHintColor); font-size: 12px; text-transform: uppercase; grid-column: 1;">Description:</strong>
-                            <span style="grid-column: 2 / -1; color: var(--txtHintColor); font-style: italic;">${this.escapeHtml(job.description)}</span>
+                            <strong style="color: var(--surfaceTxtHintColor); font-size: 12px; text-transform: uppercase; grid-column: 1;">Description:</strong>
+                            <span style="grid-column: 2 / -1; color: var(--surfaceTxtHintColor); font-style: italic;">${this.escapeHtml(job.description)}</span>
                             ` : ''}
                         </div>
                     </div>
@@ -424,7 +424,7 @@ if (!window.cronSystemInitialized) {
                                 ${hasDetails ? '<span class="txt-hint">• Click to expand</span>' : ''}
                             </div>
                             ${log.error ? `<div class="log-details txt-danger" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Error:</strong><br><pre style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px; color: var(--cron-danger); cursor: text; user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text;" title="Click and drag to select text">${this.escapeHtml(log.error)}</pre></div>` : ''}
-                            ${log.output ? `<div class="log-details txt-primary" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Output:</strong><br><pre style="background: var(--baseAlt1Color); border: 1px solid var(--baseAlt2Color); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px; cursor: text; user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text;" title="Click and drag to select text">${this.escapeHtml(log.output)}</pre></div>` : ''}
+                            ${log.output ? `<div class="log-details txt-primary" style="font-size: 12px; margin-top: 4px; display: none;"><strong>Output:</strong><br><pre style="background: var(--surfaceAlt1Color); border: 1px solid var(--surfaceAlt3Color); padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; font-size: 11px; cursor: text; user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text;" title="Click and drag to select text">${this.escapeHtml(log.output)}</pre></div>` : ''}
                         </div>
                     </div>
                 `;
@@ -537,7 +537,7 @@ if (!window.cronSystemInitialized) {
             }
 
             return `
-                <div class="cron-logs-pagination" style="padding: 12px; border-top: 1px solid var(--baseAlt2Color); display: flex; align-items: center; justify-content: space-between; font-size: 12px;">
+                <div class="cron-logs-pagination" style="padding: 12px; border-top: 1px solid var(--surfaceAlt3Color); display: flex; align-items: center; justify-content: space-between; font-size: 12px;">
                     <div class="txt-hint">
                         Showing page ${currentPage} of ${totalPages} (${pagination.total} total logs)
                     </div>

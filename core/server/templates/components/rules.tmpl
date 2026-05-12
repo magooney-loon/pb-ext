@@ -99,11 +99,11 @@
         if (rule === null || rule === undefined) {
             cell.innerHTML = '<i class="ri-lock-line"></i> Superuser Only';
             cell.title = 'Superuser Only';
-            cell.style.background = 'var(--successAltColor)';
+            cell.style.background = 'var(--surfaceSuccessColor)';
         } else if (rule === '') {
             cell.innerHTML = '<i class="ri-lock-unlock-line"></i> Public';
             cell.title = 'Public';
-            cell.style.background = 'var(--dangerAltColor)';
+            cell.style.background = 'var(--surfaceDangerColor)';
         } else {
             cell.innerText = rule;
             cell.title = rule;

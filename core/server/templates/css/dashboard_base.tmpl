@@ -1,0 +1,466 @@
+{{define "dashboard_base_css"}}
+<style>
+/* ==========================================================================
+   pb-ext Dashboard Base CSS
+   Provides the structural/utility classes that PocketBase v0.38 no longer ships,
+   built on top of the new PB v0.38 CSS custom properties.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   Layout helpers
+   --------------------------------------------------------------------------- */
+.flex-column        { flex-direction: column !important; }
+.align-center       { align-items: center !important; }
+.justify-between    { justify-content: space-between !important; }
+.column             { flex-direction: column !important; }
+
+/* Gap utilities that PB no longer provides */
+.gap-1              { gap: 4px !important; }
+.gap-2              { gap: 8px !important; }
+.gap-xs             { gap: 2px !important; }
+.gap-small          { gap: 4px !important; }
+.flex-gap-10        { gap: 10px !important; }
+.flex-gap-20        { gap: 20px !important; }
+
+/* ---------------------------------------------------------------------------
+   Grid — PB v0.38 uses .grid (flex-wrap) + .col-N + container queries.
+   We re-create the old responsive .grid-{breakpoint}-N pattern on top.
+   --------------------------------------------------------------------------- */
+.grid > [class*="grid-"] {
+    width: 100%;
+    margin: 0 calc(var(--gridGap, var(--spacing)) / 2);
+}
+
+/* Base (mobile-first): all columns go full-width, then override */
+.grid-2 > *,   .grid-sm-2 > *,   .grid-xl-2 > *   { width: calc(50%   - var(--gridGap, var(--spacing))); }
+.grid-4 > *,   .grid-sm-4 > *,   .grid-xl-4 > *   { width: calc(25%   - var(--gridGap, var(--spacing))); }
+.grid-sm-1 > *  { width: calc(100%  - var(--gridGap, var(--spacing))); }
+.grid-sm-3 > *  { width: calc(33.333% - var(--gridGap, var(--spacing))); }
+.grid-sm-5 > *  { width: calc(20%   - var(--gridGap, var(--spacing))); }
+.grid-xl-5 > *  { width: calc(20%   - var(--gridGap, var(--spacing))); }
+.grid-xl-6 > *  { width: calc(16.666% - var(--gridGap, var(--spacing))); }
+
+/* Responsive overrides using container queries (PB v0.38 uses these) */
+@media (max-width: 767px) {
+    .grid-xl-2 > *, .grid-xl-4 > *, .grid-xl-5 > *, .grid-xl-6 > *,
+    .grid-sm-2 > *, .grid-sm-3 > *, .grid-sm-5 > * {
+        width: calc(100% - var(--gridGap, var(--spacing)));
+    }
+}
+@media (min-width: 768px) and (max-width: 1199px) {
+    .grid-xl-4 > *, .grid-xl-5 > *, .grid-xl-6 > * {
+        width: calc(50% - var(--gridGap, var(--spacing)));
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   Section
+   --------------------------------------------------------------------------- */
+.section {
+    margin-bottom: var(--spacing, 15px);
+}
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: var(--spacing, 15px);
+}
+.section-title {
+    font-size: var(--fontSize, 14px);
+    font-weight: 600;
+    color: var(--surfaceTxtColor);
+    margin: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Card
+   --------------------------------------------------------------------------- */
+.card {
+    background: var(--surfaceColor);
+    border-radius: var(--lgBorderRadius, 8px);
+    box-shadow: 0 0 0 1px var(--surfaceAlt4Color, rgba(0,0,0,.08));
+    overflow: hidden;
+}
+.card-body {
+    padding: 15px;
+}
+.card-sm {
+    background: var(--surfaceColor);
+    border-radius: var(--borderRadius, 4px);
+    padding: 10px;
+}
+.view-card {
+    background: var(--surfaceColor);
+    border-radius: var(--lgBorderRadius, 8px);
+    box-shadow: 0 0 0 1px var(--surfaceAlt4Color, rgba(0,0,0,.08));
+    padding: 10px;
+}
+
+/* ---------------------------------------------------------------------------
+   Progress bar
+   --------------------------------------------------------------------------- */
+.progress {
+    height: 6px;
+    background: var(--surfaceAlt3Color, rgba(0,0,0,.1));
+    border-radius: 3px;
+    overflow: hidden;
+}
+.progress-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+.progress-bar.primary   { background: var(--accentColor, var(--primaryColor, #5b8def)); }
+.progress-bar.success   { background: var(--successColor, #33b56f); }
+.progress-bar.warning   { background: var(--warningColor, #eca53a); }
+.progress-bar.danger    { background: var(--dangerColor, #d44040); }
+
+/* ---------------------------------------------------------------------------
+   Badge
+   --------------------------------------------------------------------------- */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--smFontSize, 12px);
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: var(--borderRadius, 4px);
+    white-space: nowrap;
+}
+.badge-sm {
+    font-size: 11px;
+    padding: 1px 6px;
+}
+.badge-success, .badge.success   { background: var(--surfaceSuccessColor, rgba(51,181,111,.15)); color: var(--successColor, #33b56f); }
+.badge-danger,  .badge.danger    { background: var(--surfaceDangerColor, rgba(212,64,64,.15));   color: var(--dangerColor, #d44040); }
+.badge-primary, .badge.primary   { background: var(--surfaceAlt2Color, rgba(91,141,239,.15));    color: var(--accentColor, #5b8def); }
+
+/* ---------------------------------------------------------------------------
+   Button modifiers (PB v0.38 uses .btn + .sm/.secondary as separate classes)
+   --------------------------------------------------------------------------- */
+.btn-xs {
+    min-height: 24px;
+    padding: 2px 10px;
+    font-size: 11px;
+}
+.btn-sm {
+    min-height: 30px;
+    padding: 3px 14px;
+    font-size: 12px;
+}
+.btn-block {
+    display: flex !important;
+    width: 100%;
+}
+.btn-secondary, .btn.secondary {
+    color: var(--surfaceTxtColor);
+    background: var(--surfaceAlt2Color);
+}
+.btn-secondary:hover, .btn.secondary:hover {
+    background: var(--surfaceAlt3Color);
+}
+.btn-outline {
+    border: 1px solid var(--surfaceAlt4Color, rgba(0,0,0,.2));
+    background: transparent;
+    color: var(--surfaceTxtColor);
+}
+.btn-outline:hover {
+    background: var(--surfaceAlt2Color);
+}
+.btn-success, .btn.success {
+    background: var(--successColor);
+}
+.btn-transparent, .btn.transparent {
+    background: transparent;
+    color: var(--surfaceTxtDisabledColor);
+}
+.btn-primary, .btn.primary {
+    background: var(--accentColor, var(--primaryColor, #5b8def));
+}
+
+/* ---------------------------------------------------------------------------
+   Form fields (PB v0.38 uses .field instead of .form-control)
+   --------------------------------------------------------------------------- */
+.form-field {
+    margin-bottom: 10px;
+}
+.form-label {
+    display: block;
+    font-size: var(--smFontSize, 12px);
+    font-weight: 600;
+    color: var(--surfaceTxtHintColor);
+    margin-bottom: 4px;
+}
+.form-control {
+    width: 100%;
+    min-height: var(--btnHeight, 38px);
+    padding: var(--inputPadding, 10px);
+    border: 1px solid var(--inputBorderColor, rgba(0,0,0,.15));
+    border-radius: var(--inputBorderRadius, 4px);
+    background: var(--inputColor);
+    color: var(--surfaceTxtColor);
+    font-size: var(--fontSize, 14px);
+    font-family: var(--baseFontFamily);
+    outline: none;
+    transition: border-color var(--animationSpeed, 0.15s);
+}
+.form-control:focus {
+    border-color: var(--inputFocusColor, #5b8def);
+}
+.form-control-sm {
+    min-height: 30px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+.field-input {
+    width: 100%;
+    min-height: var(--btnHeight, 38px);
+    padding: var(--inputPadding, 10px);
+    border: 1px solid var(--inputBorderColor, rgba(0,0,0,.15));
+    border-radius: var(--inputBorderRadius, 4px);
+    background: var(--inputColor);
+    color: var(--surfaceTxtColor);
+    font-size: var(--fontSize, 14px);
+    outline: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Table
+   --------------------------------------------------------------------------- */
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--smFontSize, 13px);
+}
+.table th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--surfaceTxtHintColor);
+    padding: 8px 10px;
+    border-bottom: 2px solid var(--surfaceAlt3Color, rgba(0,0,0,.1));
+}
+.table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--surfaceAlt3Color, rgba(0,0,0,.05));
+    vertical-align: middle;
+}
+.table-compact th,
+.table-compact td {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+.table-wrapper {
+    overflow-x: auto;
+}
+
+/* ---------------------------------------------------------------------------
+   Alert modifiers
+   --------------------------------------------------------------------------- */
+.alert-info {
+    border-color: var(--infoColor) !important;
+    background: var(--surfaceInfoColor) !important;
+    color: var(--infoTxtColor);
+}
+
+/* ---------------------------------------------------------------------------
+   Popup / Modal components
+   --------------------------------------------------------------------------- */
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--modalOverlayColor, rgba(0,0,0,.45));
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.popup-lg {
+    max-width: 800px;
+    width: 95%;
+}
+.popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--surfaceAlt3Color, rgba(0,0,0,.1));
+}
+.popup-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--surfaceTxtColor);
+}
+.popup-close-btn {
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: var(--surfaceTxtHintColor);
+    padding: 4px;
+}
+.popup-close-btn:hover {
+    color: var(--surfaceTxtColor);
+}
+.popup-content {
+    padding: 15px 20px;
+    overflow-y: auto;
+}
+.popup-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 15px 20px;
+    border-top: 1px solid var(--surfaceAlt3Color, rgba(0,0,0,.1));
+}
+
+/* ---------------------------------------------------------------------------
+   Spacing — missing sizes from PB v0.38
+   --------------------------------------------------------------------------- */
+.m-b-2   { margin-bottom: 2px !important; }
+.m-b-3   { margin-bottom: 3px !important; }
+.m-t-2   { margin-bottom: 2px !important; }
+.p-4     { padding: 16px !important; }
+.p-lg    { padding: 30px !important; }
+
+/* ---------------------------------------------------------------------------
+   Typography — missing sizes
+   --------------------------------------------------------------------------- */
+.txt-xs  { font-size: 11px !important; line-height: 1.3 !important; }
+
+/* ---------------------------------------------------------------------------
+   Code block
+   --------------------------------------------------------------------------- */
+.code {
+    font-family: var(--baseFontFamily, monospace);
+    background: var(--surfaceAlt1Color, #f5f5f5);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+   Animation
+   --------------------------------------------------------------------------- */
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   Dashboard layout (our own structural classes, not PB)
+   ========================================================================== */
+.app-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.app-sidebar {
+    width: 56px;
+    background: var(--surfaceColor);
+    border-right: 1px solid var(--surfaceAlt3Color, rgba(0,0,0,.08));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 0;
+    gap: 5px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+}
+
+.app-sidebar .logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+
+.main-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--borderRadius, 4px);
+    color: var(--surfaceTxtHintColor);
+    cursor: pointer;
+    transition: background var(--animationSpeed, 0.15s), color var(--animationSpeed, 0.15s);
+    text-decoration: none;
+    font-size: 18px;
+}
+
+.menu-item:hover {
+    background: var(--surfaceAlt2Color, rgba(0,0,0,.05));
+    color: var(--surfaceTxtColor);
+}
+
+.menu-item.current-route,
+.menu-item.active {
+    background: var(--surfaceAlt2Color, rgba(0,0,0,.05));
+    color: var(--accentColor, #5b8def);
+}
+
+.app-body {
+    margin-left: 56px;
+    flex: 1;
+    min-width: 0;
+}
+
+.section-content {
+    min-height: 100vh;
+}
+
+.dashboard-wrapper {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.panels-grid {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.panels-grid > * {
+    flex: 1;
+    min-width: 280px;
+}
+
+.link-hint {
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.link-hint:hover {
+    opacity: 1;
+}
+
+.thumb-circle {
+    border-radius: 50%;
+}
+
+/* pb-piggybacked-only — elements shown only when PB CSS loaded */
+.pb-piggybacked-only {
+    display: none;
+}
+.pb-styled .pb-piggybacked-only {
+    display: inline-flex;
+}
+</style>
+{{end}}
