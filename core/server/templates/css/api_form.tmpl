@@ -16,25 +16,17 @@
     margin-bottom: 16px;
 }
 
-.section-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--surfaceTxtColor, #333);
-    margin: 0 0 16px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
+/* .section-title is defined in dashboard_base_css — not duplicated here */
 
 .section-title i {
     font-size: 16px;
-    color: var(--primaryColor, #3b82f6);
+    color: var(--accentColor, var(--primaryColor));
 }
 
 .form-section-title {
     font-size: 14px;
     font-weight: 600;
-    color: var(--surfaceTxtColor, #333);
+    color: var(--surfaceTxtColor);
     margin: 0 0 8px 0;
     display: flex;
     align-items: center;
@@ -42,12 +34,9 @@
 }
 
 .form-section-title i {
-    color: var(--primaryColor, #3b82f6);
+    color: var(--accentColor, var(--primaryColor));
     font-size: 16px;
 }
-
-
-
 
 /* =============================================================================
    QUERY PARAMETERS
@@ -93,8 +82,8 @@
     gap: 4px;
     align-items: center;
     padding: 4px 8px;
-    background: var(--surfaceAlt1Color, #f8f9fa);
-    border: 1px solid var(--surfaceAlt3Color, #e5e5e5);
+    background: var(--surfaceAlt1Color, rgba(0,0,0,.04));
+    border: 1px solid var(--surfaceAlt3Color, rgba(0,0,0,.1));
     border-radius: 16px;
     margin-right: 6px;
     font-size: 12px;
@@ -108,11 +97,11 @@
 
 .query-param-added .param-name {
     font-weight: 500;
-    color: var(--surfaceTxtColor, #333);
+    color: var(--surfaceTxtColor);
 }
 
 .query-param-added .param-value {
-    color: var(--surfaceTxtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -128,15 +117,15 @@
     padding: 4px;
     border: none;
     background: transparent;
-    color: var(--surfaceTxtHintColor, #666);
+    color: var(--surfaceTxtHintColor);
     cursor: pointer;
     border-radius: 4px;
     transition: all 0.2s ease;
 }
 
 .remove-query-param:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
+    background: var(--surfaceDangerColor, rgba(212,64,64,.15));
+    color: var(--dangerColor, #d44040);
 }
 
 /* Query parameter pairs for manual entry */
@@ -165,28 +154,23 @@
     margin-bottom: 0;
 }
 
-
-
-
 /* =============================================================================
    FORM VALIDATION
    ============================================================================= */
 
 .form-field.required .form-label::after {
     content: ' *';
-    color: #ef4444;
+    color: var(--dangerColor, #d44040);
 }
 
 .form-control:invalid {
-    border-color: #ef4444;
-    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+    border-color: var(--dangerColor, #d44040);
+    box-shadow: 0 0 0 3px var(--surfaceDangerColor, rgba(212,64,64,.15));
 }
 
 .form-control:valid {
-    border-color: #22c55e;
+    border-color: var(--successColor, #33b56f);
 }
-
-
 
 /* =============================================================================
    RESPONSIVE DESIGN
@@ -217,8 +201,6 @@
     .query-param-pair input {
         width: 100%;
     }
-}
-
 
     .form-section-title {
         font-size: 13px;
@@ -230,16 +212,6 @@
     }
 }
 
-
-/* Loading states */
-.animate-spin {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
+/* .animate-spin and @keyframes spin are defined in dashboard_base_css */
 </style>
 {{end}}

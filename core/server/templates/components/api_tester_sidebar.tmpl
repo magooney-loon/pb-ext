@@ -2,10 +2,10 @@
 <!-- API Tester Sidebar -->
 <aside id="api-tester-sidebar" class="api-tester-sidebar">
     <div class="api-tester-header">
-        <div class="flex align-center gap-2">
+        <div class="flex align-center gap-5">
             <i class="ri-flask-line"></i>
             <h5 class="flex-fill">API Tester</h5>
-            <button id="close-tester-btn" class="btn btn-xs btn-transparent" title="Close">
+            <button id="close-tester-btn" class="btn btn-xs transparent" title="Close">
                 <i class="ri-close-line"></i>
             </button>
         </div>
@@ -13,11 +13,11 @@
 
     <!-- Endpoint Info -->
     <div id="tester-endpoint-info" class="endpoint-info">
-        <div class="flex align-center gap-2 mb-2">
+        <div class="flex align-center gap-5 m-b-10">
             <span id="tester-method" class="http-method">GET</span>
             <code id="tester-path" class="flex-fill" style="overflow: auto">/api/endpoint</code>
         </div>
-        <p id="tester-description" class="txt-sm txt-hint mb-2">Endpoint description</p>
+        <p id="tester-description" class="txt-sm txt-hint m-b-10">Endpoint description</p>
         <div id="tester-auth-info" class="auth-status">
             <span class="auth-badge">No auth required</span>
         </div>
@@ -49,15 +49,15 @@
 
         <!-- Response Tab -->
         <div id="response-tab" class="tester-tab-content">
-            <div class="section-title mx-auto">
+            <div class="section-title">
                 <i class="ri-file-text-line"></i>
                 Response
-                <div class="flex align-center gap-2 ml-auto">
+                <div class="flex align-center gap-5 m-l-auto">
                     <span id="response-status-info" class="response-status">
                         <span class="status-badge status-ready">Ready</span>
                         <span class="response-time">Send a request</span>
                     </span>
-                    <button id="copy-response-btn" class="btn btn-xs btn-secondary" style="display: none;">
+                    <button id="copy-response-btn" class="btn btn-xs secondary" style="display: none;">
                         <i class="ri-file-copy-line"></i>
                     </button>
                 </div>
@@ -91,21 +91,21 @@
     <!-- Send Request Section -->
     <div class="tester-actions">
         <div class="send-request-buttons">
-            <button id="send-request-admin-btn" class="btn btn-primary btn-sm" data-auth-mode="admin">
+            <button id="send-request-admin-btn" class="btn sm" data-auth-mode="admin">
                 <i class="ri-shield-user-line"></i>
                 As Admin
             </button>
-            <button id="send-request-auth-btn" class="btn btn-primary btn-sm" data-auth-mode="auth">
+            <button id="send-request-auth-btn" class="btn sm" data-auth-mode="auth">
                 <i class="ri-user-line"></i>
                 As Auth
             </button>
-            <button id="send-request-guest-btn" class="btn btn-primary btn-sm" data-auth-mode="guest">
+            <button id="send-request-guest-btn" class="btn sm" data-auth-mode="guest">
                 <i class="ri-user-unfollow-line"></i>
                 As Guest
             </button>
         </div>
 
-        <button id="reset-form-btn" class="btn btn-secondary btn-sm btn-block mt-2">
+        <button id="reset-form-btn" class="btn secondary sm btn-block m-t-10">
             <i class="ri-refresh-line"></i>
             Reset to Defaults
         </button>

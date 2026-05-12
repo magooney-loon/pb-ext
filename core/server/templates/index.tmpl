@@ -127,11 +127,9 @@
                             <!-- Critical System Metrics -->
                             {{template "critical_metrics" .}}
 
-                            <!-- Detail panels in a row -->
-                            <div class="panels-grid">
-                                {{template "cpu_details" .}}
-                                {{template "memory_details" .}}
-                            </div>
+                            <!-- Detail panels stacked vertically -->
+                            {{template "cpu_details" .}}
+                            {{template "memory_details" .}}
                         </div>
                     </main>
                 </div>
