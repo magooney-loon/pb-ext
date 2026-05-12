@@ -22,6 +22,7 @@ All operations go through `pb-cli`.
 | `pb-cli --test-only` | Run tests with coverage reports |
 | `go test ./...` | Run all Go tests directly |
 | `go test ./core/server/api/...` | Run tests for a specific package |
+| `go test ./core/server/api/... -run TestHandlerScenario` | Run a single named test |
 
 The dev server runs at `127.0.0.1:8090` by default. PocketBase admin: `/_/`, pb-ext dashboard: `/_/_`.
 
@@ -29,12 +30,15 @@ The dev server runs at `127.0.0.1:8090` by default. PocketBase admin: `/_/`, pb-
 
 ```
 core/core.go          — Public facade, re-exports from core/server and core/logging
-core/server/          — Core server: Server struct, analytics, jobs, health dashboard, templates
+core/server/          — Server struct, health dashboard, errors, embedded templates
 core/server/api/      — OpenAPI doc system: registry, versioned routers, Go AST parsing
+core/analytics/       — Visitor analytics: collection, collector, storage, types
+core/jobs/            — Cron job manager, structured logger, API handlers, types
 core/logging/         — Structured logging, request middleware, trace IDs
 core/monitoring/      — System metrics (CPU, memory, disk, network, runtime)
+core/testutil/        — Shared test helpers and fixture specs
 cmd/server/           — Example application (user's app entry point)
-cmd/scripts/          — Build toolchain CLI
+pkg/scripts/          — Build toolchain CLI source (compiled to pb-cli)
 core/server/templates/ — Embedded Go templates for the dashboard UI
 ```
 
@@ -65,6 +69,8 @@ The API doc system uses Go AST parsing at startup to extract endpoint metadata. 
 
 **Routes** are registered through `api.VersionedAPIRouter` which wraps PocketBase's router. Each API version has its own isolated parser, schema generator, and registry.
 
+**Spec generation**: In dev mode the spec is generated at runtime from AST. In production, pre-built specs are loaded from `core/server/api/specs/`. The `--gen-spec` flag in `cmd/server/main.go` triggers build-time spec generation (used by `pb-cli --production`).
+
 **Debug endpoint:** `GET /api/docs/debug/ast` — full pipeline introspection (structs, handlers, schemas, OpenAPI output). Requires auth.
 
 **Swagger UI** is served with dark mode CSS (SwaggerDark by Amoenus, MIT).
@@ -76,6 +82,14 @@ Jobs are registered via `server.GetJobManager().RegisterJob(id, name, desc, cron
 ## Analytics
 
 Request middleware captures visitor data (user agent, device, browser, UTM params). Records are buffered in memory and flushed every 10 minutes (or at 50 items) to the `_analytics` PocketBase collection.
+
+## Example App Patterns
+
+`cmd/server/` is the canonical reference for how to integrate pb-ext:
+- `routes.go` — how to initialize versioned API routers and register routes
+- `handlers.go` — how to use `API_SOURCE`, `API_DESC`, `API_TAGS` directives and define request/response types
+- `jobs.go` — how to register cron jobs with `GetJobManager().RegisterJob`
+- `collections.go` — how to define PocketBase collections programmatically
 
 ## Conventions
 
