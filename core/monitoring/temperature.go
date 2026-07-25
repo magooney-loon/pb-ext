@@ -33,26 +33,40 @@ func CollectTemperatureInfoWithContext(ctx context.Context) (TemperatureInfo, er
 		return result, NewSensorError(op, "failed to get sensors temperatures", err)
 	}
 
-	if len(temps) > 0 {
-		result.HasTempData = true
+	for _, temp := range temps {
+		sensorKey := strings.ToLower(temp.SensorKey)
 
-		for _, temp := range temps {
-			sensorKey := strings.ToLower(temp.SensorKey)
-
-			switch {
-			case IsCPUTemp(sensorKey):
-				result.CPUTemp = temp.Temperature
-			case IsSystemTemp(sensorKey):
-				result.SystemTemp = temp.Temperature
-			case IsDiskTemp(sensorKey):
-				result.DiskTemp = temp.Temperature
-			case strings.Contains(sensorKey, "ambient"):
-				result.AmbientTemp = temp.Temperature
-			}
+		// Ambient is matched before system: IsSystemTemp also accepts "ambient",
+		// so testing it first would swallow every ambient sensor and leave
+		// AmbientTemp permanently zero.
+		//
+		// Each category keeps the highest reading rather than whichever sensor
+		// happened to come last — sensor order is not guaranteed, and a group
+		// like coretemp reports a package sensor plus one per core.
+		switch {
+		case IsCPUTemp(sensorKey):
+			result.CPUTemp = max(result.CPUTemp, temp.Temperature)
+		case IsAmbientTemp(sensorKey):
+			result.AmbientTemp = max(result.AmbientTemp, temp.Temperature)
+		case IsSystemTemp(sensorKey):
+			result.SystemTemp = max(result.SystemTemp, temp.Temperature)
+		case IsDiskTemp(sensorKey):
+			result.DiskTemp = max(result.DiskTemp, temp.Temperature)
+		default:
+			continue
 		}
+
+		// Only set once a sensor was actually recognised, so a host that
+		// exposes nothing we understand doesn't advertise temperature data.
+		result.HasTempData = true
 	}
 
 	return result, nil
+}
+
+// IsAmbientTemp identifies ambient/intake temperature sensors.
+func IsAmbientTemp(sensor string) bool {
+	return strings.Contains(strings.ToLower(sensor), "ambient")
 }
 
 // CollectTemperatureInfo uses background context

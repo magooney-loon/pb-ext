@@ -13,18 +13,19 @@
                 <!-- Total Visitors -->
                 <div class="card view-card">
                     <div class="card-body">
-                        <h6 class="txt-hint m-b-10"><i class="ri-group-line"></i> Unique Visitors</h6>
+                        <h6 class="txt-hint m-b-10" title="Sessions started in the last 90 days. No visitor identifier is stored, so a session is the closest countable unit."><i class="ri-group-line"></i> Unique Visitors</h6>
                         <h4 class="m-b-10">{{.AnalyticsData.UniqueVisitors}}</h4>
-                        <div class="progress m-b-10">
-                            <div class="progress-bar" role="progressbar" style="width: 100%" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
+                        {{$newShare := percentOf .AnalyticsData.NewVisitors .AnalyticsData.UniqueVisitors}}
+                        <div class="progress m-b-10" title="{{printf "%.0f%%" $newShare}} of sessions were started by a first-time visitor">
+                            <div class="progress-bar" role="progressbar" style="width: {{printf "%.1f%%" $newShare}}" aria-valuenow="{{printf "%.1f" $newShare}}" aria-valuemin="0" aria-valuemax="100"></div>
                         </div>
                         <div class="flex">
                             <div class="column flex-fill">
-                                <div class="txt-hint txt-sm">New</div>
+                                <div class="txt-hint txt-sm" title="Sessions from a visitor not seen before">New</div>
                                 <div>{{.AnalyticsData.NewVisitors}}</div>
                             </div>
                             <div class="column flex-fill">
-                                <div class="txt-hint txt-sm">Returning</div>
+                                <div class="txt-hint txt-sm" title="Sessions from a visitor whose previous session had lapsed">Returning</div>
                                 <div>{{.AnalyticsData.ReturningVisitors}}</div>
                             </div>
                         </div>
@@ -118,7 +119,7 @@
                                     {{if lt $index 5}}
                                     <tr>
                                         <td width="30" class="txt-center txt-sm">{{inc $index}}</td>
-                                        <td class="txt-sm">{{$page.Path}}</td>
+                                        <td class="txt-sm" title="{{$page.Path}}">{{pathLabel $page.Path}}</td>
                                         <td width="60" class="txt-right txt-sm">{{$page.Views}}</td>
                                     </tr>
                                     {{end}}
@@ -131,28 +132,30 @@
                 <!-- Recent Activity -->
                 <div class="card view-card">
                     <div class="card-body">
-                        <h6 class="txt-hint m-b-10"><i class="ri-time-line"></i> Recent Activity</h6>
+                        <h6 class="txt-hint m-b-10" title="Page views in the last hour"><i class="ri-time-line"></i> Recent Activity</h6>
                         <h4 class="m-b-10">{{.AnalyticsData.RecentVisitCount}}</h4>
-                        <div class="progress m-b-10">
-                            <div class="progress-bar warning" role="progressbar" style="width: {{printf "%.1f%%" .AnalyticsData.HourlyActivityPercentage}}" aria-valuenow="{{.AnalyticsData.HourlyActivityPercentage}}" aria-valuemin="0" aria-valuemax="100"></div>
+                        <div class="progress m-b-10" title="Last hour relative to the busiest hour observed since startup">
+                            <div class="progress-bar warning" role="progressbar" style="width: {{printf "%.1f%%" .AnalyticsData.HourlyActivityPercentage}}" aria-valuenow="{{printf "%.1f" .AnalyticsData.HourlyActivityPercentage}}" aria-valuemin="0" aria-valuemax="100"></div>
                         </div>
 
                         <table class="table table-compact m-t-10">
                             <tbody>
-                                {{range $visit := .AnalyticsData.RecentVisits}}
-                                <tr>
-                                    <td width="80" class="txt-sm">{{formatTime $visit.Time}}</td>
-                                    <td class="txt-sm">{{$visit.Path}}</td>
-                                    <td width="40">
-                                        {{if eq $visit.DeviceType "desktop"}}
-                                        <i class="ri-computer-line txt-sm" title="{{$visit.Browser}} on {{$visit.OS}}"></i>
-                                        {{else if eq $visit.DeviceType "mobile"}}
-                                        <i class="ri-smartphone-line txt-sm" title="{{$visit.Browser}} on {{$visit.OS}}"></i>
-                                        {{else}}
-                                        <i class="ri-tablet-line txt-sm" title="{{$visit.Browser}} on {{$visit.OS}}"></i>
-                                        {{end}}
-                                    </td>
-                                </tr>
+                                {{range $index, $visit := .AnalyticsData.RecentVisits}}
+                                    {{if lt $index 8}}
+                                    <tr>
+                                        <td width="80" class="txt-sm">{{formatTime $visit.Time}}</td>
+                                        <td class="txt-sm" title="{{$visit.Path}}">{{pathLabel $visit.Path}}</td>
+                                        <td width="40">
+                                            {{if eq $visit.DeviceType "desktop"}}
+                                            <i class="ri-computer-line txt-sm" title="{{$visit.Browser}} on {{$visit.OS}}"></i>
+                                            {{else if eq $visit.DeviceType "mobile"}}
+                                            <i class="ri-smartphone-line txt-sm" title="{{$visit.Browser}} on {{$visit.OS}}"></i>
+                                            {{else}}
+                                            <i class="ri-tablet-line txt-sm" title="{{$visit.Browser}} on {{$visit.OS}}"></i>
+                                            {{end}}
+                                        </td>
+                                    </tr>
+                                    {{end}}
                                 {{end}}
                             </tbody>
                         </table>

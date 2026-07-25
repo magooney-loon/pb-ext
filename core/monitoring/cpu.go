@@ -47,12 +47,12 @@ func CollectCPUInfoWithContext(ctx context.Context) ([]CPUInfo, error) {
 	default:
 	}
 
-	if percents, err := cpu.PercentWithContext(ctx, 0, false); err == nil {
-		for i := range result {
-			if i < len(percents) {
-				result[i].Usage = percents[i]
-			}
-		}
+	// percpu must be true: with percpu=false gopsutil returns a single aggregate
+	// value, and assigning it positionally would leave every entry after the
+	// first at zero — which then gets averaged across all of them, reporting
+	// usage smaller by a factor of the CPU count.
+	if percents, err := cpu.PercentWithContext(ctx, 0, true); err == nil {
+		assignUsage(result, percents)
 	} else {
 		// Continue with partial data
 		return result, NewSystemError(op, "failed to get CPU usage percentages", err)
@@ -64,22 +64,53 @@ func CollectCPUInfoWithContext(ctx context.Context) ([]CPUInfo, error) {
 	default:
 	}
 
+	// Temperature is optional: plenty of VMs and containers expose no sensors,
+	// and that is not a collection failure.
 	if temps, err := host.SensorsTemperaturesWithContext(ctx); err == nil {
+		hottest := 0.0
 		for _, temp := range temps {
-			if IsCPUTemp(temp.SensorKey) {
-				// Apply temperature to all cores
-				for i := range result {
-					result[i].Temperature = temp.Temperature
-				}
-				break
+			// coretemp reports a package sensor plus one per core; the hottest
+			// is the meaningful figure rather than whichever came last.
+			if IsCPUTemp(temp.SensorKey) && temp.Temperature > hottest {
+				hottest = temp.Temperature
 			}
 		}
-	} else {
-		// Temperature collection is optional
-		return result, NewSensorError(op, "failed to get temperature data", err)
+		if hottest > 0 {
+			for i := range result {
+				result[i].Temperature = hottest
+			}
+		}
 	}
 
 	return result, nil
+}
+
+// assignUsage maps measured percentages onto the collected CPU entries.
+//
+// cpu.Info and cpu.Percent do not always report the same number of entries
+// (some platforms describe sockets rather than logical CPUs), so anything other
+// than a 1:1 match falls back to the mean. That keeps the average across
+// entries equal to overall system usage either way.
+func assignUsage(cpus []CPUInfo, percents []float64) {
+	if len(cpus) == 0 || len(percents) == 0 {
+		return
+	}
+
+	if len(cpus) == len(percents) {
+		for i := range cpus {
+			cpus[i].Usage = percents[i]
+		}
+		return
+	}
+
+	var sum float64
+	for _, p := range percents {
+		sum += p
+	}
+	mean := sum / float64(len(percents))
+	for i := range cpus {
+		cpus[i].Usage = mean
+	}
 }
 
 // CollectCPUInfo gathers CPU information with background context

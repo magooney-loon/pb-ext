@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -18,7 +19,6 @@ import (
 	"github.com/spf13/cast"
 
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/shirou/gopsutil/v3/host"
 )
 
 // HealthResponse represents health check response data
@@ -123,79 +123,67 @@ var templateFuncs = template.FuncMap{
 		}
 		return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 	},
+	// The temperature helpers read the already-collected readings rather than
+	// re-reading sensors: each of these is called several times per render, and
+	// hitting the hwmon sysfs tree on every call is both slow and liable to
+	// disagree with what the collector classified.
 	"getDiskTemp": func(stats *monitoring.SystemStats) float64 {
-		if !stats.HasTempData {
-			return 0
-		}
-
-		temps, err := host.SensorsTemperatures()
-		if err != nil {
-			return 0
-		}
-
-		for _, temp := range temps {
-			if monitoring.IsDiskTemp(temp.SensorKey) {
-				return temp.Temperature
-			}
-		}
-		return 0
+		return stats.Temperatures.DiskTemp
 	},
 	"getSystemTemp": func(stats *monitoring.SystemStats) float64 {
-		if !stats.HasTempData {
-			return 0
-		}
-
-		temps, err := host.SensorsTemperatures()
-		if err != nil {
-			return 0
-		}
-
-		for _, temp := range temps {
-			if monitoring.IsSystemTemp(temp.SensorKey) {
-				return temp.Temperature
-			}
-		}
-		return 0
+		return stats.Temperatures.SystemTemp
 	},
 	"getAmbientTemp": func(stats *monitoring.SystemStats) float64 {
-		if !stats.HasTempData {
-			return 0
-		}
-
-		temps, err := host.SensorsTemperatures()
-		if err != nil {
-			return 0
-		}
-
-		for _, temp := range temps {
-			if strings.Contains(strings.ToLower(temp.SensorKey), "ambient") {
-				return temp.Temperature
-			}
-		}
-		return 0
+		return stats.Temperatures.AmbientTemp
+	},
+	"getCPUTemp": func(stats *monitoring.SystemStats) float64 {
+		return stats.Temperatures.CPUTemp
 	},
 	"hasDiskTemps": func(stats *monitoring.SystemStats) bool {
-		if !stats.HasTempData {
-			return false
-		}
-
-		temps, err := host.SensorsTemperatures()
-		if err != nil {
-			return false
-		}
-
-		for _, temp := range temps {
-			if monitoring.IsDiskTemp(temp.SensorKey) {
-				return true
-			}
-		}
-		return false
+		return stats.Temperatures.DiskTemp > 0
 	},
 	"formatTime": func(t time.Time) string {
 		return t.Format("15:04:05")
 	},
 	"inc": func(i int) int {
 		return i + 1
+	},
+	// formatCount renders a plain count with thousands separators. Counts must
+	// never be divided by 1024/1048576 and labelled as bytes.
+	"formatCount": func(n uint64) string {
+		s := strconv.FormatUint(n, 10)
+		if len(s) <= 3 {
+			return s
+		}
+
+		var b strings.Builder
+		lead := len(s) % 3
+		if lead > 0 {
+			b.WriteString(s[:lead])
+		}
+		for i := lead; i < len(s); i += 3 {
+			if b.Len() > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(s[i : i+3])
+		}
+		return b.String()
+	},
+	// percentOf works on ints, unlike "divide" which only accepts float64/uint64.
+	"percentOf": func(part, total int) float64 {
+		if total == 0 {
+			return 0
+		}
+		return float64(part) / float64(total) * 100
+	},
+	// pathLabel renders the analytics overflow bucket readably. Paths beyond the
+	// per-day cardinality budget are collapsed into it, so it would otherwise
+	// show up as a bare "/*".
+	"pathLabel": func(path string) string {
+		if path == analytics.OverflowPath {
+			return "other pages"
+		}
+		return path
 	},
 	"isset": func(c interface{}, key interface{}) (bool, error) {
 		// This code taken from:
@@ -232,7 +220,7 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 	defer cancel()
 
 	// Collect system stats with context
-	sysStats, err := monitoring.CollectSystemStats(ctx, s.stats.StartTime)
+	sysStats, err := monitoring.CollectSystemStats(ctx, s.stats.StartTime, s.app.DataDir())
 	if err != nil {
 		if errs, ok := err.(interface{ Unwrap() []error }); ok {
 			for _, k := range errs.Unwrap() {
@@ -282,9 +270,11 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 	return data, nil
 }
 
-// RegisterHealthRoute registers the health check endpoint
-func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
-	// Automatically discover and parse all templates from embedded filesystem
+// parseDashboardTemplates discovers and parses every embedded .tmpl with the
+// dashboard's function map. Kept separate from route registration so tests can
+// exercise the exact same parse, which is otherwise only done at runtime where
+// a missing template func would just be logged.
+func parseDashboardTemplates() (*template.Template, error) {
 	var templateFiles []string
 
 	err := fs.WalkDir(TemplateFS, "templates", func(path string, d fs.DirEntry, err error) error {
@@ -299,16 +289,23 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 
 		return nil
 	})
-
 	if err != nil {
-		log.Printf("Error discovering templates: %v", err)
-		return
+		return nil, fmt.Errorf("discovering templates: %w", err)
 	}
 
-	// Parse all discovered templates
 	tmpl, err := template.New("").Funcs(templateFuncs).ParseFS(TemplateFS, templateFiles...)
 	if err != nil {
-		log.Printf("Error parsing health templates: %v", err)
+		return nil, fmt.Errorf("parsing templates: %w", err)
+	}
+
+	return tmpl, nil
+}
+
+// RegisterHealthRoute registers the health check endpoint
+func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
+	tmpl, err := parseDashboardTemplates()
+	if err != nil {
+		log.Printf("Error preparing health templates: %v", err)
 		return
 	}
 

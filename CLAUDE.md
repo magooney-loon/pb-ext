@@ -74,6 +74,30 @@ Each package registers its migration into `core.AppMigrations` from an `init()`,
 
 **No clash with app migrations**: pb-ext shares `core.AppMigrations` with the app (the same extension point PocketBase's `jsvm` plugin uses). Ordering is by file name, `migrate history-sync` sees pb-ext's entries so it won't prune them, and automigrate only fires on Admin UI/API collection requests — never on pb-ext's programmatic `SaveNoValidate`. The one hazard is `migrate down N` reverting far enough back to hit pb-ext's migrations; the old timestamps make that unlikely in practice.
 
+## System Metrics
+
+Every collector in `core/monitoring/` wraps gopsutil, whose field names rarely mean what they look like. The rules below are each pinned by a regression test — read them before touching a collector or the metric templates.
+
+**Memory** (`memory.go`): `Free` and `Available` are not the same thing and the dashboard must show `Available`.
+
+On Linux `Free` is `MemFree` — completely untouched pages — which sits near zero on any warm machine because the kernel fills RAM with page cache. `Available` is `MemAvailable`: what a new allocation can actually obtain, cache included. Showing `Free` understates usable memory by an order of magnitude (0.7 GB vs 20.7 GB on a 31 GB box).
+
+`Used + Free != Total`. gopsutil computes `Used = Total - Free - Buffers - Cached` (with `Cached` including `SReclaimable`), so the missing remainder is `Cached` — which is why `MemoryInfo` tracks it. `UsedPercent` is `Used/Total` and is correct as-is.
+
+`core/monitoring/memory_test.go` verifies `Total` and `Available` against `/proc/meminfo` directly (Linux-gated) and pins the `Used + Free + Cached ≈ Total` identity.
+
+**CPU** (`cpu.go`): call `cpu.Percent` with `percpu=true`. With `percpu=false` gopsutil returns a *single* aggregate value; assigning it positionally leaves every entry after the first at zero, and since the dashboard averages across entries the meter then reads low by a factor of the CPU count. `assignUsage` also falls back to the mean when `cpu.Info` and `cpu.Percent` disagree on entry count, so the average stays correct either way. Temperature is optional — a host without sensors is not a collection failure.
+
+**Disk** (`disk.go`): `Used + Free != Total`. `Free` excludes reserved blocks (5% on ext4 by default), so usage is `Used/(Used+Free)` — what `df` prints — not `Used/Total`. gopsutil computes this correctly as `UsedPercent`; `SystemStats.DiskUsagePercent` carries it through so templates never recompute it.
+
+`CollectDiskInfo` takes the path to measure, and the dashboard passes `app.DataDir()` — the filesystem holding `pb_data` is the one that decides when the database runs out of room. `/` is often a small read-only image layer in a container, or an ostree overlay on an atomic host, and reports something unrelated (100% of 0.0 GB on one such machine, versus 11.3% of 1.9 TB for the data directory). An empty or unqueryable path falls back to `DefaultDiskPath`, and `DiskInfo.Path` / `SystemStats.DiskPath` report whichever was actually measured — the Disk card shows it so the figure is never ambiguous. `CollectSystemStats` takes the path too, and its refresh cache is keyed on it so a changed path never returns another filesystem's figures.
+
+**Network** (`network.go`): identify loopback by the interface *flag*, never by looking for `"lo"` in the name — that substring also matches `wlo1` and `eno1` (systemd predictable names for onboard wireless/ethernet), which silently drops a machine's primary interface and its byte counters. Byte totals are cumulative since boot, not throughput.
+
+**Temperature** (`temperature.go`): classify ambient *before* system, because `IsSystemTemp` also accepts `"ambient"` and would otherwise make `AmbientTemp` permanently zero. Each category keeps the highest reading rather than whichever sensor came last — sensor order is not guaranteed and groups like coretemp report a package sensor plus one per core. `SystemStats.Temperatures` holds the classified readings so template helpers never re-read sensors mid-render.
+
+**Runtime** (`runtime.go`): `HeapObjects` is a *count* of live objects, not a size. Dividing it by 1048576 and labelling it MB renders a meaningless near-zero figure; use `AllocatedBytes` for heap size and the `formatCount` template func for counts. `LastGCDuration` uses the documented `PauseNs[(NumGC+255)%256]` ring-buffer index.
+
 ## OpenAPI Documentation System
 
 The API doc system uses Go AST parsing at startup to extract endpoint metadata. See `core/server/api/AGENTS.md` for full internals.
@@ -129,6 +153,8 @@ Configure with the `With*` options passed to `analytics.Initialize`.
 **Visitor tracking** (`visitors.go`) is memory-only, keyed by a non-reversible FNV-1a hash of `(RealIP, user agent)`. Entries live in rotating generations, giving a hard memory ceiling and O(1) amortized cost — no unbounded map, no full scan under lock. A visitor is remembered for up to `VisitorGenerations × SessionWindow` (default 2h); returning after that reads as new. `RealIP()` honours PocketBase's admin-configured `TrustedProxy` settings, so `X-Forwarded-For` is only trusted when a proxy is configured.
 
 **Dashboard** (`storage.go`): four `GROUP BY` aggregates bounded to `LookbackDays`, each served by a covering index (`idx_analytics_totals`, `_pages`, `_devices`, `_browsers`) so SQLite never does per-row table lookups. Results are memoized for `CacheTTL` (5s); recent visits and hourly activity come live from memory. ~29ms at 50k rows, ~300ns cached. If you change a dashboard query, keep it covered — `TestGetData_QueriesUseCoveringIndexes` asserts this.
+
+**Dashboard template** (`core/server/templates/components/visitor_analytics.tmpl`): the only consumer of `analytics.Data` — there is no JSON endpoint for it, so display limits belong in the template, not in `GetData`. `RecentVisits` carries the full 50-entry ring but the card renders 8; `TopPages` carries 10 and renders 5. Template funcs live in `templateFuncs` (`health.go`); `pathLabel` renders the `/*` overflow bucket as "other pages". `core/server/templates_test.go` parses every template and renders this one against populated and empty data, which is the only place a missing template func gets caught (at runtime it is merely logged).
 
 **Testing**: `testutil.NewTestApp(t)` already has both pb-ext collections (migrations run automatically). `testutil.NewAnalytics(t, opts...)` returns an app plus a running collector (closed on cleanup); `testutil.AnalyticsTotals(t, app)` reads persisted counters. Pass `WithFlushInterval(time.Hour)` to observe buffering and flush by hand. Internals (`aggregator`, `visitorTracker`) are tested white-box in package `analytics`; anything needing `testutil` must live in package `analytics_test` to avoid an import cycle.
 
