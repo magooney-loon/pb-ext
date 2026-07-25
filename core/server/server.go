@@ -115,6 +115,16 @@ func (s *Server) Start() error {
 		return nil
 	})
 
+	// Persist any analytics counters still buffered in memory before exit.
+	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
+		if s.analytics != nil {
+			if err := s.analytics.Close(); err != nil {
+				app.Logger().Error("Failed to flush analytics on shutdown", "error", err)
+			}
+		}
+		return e.Next()
+	})
+
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.Logger().Info("🚀 Server initialized",
 			"start_time", s.stats.StartTime,

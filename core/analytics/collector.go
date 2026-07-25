@@ -1,156 +1,125 @@
 package analytics
 
 import (
-	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
-	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
 // RegisterRoutes attaches the request tracking middleware to the router.
+//
+// Tracking runs after the handler and does no I/O, so it adds a fixed
+// sub-microsecond cost to a request rather than queueing behind SQLite's
+// single writer connection.
 func (a *Analytics) RegisterRoutes(e *core.ServeEvent) {
 	e.Router.BindFunc(func(e *core.RequestEvent) error {
-		path := e.Request.URL.Path
-		if shouldExclude(path) {
+		if !isTrackableRequest(e.Request) {
 			return e.Next()
 		}
 
 		err := e.Next()
 
-		if !isBot(e.Request.UserAgent()) {
-			a.track(e.Request)
+		if isTrackableStatus(e.Status()) && !isBot(e.Request.UserAgent()) {
+			// RealIP honours the admin-configured TrustedProxy settings and
+			// falls back to the socket address, so forged X-Forwarded-For
+			// headers cannot inflate the visitor map on a direct-facing server.
+			a.Track(e.RealIP(), e.Request)
 		}
 
 		return err
 	})
 }
 
-// track records a page view: upserts the daily counter and inserts a session ring entry.
-// No personal data (IP, UA, visitor ID) is written to the database.
-func (a *Analytics) track(r *http.Request) {
-	path := r.URL.Path
+// Track records a page view in memory. It performs no database work and is safe
+// for concurrent use.
+func (a *Analytics) Track(ip string, r *http.Request) {
+	now := time.Now()
 	ua := r.UserAgent()
 	deviceType, browser, os := parseUA(ua)
-	date := time.Now().Format("2006-01-02")
 
-	// isNewSession uses the in-memory map keyed by hash(ip+ua) — never persisted.
-	ip := clientIP(r)
-	sessionKey := sessionHash(ip, ua)
-	isNew := a.isNewSession(sessionKey)
+	// The session key is an in-memory, non-reversible hash and is never stored.
+	class := a.visitors.classify(sessionHash(ip, ua), now)
 
-	if err := a.upsertDailyCounter(path, date, deviceType, browser, isNew); err != nil {
-		a.app.Logger().Error("analytics upsert failed", "path", path, "error", err)
-	}
+	needsFlush := a.agg.record(visit{
+		Path:       a.normalizePath(r.URL.Path),
+		DeviceType: deviceType,
+		Browser:    browser,
+		OS:         os,
+		Class:      class,
+		At:         now,
+	})
 
-	if err := a.insertSessionEntry(path, deviceType, browser, os, isNew); err != nil {
-		a.app.Logger().Error("analytics session insert failed", "path", path, "error", err)
+	if needsFlush {
+		a.requestFlush()
 	}
 }
 
-// upsertDailyCounter increments views (and optionally unique_sessions) for the
-// (path, date, device_type, browser) row, creating it if it doesn't exist.
-func (a *Analytics) upsertDailyCounter(path, date, deviceType, browser string, isNew bool) error {
-	newSession := 0
-	if isNew {
-		newSession = 1
+// normalizePath collapses absurdly long paths into the overflow bucket before
+// they can occupy a distinct-path slot. Per-day cardinality is bounded
+// separately by the aggregator.
+func (a *Analytics) normalizePath(path string) string {
+	if path == "" {
+		return "/"
 	}
-
-	sql := fmt.Sprintf(`
-		INSERT INTO %s (path, date, device_type, browser, views, unique_sessions)
-		VALUES ({:path}, {:date}, {:device}, {:browser}, 1, {:ns})
-		ON CONFLICT (path, date, device_type, browser)
-		DO UPDATE SET
-			views = views + 1,
-			unique_sessions = unique_sessions + excluded.unique_sessions
-	`, CollectionName)
-
-	_, err := a.app.NonconcurrentDB().NewQuery(sql).
-		Bind(dbx.Params{
-			"path":    path,
-			"date":    date,
-			"device":  deviceType,
-			"browser": browser,
-			"ns":      newSession,
-		}).
-		Execute()
-	return err
+	if len(path) > a.cfg.MaxPathLength {
+		return OverflowPath
+	}
+	return path
 }
 
-// insertSessionEntry adds a row to the ring buffer and prunes overflow.
-func (a *Analytics) insertSessionEntry(path, deviceType, browser, os string, isNew bool) error {
-	col, err := a.app.FindCollectionByNameOrId(SessionsCollectionName)
-	if err != nil {
-		return fmt.Errorf("find sessions collection: %w", err)
-	}
-
-	rec := core.NewRecord(col)
-	rec.Set("path", path)
-	rec.Set("device_type", deviceType)
-	rec.Set("browser", browser)
-	rec.Set("os", os)
-	rec.Set("timestamp", time.Now())
-	rec.Set("is_new_session", isNew)
-
-	if err := a.app.SaveNoValidate(rec); err != nil {
-		return fmt.Errorf("save session entry: %w", err)
-	}
-
-	// Prune ring — keep only the last SessionRingSize rows.
-	pruneSQL := fmt.Sprintf(`
-		DELETE FROM %s
-		WHERE rowid NOT IN (
-			SELECT rowid FROM %s ORDER BY created DESC LIMIT %d
-		)
-	`, SessionsCollectionName, SessionsCollectionName, SessionRingSize)
-
-	if _, err := a.app.NonconcurrentDB().NewQuery(pruneSQL).Execute(); err != nil {
-		a.app.Logger().Error("analytics session ring prune failed", "error", err)
-	}
-
-	return nil
+// VisitorMemory reports the current and maximum number of tracked visitors.
+// Exposed for monitoring and tests; the value never exceeds max.
+func (a *Analytics) VisitorMemory() (current, max int) {
+	return a.visitors.size(), a.visitors.capacity()
 }
 
-// isNewSession returns true if sessionKey hasn't been seen within the session window.
-// sessionKey is an ephemeral hash of IP+UA — never written to the database.
-func (a *Analytics) isNewSession(sessionKey string) bool {
-	a.visitorsMu.RLock()
-	lastSeen, exists := a.knownVisitors[sessionKey]
-	a.visitorsMu.RUnlock()
-
-	now := time.Now()
-	if exists && now.Sub(lastSeen) < a.sessionWindow {
-		a.visitorsMu.Lock()
-		a.knownVisitors[sessionKey] = now
-		a.visitorsMu.Unlock()
-		return false
-	}
-
-	a.visitorsMu.Lock()
-	a.knownVisitors[sessionKey] = now
-	a.visitorsMu.Unlock()
-	return true
+// PendingCounters reports how many counter rows are waiting to be flushed.
+func (a *Analytics) PendingCounters() int {
+	return a.agg.pendingLen()
 }
 
 // --- pure helpers ---
 
-// sessionHash produces a short hash used only for in-memory session deduplication.
-// It is never written to the database.
-func sessionHash(ip, ua string) string {
+// isTrackableRequest filters to page navigations. Restricting to GET keeps form
+// posts, API writes and preflights out of the page-view counters.
+func isTrackableRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	return !shouldExclude(r.URL.Path)
+}
+
+// isTrackableStatus keeps errors and redirect-loop probes from creating rows.
+// A zero status means the handler wrote a body without an explicit code, which
+// net/http reports to the client as 200.
+func isTrackableStatus(status int) bool {
+	return status == 0 || (status >= 200 && status < 400)
+}
+
+// sessionHash produces the key used only for in-memory visitor tracking.
+// It is never written to the database, and it is not reversible into an
+// IP/user-agent pair.
+func sessionHash(ip, ua string) uint64 {
 	// FNV-1a — fast, non-cryptographic, sufficient for session keying.
 	const (
 		offset64 uint64 = 14695981039346656037
 		prime64  uint64 = 1099511628211
 	)
 	h := offset64
-	for _, b := range []byte(ip + ua) {
-		h ^= uint64(b)
+	for i := 0; i < len(ip); i++ {
+		h ^= uint64(ip[i])
 		h *= prime64
 	}
-	return fmt.Sprintf("%016x", h)
+	// Separator byte, so ("1.2.3.4", "5x") and ("1.2.3.45", "x") stay distinct.
+	h ^= 0
+	h *= prime64
+	for i := 0; i < len(ua); i++ {
+		h ^= uint64(ua[i])
+		h *= prime64
+	}
+	return h
 }
 
 func parseUA(userAgent string) (deviceType, browser, os string) {
@@ -178,27 +147,24 @@ func parseUA(userAgent string) (deviceType, browser, os string) {
 	}
 
 	os = "unknown"
+	// iOS user agents contain "like Mac OS X" and Android ones contain "Linux",
+	// so the specific platforms must be matched before the generic ones.
 	switch {
-	case strings.Contains(ua, "windows"):
-		os = "windows"
-	case strings.Contains(ua, "macintosh") || strings.Contains(ua, "mac os"):
-		os = "macos"
-	case strings.Contains(ua, "linux") && !strings.Contains(ua, "android"):
-		os = "linux"
 	case strings.Contains(ua, "iphone"):
 		os = "ios"
 	case strings.Contains(ua, "ipad"):
 		os = "ipados"
 	case strings.Contains(ua, "android"):
 		os = "android"
+	case strings.Contains(ua, "windows"):
+		os = "windows"
+	case strings.Contains(ua, "macintosh") || strings.Contains(ua, "mac os"):
+		os = "macos"
+	case strings.Contains(ua, "linux"):
+		os = "linux"
 	}
 
 	return
-}
-
-func extractUTM(u *url.URL) (source, medium, campaign string) {
-	q := u.Query()
-	return q.Get("utm_source"), q.Get("utm_medium"), q.Get("utm_campaign")
 }
 
 func shouldExclude(path string) bool {
@@ -234,22 +200,6 @@ func isBot(ua string) bool {
 		}
 	}
 	return false
-}
-
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if ips := strings.Split(xff, ","); len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
-	}
-	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
-		return strings.TrimSpace(xrip)
-	}
-	ip, _, _ := strings.Cut(r.RemoteAddr, ":")
-	if ip == "" {
-		return r.RemoteAddr
-	}
-	return ip
 }
 
 var botPatterns = []string{

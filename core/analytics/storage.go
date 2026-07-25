@@ -1,202 +1,237 @@
 package analytics
 
 import (
-	"database/sql"
 	"math"
 	"time"
 
 	"github.com/pocketbase/dbx"
 )
 
-// GetData computes aggregated analytics from the two collections via SQL.
-// All aggregation happens in SQLite — no records are loaded into Go memory.
+// dbAggregates is the memoized, database-derived half of the dashboard payload.
+// The live half (recent visits, trailing-hour activity) comes from memory and is
+// never cached.
+type dbAggregates struct {
+	TotalViews        int
+	NewSessions       int
+	ReturningSessions int
+	TodayViews        int
+	YesterdayViews    int
+	Devices           map[string]int
+	Browsers          []PageStat // Path field carries the browser name
+	TopPages          []PageStat
+}
+
+// GetData computes aggregated analytics for the dashboard.
+//
+// All aggregation happens in SQLite over the trailing LookbackDays, indexed by
+// date, and the result is memoized for CacheTTL. No records are loaded into Go
+// memory.
 func (a *Analytics) GetData() (*Data, error) {
-	// Verify collections exist before querying.
-	if _, err := a.app.FindCollectionByNameOrId(CollectionName); err != nil {
-		a.app.Logger().Error("_analytics collection not found", "error", err)
-		return DefaultData(), nil
-	}
-	if _, err := a.app.FindCollectionByNameOrId(SessionsCollectionName); err != nil {
-		a.app.Logger().Error("_analytics_sessions collection not found", "error", err)
-		return DefaultData(), nil
-	}
+	now := time.Now()
 
-	data := DefaultData()
-
-	today := time.Now().Format("2006-01-02")
-	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-
-	// --- 1. Total page views and total unique sessions ---
-	var totalViews, totalSessions int
-	err := a.app.DB().
-		Select("COALESCE(SUM(views),0)", "COALESCE(SUM(unique_sessions),0)").
-		From(CollectionName).
-		Row(&totalViews, &totalSessions)
+	agg, err := a.aggregates(now)
 	if err != nil {
-		a.app.Logger().Error("analytics total query failed", "error", err)
-		return DefaultData(), nil
-	}
-	data.TotalPageViews = totalViews
-	data.UniqueVisitors = totalSessions
-
-	// --- 2. Today and yesterday page views ---
-	var todayViews, yesterdayViews int
-	_ = a.app.DB().
-		Select("COALESCE(SUM(views),0)").
-		From(CollectionName).
-		Where(dbx.NewExp("date = {:d}", dbx.Params{"d": today})).
-		Row(&todayViews)
-	_ = a.app.DB().
-		Select("COALESCE(SUM(views),0)").
-		From(CollectionName).
-		Where(dbx.NewExp("date = {:d}", dbx.Params{"d": yesterday})).
-		Row(&yesterdayViews)
-	data.TodayPageViews = todayViews
-	data.YesterdayPageViews = yesterdayViews
-
-	// --- 3. New vs returning (from sessions ring) ---
-	var newSessions, returningSessions int
-	_ = a.app.DB().
-		Select("COALESCE(SUM(CASE WHEN is_new_session THEN 1 ELSE 0 END),0)",
-			"COALESCE(SUM(CASE WHEN is_new_session THEN 0 ELSE 1 END),0)").
-		From(SessionsCollectionName).
-		Row(&newSessions, &returningSessions)
-	data.NewVisitors = newSessions
-	data.ReturningVisitors = returningSessions
-
-	// ViewsPerVisitor
-	if totalSessions > 0 {
-		data.ViewsPerVisitor = float64(totalViews) / float64(totalSessions)
+		a.app.Logger().Error("analytics aggregate query failed", "error", err)
+		return a.liveOnly(now), nil
 	}
 
-	// --- 4. Device breakdown ---
-	type deviceRow struct {
-		DeviceType string `db:"device_type"`
-		Views      int    `db:"views"`
+	return a.buildData(agg, now), nil
+}
+
+// aggregates returns the cached database aggregate, recomputing it (after
+// flushing pending counters so the numbers are current) when stale.
+func (a *Analytics) aggregates(now time.Time) (*dbAggregates, error) {
+	a.cacheMu.Lock()
+	if a.cached != nil && now.Before(a.cachedUntil) {
+		cached := a.cached
+		a.cacheMu.Unlock()
+		return cached, nil
 	}
-	var deviceRows []deviceRow
-	_ = a.app.DB().
-		Select("device_type", "SUM(views) AS views").
+	a.cacheMu.Unlock()
+
+	// The dashboard is superuser-only and infrequently loaded, so paying for a
+	// synchronous flush here keeps it exactly consistent with live traffic.
+	if err := a.Flush(); err != nil {
+		a.app.Logger().Error("analytics flush before read failed", "error", err)
+	}
+
+	agg, err := a.queryAggregates(now)
+	if err != nil {
+		return nil, err
+	}
+
+	a.cacheMu.Lock()
+	a.cached = agg
+	a.cachedUntil = now.Add(a.cfg.CacheTTL)
+	a.cacheMu.Unlock()
+
+	return agg, nil
+}
+
+// invalidateCache drops the memoized aggregate after a successful write.
+func (a *Analytics) invalidateCache() {
+	a.cacheMu.Lock()
+	a.cached = nil
+	a.cachedUntil = time.Time{}
+	a.cacheMu.Unlock()
+}
+
+// queryAggregates runs the four grouped scans that back the dashboard. Each is
+// bounded to the retention window so cost tracks LookbackDays, not total history.
+func (a *Analytics) queryAggregates(now time.Time) (*dbAggregates, error) {
+	if _, err := a.app.FindCollectionByNameOrId(CollectionName); err != nil {
+		return nil, err
+	}
+
+	today := now.Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	cutoff := now.AddDate(0, 0, -LookbackDays).Format("2006-01-02")
+
+	window := dbx.NewExp("date >= {:cutoff}", dbx.Params{"cutoff": cutoff})
+	agg := &dbAggregates{Devices: map[string]int{}}
+
+	// 1. Totals — one pass yields lifetime-in-window, today and yesterday.
+	err := a.app.DB().
+		Select(
+			"COALESCE(SUM(views),0)",
+			"COALESCE(SUM(unique_sessions),0)",
+			"COALESCE(SUM(returning_sessions),0)",
+			"COALESCE(SUM(CASE WHEN date = {:today} THEN views ELSE 0 END),0)",
+			"COALESCE(SUM(CASE WHEN date = {:yesterday} THEN views ELSE 0 END),0)",
+		).
 		From(CollectionName).
+		Where(window).
+		Bind(dbx.Params{"today": today, "yesterday": yesterday}).
+		Row(&agg.TotalViews, &agg.NewSessions, &agg.ReturningSessions, &agg.TodayViews, &agg.YesterdayViews)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Device breakdown.
+	type groupRow struct {
+		Name  string `db:"name"`
+		Views int    `db:"views"`
+	}
+	var deviceRows []groupRow
+	if err := a.app.DB().
+		Select("device_type AS name", "SUM(views) AS views").
+		From(CollectionName).
+		Where(window).
 		GroupBy("device_type").
-		All(&deviceRows)
-
-	var deviceTotal int
-	deviceMap := make(map[string]int)
+		All(&deviceRows); err != nil {
+		return nil, err
+	}
 	for _, r := range deviceRows {
-		deviceMap[r.DeviceType] += r.Views
-		deviceTotal += r.Views
-	}
-	if deviceTotal > 0 {
-		data.DesktopPercentage = float64(deviceMap["desktop"]) / float64(deviceTotal) * 100
-		data.MobilePercentage = float64(deviceMap["mobile"]) / float64(deviceTotal) * 100
-		data.TabletPercentage = float64(deviceMap["tablet"]) / float64(deviceTotal) * 100
-
-		maxC, top := 0, "unknown"
-		for d, c := range deviceMap {
-			if c > maxC {
-				maxC, top = c, d
-			}
-		}
-		data.TopDeviceType = top
-		data.TopDevicePercentage = float64(maxC) / float64(deviceTotal) * 100
+		agg.Devices[r.Name] += r.Views
 	}
 
-	// --- 5. Browser breakdown (top 5) ---
-	type browserRow struct {
-		Browser string `db:"browser"`
-		Views   int    `db:"views"`
-	}
-	var browserRows []browserRow
-	_ = a.app.DB().
-		Select("browser", "SUM(views) AS views").
+	// 3. Browser breakdown (top 5).
+	var browserRows []groupRow
+	if err := a.app.DB().
+		Select("browser AS name", "SUM(views) AS views").
 		From(CollectionName).
+		Where(window).
 		GroupBy("browser").
 		OrderBy("views DESC").
 		Limit(5).
-		All(&browserRows)
-
-	data.BrowserBreakdown = make(map[string]float64)
-	var browserTotal int
-	for _, r := range browserRows {
-		browserTotal += r.Views
+		All(&browserRows); err != nil {
+		return nil, err
 	}
-	maxB, topB := 0, "unknown"
 	for _, r := range browserRows {
-		if browserTotal > 0 {
-			data.BrowserBreakdown[r.Browser] = math.Round(float64(r.Views) / float64(browserTotal) * 100)
-		}
-		if r.Views > maxB {
-			maxB, topB = r.Views, r.Browser
-		}
-	}
-	if topB != "unknown" {
-		data.TopBrowser = topB
+		agg.Browsers = append(agg.Browsers, PageStat{Path: r.Name, Views: r.Views})
 	}
 
-	// --- 6. Top pages ---
-	type pageRow struct {
-		Path  string `db:"path"`
-		Views int    `db:"views"`
-	}
-	var pageRows []pageRow
-	_ = a.app.DB().
-		Select("path", "SUM(views) AS views").
+	// 4. Top pages.
+	var pageRows []groupRow
+	if err := a.app.DB().
+		Select("path AS name", "SUM(views) AS views").
 		From(CollectionName).
+		Where(window).
 		GroupBy("path").
 		OrderBy("views DESC").
 		Limit(10).
-		All(&pageRows)
-
-	data.TopPages = make([]PageStat, 0, len(pageRows))
+		All(&pageRows); err != nil {
+		return nil, err
+	}
 	for _, r := range pageRows {
-		data.TopPages = append(data.TopPages, PageStat{Path: r.Path, Views: r.Views})
+		agg.TopPages = append(agg.TopPages, PageStat{Path: r.Name, Views: r.Views})
 	}
 
-	// --- 7. Recent visits (from sessions ring) ---
-	// Timestamp is stored by PocketBase as "2006-01-02 15:04:05.000Z" — scan
-	// it as a string to avoid dbx failing to parse it into time.Time directly.
-	type sessionRow struct {
-		Path      string `db:"path"`
-		Device    string `db:"device_type"`
-		Browser   string `db:"browser"`
-		OS        string `db:"os"`
-		Timestamp string `db:"timestamp"`
-	}
-	var sessionRows []sessionRow
-	_ = a.app.DB().
-		Select("path", "device_type", "browser", "os", "timestamp").
-		From(SessionsCollectionName).
-		OrderBy("created DESC").
-		Limit(3).
-		All(&sessionRows)
+	return agg, nil
+}
 
-	data.RecentVisits = make([]RecentVisit, 0, len(sessionRows))
-	for _, r := range sessionRows {
-		ts, _ := time.Parse("2006-01-02 15:04:05.000Z", r.Timestamp)
-		data.RecentVisits = append(data.RecentVisits, RecentVisit{
-			Time:       ts,
-			Path:       r.Path,
-			DeviceType: r.Device,
-			Browser:    r.Browser,
-			OS:         r.OS,
-		})
+// buildData renders the dashboard payload from cached database aggregates plus
+// the live in-memory ring and activity buckets.
+func (a *Analytics) buildData(agg *dbAggregates, now time.Time) *Data {
+	data := DefaultData()
+
+	data.TotalPageViews = agg.TotalViews
+	data.NewVisitors = agg.NewSessions
+	data.ReturningVisitors = agg.ReturningSessions
+	// Sessions are the closest thing to a unique visitor that can be counted
+	// without persisting an identifier.
+	data.UniqueVisitors = agg.NewSessions + agg.ReturningSessions
+	data.TodayPageViews = agg.TodayViews
+	data.YesterdayPageViews = agg.YesterdayViews
+
+	if data.UniqueVisitors > 0 {
+		data.ViewsPerVisitor = float64(agg.TotalViews) / float64(data.UniqueVisitors)
 	}
 
-	// --- 8. Hourly activity ---
-	// Use PocketBase's date layout so the SQLite string comparison is correct.
-	oneHourAgo := time.Now().UTC().Add(-time.Hour).Format("2006-01-02 15:04:05.000Z")
-	var hourlyCount int
-	hourlyErr := a.app.DB().
-		Select("COUNT(*)").
-		From(SessionsCollectionName).
-		Where(dbx.NewExp("timestamp >= {:ts}", dbx.Params{"ts": oneHourAgo})).
-		Row(&hourlyCount)
-	if hourlyErr != nil && hourlyErr != sql.ErrNoRows {
-		a.app.Logger().Error("analytics hourly query failed", "error", hourlyErr)
-	}
-	data.RecentVisitCount = hourlyCount
-	data.HourlyActivityPercentage = math.Min(100, float64(hourlyCount)/float64(MaxExpectedHourlyVisits)*100)
+	// Every counter row carries a device and a browser, so the view total is a
+	// valid denominator for both breakdowns.
+	total := float64(agg.TotalViews)
+	if total > 0 {
+		data.DesktopPercentage = float64(agg.Devices["desktop"]) / total * 100
+		data.MobilePercentage = float64(agg.Devices["mobile"]) / total * 100
+		data.TabletPercentage = float64(agg.Devices["tablet"]) / total * 100
 
-	return data, nil
+		maxCount, top := 0, "none"
+		for device, count := range agg.Devices {
+			if count > maxCount {
+				maxCount, top = count, device
+			}
+		}
+		data.TopDeviceType = top
+		data.TopDevicePercentage = float64(maxCount) / total * 100
+	}
+
+	if len(agg.Browsers) > 0 {
+		data.BrowserBreakdown = make(map[string]float64, len(agg.Browsers))
+		for _, b := range agg.Browsers {
+			if total > 0 {
+				data.BrowserBreakdown[b.Path] = math.Round(float64(b.Views) / total * 100)
+			}
+		}
+		// Query 3 orders by views, so the first row is the leader.
+		if agg.Browsers[0].Views > 0 {
+			data.TopBrowser = agg.Browsers[0].Path
+		}
+	}
+
+	if len(agg.TopPages) > 0 {
+		data.TopPages = agg.TopPages
+	}
+
+	a.applyLive(data, now)
+	return data
+}
+
+// liveOnly returns a payload with just the in-memory fields populated, used when
+// the database side is unavailable.
+func (a *Analytics) liveOnly(now time.Time) *Data {
+	data := DefaultData()
+	a.applyLive(data, now)
+	return data
+}
+
+// applyLive fills the fields served straight from memory.
+func (a *Analytics) applyLive(data *Data, now time.Time) {
+	data.RecentVisits = a.agg.recentVisits(SessionRingSize)
+
+	count, scale := a.agg.activity(now)
+	data.RecentVisitCount = count
+	if scale > 0 {
+		data.HourlyActivityPercentage = math.Min(100, float64(count)/float64(scale)*100)
+	}
 }
