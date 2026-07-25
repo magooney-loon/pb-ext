@@ -90,6 +90,15 @@ func (s *Server) Start() error {
 			return NewInternalError("bootstrap_initialization", "Failed to initialize core resources", err)
 		}
 
+		// pb-ext's schemas must exist before the job manager and analytics come
+		// up, and OnBootstrap runs before apis.Serve reaches RunAllMigrations.
+		// Applying them here records them in _migrations, so the later run is a
+		// no-op. Only pb-ext's own migrations are applied — the app's run at
+		// their normal time.
+		if err := applyOwnMigrations(app); err != nil {
+			return NewInternalError("bootstrap_migrations", "Failed to apply pb-ext migrations", err)
+		}
+
 		// Initialize job management system
 		jobManager, err := jobs.Initialize(app)
 		if err != nil {

@@ -7,11 +7,6 @@ const (
 	LookbackDays   = 90           // Days of history included in dashboard aggregates
 	CollectionName = "_analytics" // Daily aggregated counters
 
-	// LegacySessionsCollectionName was a per-request ring buffer table used by
-	// older pb-ext versions. Recent visits are now held in memory, so the
-	// collection is dropped on startup if present.
-	LegacySessionsCollectionName = "_analytics_sessions"
-
 	// SessionRingSize is how many recent visits are kept in the in-memory ring
 	// that backs the dashboard's "Recent Activity" list.
 	SessionRingSize = 50

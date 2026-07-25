@@ -70,8 +70,13 @@ func New(app core.App, opts ...Option) *Analytics {
 func Initialize(app core.App, opts ...Option) (*Analytics, error) {
 	app.Logger().Info("Initializing analytics system")
 
-	if err := SetupCollections(app); err != nil {
-		return nil, err
+	// The schema is created by the registered migration, which PocketBase runs
+	// before serving. Fail loudly rather than silently collecting into nothing.
+	if _, err := app.FindCollectionByNameOrId(CollectionName); err != nil {
+		return nil, fmt.Errorf(
+			"%s collection is missing — pb-ext migration %s has not been applied: %w",
+			CollectionName, MigrationFile, err,
+		)
 	}
 
 	a := New(app, opts...)

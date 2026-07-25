@@ -1,12 +1,14 @@
 package jobs_test
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/magooney-loon/pb-ext/core/jobs"
 	"github.com/magooney-loon/pb-ext/core/testutil"
-	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/dbx"
 )
 
 // --- Constants ---
@@ -136,18 +138,16 @@ func TestAPIResponse_Fields(t *testing.T) {
 	}
 }
 
-// --- Collection ---
+// --- Collection & migration ---
 
-func TestSetupCollection_CreatesCollection(t *testing.T) {
+func TestMigration_CreatesCollection(t *testing.T) {
+	// NewTestApp runs RunAllMigrations, which applies pb-ext's registered
+	// migrations alongside PocketBase's own.
 	app := testutil.NewTestApp(t)
-
-	if err := jobs.SetupCollection(app); err != nil {
-		t.Fatalf("SetupCollection: %v", err)
-	}
 
 	col, err := app.FindCollectionByNameOrId(jobs.Collection)
 	if err != nil {
-		t.Fatalf("collection not found after setup: %v", err)
+		t.Fatalf("_job_logs not found after migrations: %v", err)
 	}
 	if col.Name != "_job_logs" {
 		t.Errorf("expected _job_logs, got %q", col.Name)
@@ -157,49 +157,51 @@ func TestSetupCollection_CreatesCollection(t *testing.T) {
 	}
 }
 
-func TestSetupCollection_Idempotent(t *testing.T) {
+func TestMigration_IsRecordedInHistory(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
-	if err := jobs.SetupCollection(app); err != nil {
-		t.Fatalf("first SetupCollection: %v", err)
+	var applied int
+	err := app.DB().NewQuery(
+		"SELECT COUNT(*) FROM _migrations WHERE file = {:f}",
+	).Bind(dbx.Params{"f": jobs.MigrationFile}).Row(&applied)
+	if err != nil {
+		t.Fatalf("query _migrations: %v", err)
 	}
-	if err := jobs.SetupCollection(app); err != nil {
-		t.Fatalf("second SetupCollection (idempotent): %v", err)
+	if applied != 1 {
+		t.Fatalf("migration %q recorded %d times, want 1", jobs.MigrationFile, applied)
 	}
 }
 
-func TestSetupCollection_RequiredFields(t *testing.T) {
-	app := testutil.NewTestApp(t)
-
-	if err := jobs.SetupCollection(app); err != nil {
-		t.Fatal(err)
+// TestMigrationFile_IsNamespaced guards the property that keeps pb-ext from
+// colliding with an app's own migrations: PocketBase keys applied migrations on
+// the base file name alone, so the name must be both timestamped (for ordering)
+// and namespaced (for uniqueness).
+func TestMigrationFile_IsNamespaced(t *testing.T) {
+	if !strings.Contains(jobs.MigrationFile, "_pbext_") {
+		t.Errorf("MigrationFile %q must contain _pbext_ to avoid colliding with app migrations", jobs.MigrationFile)
 	}
+	ts, _, found := strings.Cut(jobs.MigrationFile, "_")
+	if !found {
+		t.Fatalf("MigrationFile %q has no timestamp prefix", jobs.MigrationFile)
+	}
+	if _, err := strconv.ParseInt(ts, 10, 64); err != nil {
+		t.Errorf("MigrationFile %q must start with a unix timestamp: %v", jobs.MigrationFile, err)
+	}
+}
+
+func TestMigration_CollectionFields(t *testing.T) {
+	app := testutil.NewTestApp(t)
 
 	col, err := app.FindCollectionByNameOrId(jobs.Collection)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	required := []string{
-		"job_id", "job_name", "status", "start_time", "trigger_type",
-	}
+	required := []string{"job_id", "job_name", "status", "start_time", "trigger_type"}
 	for _, name := range required {
 		if col.Fields.GetByName(name) == nil {
 			t.Errorf("required field %q missing from _job_logs", name)
 		}
-	}
-}
-
-func TestSetupCollection_OptionalFields(t *testing.T) {
-	app := testutil.NewTestApp(t)
-
-	if err := jobs.SetupCollection(app); err != nil {
-		t.Fatal(err)
-	}
-
-	col, err := app.FindCollectionByNameOrId(jobs.Collection)
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	optional := []string{
@@ -213,77 +215,10 @@ func TestSetupCollection_OptionalFields(t *testing.T) {
 	}
 }
 
-// --- Migration ---
-
-// TestMigration_JobLogs_AddsMissingFields simulates upgrading from a pre-refactor
-// _job_logs schema that lacks the "description" and "expression" fields.
-func TestMigration_JobLogs_AddsMissingFields(t *testing.T) {
-	app := testutil.NewTestApp(t)
-
-	// Build an old-style _job_logs collection without description/expression.
-	oldCol := core.NewBaseCollection(jobs.Collection)
-	oldCol.System = true
-	oldCol.Fields.Add(&core.TextField{Name: "job_id", Required: true, Max: 255})
-	oldCol.Fields.Add(&core.TextField{Name: "job_name", Required: true, Max: 255})
-	oldCol.Fields.Add(&core.DateField{Name: "start_time", Required: true})
-	oldCol.Fields.Add(&core.DateField{Name: "end_time", Required: false})
-	oldCol.Fields.Add(&core.NumberField{Name: "duration", Required: false})
-	oldCol.Fields.Add(&core.SelectField{
-		Name:     "status",
-		Required: true,
-		Values:   []string{"started", "completed", "failed", "timeout"},
-	})
-	oldCol.Fields.Add(&core.TextField{Name: "output", Required: false, Max: 10000})
-	oldCol.Fields.Add(&core.TextField{Name: "error", Required: false, Max: 2000})
-	oldCol.Fields.Add(&core.SelectField{
-		Name:     "trigger_type",
-		Required: true,
-		Values:   []string{"scheduled", "manual", "api"},
-	})
-	oldCol.Fields.Add(&core.TextField{Name: "trigger_by", Required: false, Max: 255})
-	oldCol.Fields.Add(&core.AutodateField{Name: "created", OnCreate: true})
-	oldCol.Fields.Add(&core.AutodateField{Name: "updated", OnCreate: true, OnUpdate: true})
-
-	if err := app.SaveNoValidate(oldCol); err != nil {
-		t.Fatalf("create old _job_logs schema: %v", err)
-	}
-
-	// Verify old schema is missing the new fields.
-	before, _ := app.FindCollectionByNameOrId(jobs.Collection)
-	if before.Fields.GetByName("description") != nil {
-		t.Fatal("pre-condition failed: old schema should not have 'description'")
-	}
-	if before.Fields.GetByName("expression") != nil {
-		t.Fatal("pre-condition failed: old schema should not have 'expression'")
-	}
-
-	// Run migration via SetupCollection.
-	if err := jobs.SetupCollection(app); err != nil {
-		t.Fatalf("SetupCollection (migration): %v", err)
-	}
-
-	// Verify new fields were added.
-	after, err := app.FindCollectionByNameOrId(jobs.Collection)
-	if err != nil {
-		t.Fatalf("collection not found after migration: %v", err)
-	}
-	for _, name := range []string{"description", "expression"} {
-		if after.Fields.GetByName(name) == nil {
-			t.Errorf("migration failed: field %q not added to _job_logs", name)
-		}
-	}
-	// Existing fields must still be present.
-	for _, name := range []string{"job_id", "job_name", "status", "start_time", "trigger_type"} {
-		if after.Fields.GetByName(name) == nil {
-			t.Errorf("migration broke existing field %q in _job_logs", name)
-		}
-	}
-}
-
 // --- Logger ---
 
 func TestNewLogger_Defaults(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 
 	if l == nil {
@@ -291,8 +226,7 @@ func TestNewLogger_Defaults(t *testing.T) {
 	}
 }
 
-func TestInitializeLogger_SetsUpCollection(t *testing.T) {
-	// Use bare app — InitializeLogger should call SetupCollection itself
+func TestInitializeLogger_RequiresMigratedCollection(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
 	l, err := jobs.InitializeLogger(app)
@@ -311,7 +245,7 @@ func TestInitializeLogger_SetsUpCollection(t *testing.T) {
 }
 
 func TestLogger_LogJobStart_CreatesRecord(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 
 	l.LogJobStart("test-job", "Test Job", "*/5 * * * *", "scheduled", "")
@@ -338,7 +272,7 @@ func TestLogger_LogJobStart_CreatesRecord(t *testing.T) {
 }
 
 func TestLogger_LogJobComplete_UpdatesStatus(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 
 	l.LogJobStart("complete-job", "Complete Job", "*/5 * * * *", "scheduled", "")
@@ -372,7 +306,7 @@ func TestLogger_LogJobComplete_UpdatesStatus(t *testing.T) {
 }
 
 func TestLogger_ForceFlush(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 
 	// ForceFlush on empty buffer should not panic
@@ -382,7 +316,7 @@ func TestLogger_ForceFlush(t *testing.T) {
 // --- Manager ---
 
 func TestNewManager_NotNil(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -392,7 +326,7 @@ func TestNewManager_NotNil(t *testing.T) {
 }
 
 func TestManager_RegisterJob(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -423,7 +357,7 @@ func TestManager_RegisterJob(t *testing.T) {
 }
 
 func TestManager_RegisterJob_FallbackName(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -443,7 +377,7 @@ func TestManager_RegisterJob_FallbackName(t *testing.T) {
 }
 
 func TestManager_RegisterJob_InvalidExpression(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -454,7 +388,7 @@ func TestManager_RegisterJob_InvalidExpression(t *testing.T) {
 }
 
 func TestManager_GetJobs(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -476,7 +410,7 @@ func TestManager_GetJobs(t *testing.T) {
 }
 
 func TestManager_RemoveJob(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -495,7 +429,7 @@ func TestManager_RemoveJob(t *testing.T) {
 }
 
 func TestManager_GetSystemStatus(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -512,7 +446,7 @@ func TestManager_GetSystemStatus(t *testing.T) {
 }
 
 func TestManager_UpdateTimezone_Valid(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -522,7 +456,7 @@ func TestManager_UpdateTimezone_Valid(t *testing.T) {
 }
 
 func TestManager_UpdateTimezone_Invalid(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -532,7 +466,7 @@ func TestManager_UpdateTimezone_Invalid(t *testing.T) {
 }
 
 func TestManager_IsSystemJob(t *testing.T) {
-	app := testutil.NewTestAppWithJobs(t)
+	app := testutil.NewTestApp(t)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 
@@ -575,7 +509,7 @@ func TestInitialize_SetsGlobal(t *testing.T) {
 // --- Benchmarks ---
 
 func BenchmarkRegisterJob(b *testing.B) {
-	app := testutil.NewTestAppWithJobs(b)
+	app := testutil.NewTestApp(b)
 	l := jobs.NewLogger(app)
 	m := jobs.NewManager(app, l)
 	b.ResetTimer()

@@ -3,6 +3,7 @@ package analytics_test
 import (
 	"fmt"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -28,12 +29,10 @@ func trackVisit(a *analytics.Analytics, ip, path string) {
 
 // --- collection setup & migrations ---
 
-func TestSetupCollections_CreatesCounterCollection(t *testing.T) {
+func TestMigration_CreatesCounterCollection(t *testing.T) {
+	// NewTestApp runs RunAllMigrations, which applies pb-ext's registered
+	// migrations alongside PocketBase's own.
 	app := testutil.NewTestApp(t)
-
-	if err := analytics.SetupCollections(app); err != nil {
-		t.Fatalf("SetupCollections: %v", err)
-	}
 
 	col, err := app.FindCollectionByNameOrId(analytics.CollectionName)
 	if err != nil {
@@ -78,12 +77,8 @@ var wantIndexes = []string{
 	"idx_analytics_browsers",
 }
 
-func TestSetupCollections_CreatesDashboardIndexes(t *testing.T) {
+func TestMigration_CreatesDashboardIndexes(t *testing.T) {
 	app := testutil.NewTestApp(t)
-
-	if err := analytics.SetupCollections(app); err != nil {
-		t.Fatalf("SetupCollections: %v", err)
-	}
 
 	got := indexNames(t, app)
 	for _, name := range wantIndexes {
@@ -97,9 +92,6 @@ func TestSetupCollections_CreatesDashboardIndexes(t *testing.T) {
 // regressing into per-row table lookups as the table grows.
 func TestGetData_QueriesUseCoveringIndexes(t *testing.T) {
 	app := testutil.NewTestApp(t)
-	if err := analytics.SetupCollections(app); err != nil {
-		t.Fatalf("SetupCollections: %v", err)
-	}
 
 	cutoff := time.Now().AddDate(0, 0, -analytics.LookbackDays).Format("2006-01-02")
 	queries := map[string]string{
@@ -137,113 +129,118 @@ func TestGetData_QueriesUseCoveringIndexes(t *testing.T) {
 	}
 }
 
-func TestSetupCollections_Idempotent(t *testing.T) {
+func TestMigration_IsRecordedInHistory(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
-	for i := 0; i < 3; i++ {
-		if err := analytics.SetupCollections(app); err != nil {
-			t.Fatalf("SetupCollections call %d: %v", i+1, err)
-		}
-	}
-}
-
-func TestSetupCollections_DropsLegacySessionsCollection(t *testing.T) {
-	app := testutil.NewTestApp(t)
-
-	// Recreate the ring-buffer collection used by older pb-ext versions.
-	legacy := core.NewBaseCollection(analytics.LegacySessionsCollectionName)
-	legacy.System = true
-	legacy.Fields.Add(&core.TextField{Name: "path", Required: true})
-	legacy.Fields.Add(&core.DateField{Name: "timestamp", Required: true})
-	if err := app.SaveNoValidate(legacy); err != nil {
-		t.Fatalf("seed legacy collection: %v", err)
-	}
-
-	if err := analytics.SetupCollections(app); err != nil {
-		t.Fatalf("SetupCollections: %v", err)
-	}
-
-	if _, err := app.FindCollectionByNameOrId(analytics.LegacySessionsCollectionName); err == nil {
-		t.Fatal("legacy _analytics_sessions collection still exists")
-	}
-}
-
-func TestSetupCollections_MigratesRawEventsSchema(t *testing.T) {
-	app := testutil.NewTestApp(t)
-
-	// The original schema stored one row per request, including the visitor IP.
-	old := core.NewBaseCollection(analytics.CollectionName)
-	old.System = true
-	old.Fields.Add(&core.TextField{Name: "ip", Required: false})
-	old.Fields.Add(&core.TextField{Name: "path", Required: false})
-	if err := app.SaveNoValidate(old); err != nil {
-		t.Fatalf("seed old collection: %v", err)
-	}
-
-	if err := analytics.SetupCollections(app); err != nil {
-		t.Fatalf("SetupCollections: %v", err)
-	}
-
-	col, err := app.FindCollectionByNameOrId(analytics.CollectionName)
+	var applied int
+	err := app.DB().NewQuery(
+		"SELECT COUNT(*) FROM _migrations WHERE file = {:f}",
+	).Bind(dbx.Params{"f": analytics.MigrationFile}).Row(&applied)
 	if err != nil {
-		t.Fatalf("collection missing after migration: %v", err)
+		t.Fatalf("query _migrations: %v", err)
 	}
-	if col.Fields.GetByName("ip") != nil {
-		t.Error("PII field 'ip' survived the migration")
-	}
-	if col.Fields.GetByName("views") == nil {
-		t.Error("aggregated schema was not created")
+	if applied != 1 {
+		t.Fatalf("migration %q recorded %d times, want 1", analytics.MigrationFile, applied)
 	}
 }
 
-func TestSetupCollections_AddsReturningSessionsAndKeepsData(t *testing.T) {
+// TestMigrationFile_IsNamespaced guards the property that keeps pb-ext from
+// colliding with an app's own migrations: PocketBase keys applied migrations on
+// the base file name alone, so the name must be both timestamped (for ordering)
+// and namespaced (for uniqueness).
+func TestMigrationFile_IsNamespaced(t *testing.T) {
+	if !strings.Contains(analytics.MigrationFile, "_pbext_") {
+		t.Errorf("MigrationFile %q must contain _pbext_ to avoid colliding with app migrations", analytics.MigrationFile)
+	}
+	ts, _, found := strings.Cut(analytics.MigrationFile, "_")
+	if !found {
+		t.Fatalf("MigrationFile %q has no timestamp prefix", analytics.MigrationFile)
+	}
+	if _, err := strconv.ParseInt(ts, 10, 64); err != nil {
+		t.Errorf("MigrationFile %q must start with a unix timestamp: %v", analytics.MigrationFile, err)
+	}
+}
+
+// TestMigrationFile_SortsAfterPocketBaseSystemMigrations keeps pb-ext's
+// migrations ordered after PocketBase's own in the combined list, and before
+// anything an app generates today.
+func TestMigrationFile_SortsAfterPocketBaseSystemMigrations(t *testing.T) {
+	ts, _, _ := strings.Cut(analytics.MigrationFile, "_")
+	stamp, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Newest PocketBase system migration as of v0.39.
+	const newestSystemMigration = 1778828400
+	if stamp <= newestSystemMigration {
+		t.Errorf("timestamp %d must be greater than PocketBase's newest system migration %d",
+			stamp, newestSystemMigration)
+	}
+	if stamp >= time.Now().Unix() {
+		t.Errorf("timestamp %d must be in the past so app migrations sort after it", stamp)
+	}
+}
+
+// TestMigration_DownRemovesCollection exercises the down path, which is what
+// `pocketbase migrate down` would run.
+func TestMigration_DownRemovesCollection(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
-	// The aggregated schema as it existed before returning-visitor tracking.
-	prev := core.NewBaseCollection(analytics.CollectionName)
-	prev.System = true
-	prev.Fields.Add(&core.TextField{Name: "path", Required: true})
-	prev.Fields.Add(&core.TextField{Name: "date", Required: true})
-	prev.Fields.Add(&core.TextField{Name: "device_type", Required: false})
-	prev.Fields.Add(&core.TextField{Name: "browser", Required: false})
-	prev.Fields.Add(&core.NumberField{Name: "views", Required: true})
-	prev.Fields.Add(&core.NumberField{Name: "unique_sessions", Required: true})
-	if err := app.SaveNoValidate(prev); err != nil {
-		t.Fatalf("seed previous collection: %v", err)
+	migration := findMigration(t, analytics.MigrationFile)
+
+	if err := app.RunInTransaction(migration.Down); err != nil {
+		t.Fatalf("migration down: %v", err)
+	}
+	if _, err := app.FindCollectionByNameOrId(analytics.CollectionName); err == nil {
+		t.Fatal("collection still exists after migration down")
 	}
 
-	rec := core.NewRecord(prev)
-	rec.Set("path", "/legacy")
-	rec.Set("date", "2026-01-01")
-	rec.Set("views", 42)
-	rec.Set("unique_sessions", 7)
-	if err := app.SaveNoValidate(rec); err != nil {
-		t.Fatalf("seed record: %v", err)
+	// Down must be safe to run when the collection is already gone.
+	if err := app.RunInTransaction(migration.Down); err != nil {
+		t.Fatalf("second migration down: %v", err)
 	}
 
-	if err := analytics.SetupCollections(app); err != nil {
-		t.Fatalf("SetupCollections: %v", err)
+	// And up must restore it, indexes included.
+	if err := app.RunInTransaction(migration.Up); err != nil {
+		t.Fatalf("migration up after down: %v", err)
 	}
-
-	col, err := app.FindCollectionByNameOrId(analytics.CollectionName)
-	if err != nil {
-		t.Fatalf("collection missing: %v", err)
-	}
-	if col.Fields.GetByName("returning_sessions") == nil {
-		t.Fatal("returning_sessions field was not added")
-	}
-
-	// The migration must also backfill the dashboard indexes.
 	got := indexNames(t, app)
 	for _, name := range wantIndexes {
 		if !got[name] {
-			t.Errorf("migration did not create index %q", name)
+			t.Errorf("index %q missing after down/up round trip", name)
 		}
 	}
+}
 
-	rows, views, newSessions, _ := testutil.AnalyticsTotals(t, app)
-	if rows != 1 || views != 42 || newSessions != 7 {
-		t.Fatalf("existing data lost: rows=%d views=%d sessions=%d, want 1/42/7", rows, views, newSessions)
+// findMigration locates a registered migration by its file name.
+func findMigration(t *testing.T, file string) *core.Migration {
+	t.Helper()
+	for _, m := range core.AppMigrations.Items() {
+		if m.File == file {
+			return m
+		}
+	}
+	t.Fatalf("migration %q is not registered in core.AppMigrations", file)
+	return nil
+}
+
+// TestInitialize_FailsWithoutMigration verifies the collector reports a clear
+// error instead of silently collecting into a missing table.
+func TestInitialize_FailsWithoutMigration(t *testing.T) {
+	app := testutil.NewTestApp(t)
+
+	migration := findMigration(t, analytics.MigrationFile)
+	if err := app.RunInTransaction(migration.Down); err != nil {
+		t.Fatalf("migration down: %v", err)
+	}
+
+	_, err := analytics.Initialize(app)
+	if err == nil {
+		t.Fatal("Initialize succeeded without the _analytics collection")
+	}
+	if !strings.Contains(err.Error(), analytics.MigrationFile) {
+		t.Errorf("error %q should name the missing migration %q", err, analytics.MigrationFile)
 	}
 }
 

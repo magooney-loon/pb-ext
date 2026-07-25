@@ -46,12 +46,33 @@ core/server/templates/ — Embedded Go templates for the dashboard UI
 
 **Server lifecycle** (`core/server/server.go`):
 1. `New(opts...)` creates a Server wrapping PocketBase
-2. `OnBootstrap`: initializes JobLogger → JobManager → registers system jobs → JobHandlers
+2. `OnBootstrap`: applies pb-ext migrations → initializes JobLogger → JobManager → registers system jobs → JobHandlers
 3. `OnServe`: registers health route, analytics, job routes, static file serving
 4. `OnTerminate`: closes the analytics collector, flushing buffered counters
 5. User code hooks in via `srv.App().OnServe().BindFunc()`
 
 **Key singletons**: `GetJobManager()` returns a package-level `*JobManager` initialized during bootstrap.
+
+## Schema Migrations
+
+pb-ext's system collections are created by PocketBase migrations, not by imperative setup code.
+
+| Migration | Creates |
+|---|---|
+| `1780000000_pbext_jobs.go` | `_job_logs` |
+| `1780000001_pbext_analytics.go` | `_analytics` |
+
+Each package registers its migration into `core.AppMigrations` from an `init()`, so importing `core/jobs` or `core/analytics` is enough — `apis.Serve` runs `RunAllMigrations()` before building the router, and `tests.NewTestApp` runs them too (which is why `testutil.NewTestApp` needs no extra setup).
+
+**Two non-obvious constraints, both covered by tests — don't break them:**
+
+1. **Migration file names must stay `<timestamp>_pbext_<name>.go`.** PocketBase keys applied migrations on `filepath.Base` alone, with no import path. A plain name like `migrations.go` would silently collide with an app's own file of the same name and be skipped. The timestamp keeps pb-ext ordered after PocketBase's system migrations (newest is `1778828400`) and before anything an app generates today. Names are passed explicitly via `core.Migration.File` rather than derived from `runtime.Caller`.
+
+2. **`Server.Start` applies pb-ext's migrations during `OnBootstrap`** (`core/server/migrations.go`), because PocketBase only runs `core.AppMigrations` at the start of `apis.Serve` — *after* `OnBootstrap`. The job manager is built during bootstrap since user code expects `GetManager()` to work from its own `OnServe` hooks, which are registered before `srv.Start()` and therefore run first. Only pb-ext's own migrations are applied early; the app's run at their normal time. Applying them early records them in `_migrations`, so the later `RunAllMigrations` pass is a no-op.
+
+`Initialize` in both packages verifies its collection exists and returns an error naming the missing migration, rather than failing obscurely later.
+
+**No clash with app migrations**: pb-ext shares `core.AppMigrations` with the app (the same extension point PocketBase's `jsvm` plugin uses). Ordering is by file name, `migrate history-sync` sees pb-ext's entries so it won't prune them, and automigrate only fires on Admin UI/API collection requests — never on pb-ext's programmatic `SaveNoValidate`. The one hazard is `migrate down N` reverting far enough back to hit pb-ext's migrations; the old timestamps make that unlikely in practice.
 
 ## OpenAPI Documentation System
 
@@ -90,7 +111,7 @@ Request middleware counts page views as daily aggregates. **No personal data is 
 
 Never add per-request database work to `Track` — that is the exact bottleneck this design exists to remove.
 
-**Storage**: one `_analytics` row per `(path, date, device_type, browser)` with `views`, `unique_sessions` (sessions started by a new visitor) and `returning_sessions` counters. Deleted after 90 days by the `__pbExtAnalyticsClean__` system job.
+**Storage**: one `_analytics` row per `(path, date, device_type, browser)` with `views`, `unique_sessions` (sessions started by a new visitor) and `returning_sessions` counters. Schema lives in `collection.go`; the migration in `migrations.go` applies it. Deleted after 90 days by the `__pbExtAnalyticsClean__` system job.
 
 **What is filtered out** (`collector.go`): non-GET methods, non-2xx/3xx responses, bot user agents, static assets, and the `/api/`, `/_/`, `/_app/immutable/`, `/.well-known/` prefixes.
 
@@ -109,7 +130,7 @@ Configure with the `With*` options passed to `analytics.Initialize`.
 
 **Dashboard** (`storage.go`): four `GROUP BY` aggregates bounded to `LookbackDays`, each served by a covering index (`idx_analytics_totals`, `_pages`, `_devices`, `_browsers`) so SQLite never does per-row table lookups. Results are memoized for `CacheTTL` (5s); recent visits and hourly activity come live from memory. ~29ms at 50k rows, ~300ns cached. If you change a dashboard query, keep it covered — `TestGetData_QueriesUseCoveringIndexes` asserts this.
 
-**Testing**: `testutil.NewAnalytics(t, opts...)` returns an app plus a running collector (closed on cleanup); `testutil.AnalyticsTotals(t, app)` reads persisted counters. Pass `WithFlushInterval(time.Hour)` to observe buffering and flush by hand. Internals (`aggregator`, `visitorTracker`) are tested white-box in package `analytics`; anything needing `testutil` must live in package `analytics_test` to avoid an import cycle.
+**Testing**: `testutil.NewTestApp(t)` already has both pb-ext collections (migrations run automatically). `testutil.NewAnalytics(t, opts...)` returns an app plus a running collector (closed on cleanup); `testutil.AnalyticsTotals(t, app)` reads persisted counters. Pass `WithFlushInterval(time.Hour)` to observe buffering and flush by hand. Internals (`aggregator`, `visitorTracker`) are tested white-box in package `analytics`; anything needing `testutil` must live in package `analytics_test` to avoid an import cycle.
 
 ## Example App Patterns
 
@@ -123,7 +144,8 @@ Configure with the `With*` options passed to `analytics.Initialize`.
 
 - The `core/` package is the library; `cmd/server/` is the example app showing how to use it
 - Server options use the functional options pattern (`WithConfig`, `WithPocketbase`, `InDeveloperMode`)
-- PocketBase system collections prefixed with `_` (e.g., `_analytics`, `_job_logs`)
+- PocketBase system collections prefixed with `_` (e.g., `_analytics`, `_job_logs`), created via registered migrations
+- Schema changes go in a **new** migration file; never mutate an already-released one
 - Dashboard templates use Go `text/template` with `embed.FS`
 - Module path: `github.com/magooney-loon/pb-ext`
 - AST parser files are split by responsibility: `ast.go` (entry points), `ast_func.go` (handler/function analysis), `ast_struct.go` (struct/schema), `ast_metadata.go` (value/type resolution), `ast_file.go` (file utilities)
