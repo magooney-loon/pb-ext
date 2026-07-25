@@ -24,17 +24,32 @@ func newApp(t *testing.T) *tests.TestApp {
 	return app
 }
 
-// dropOwnCollections reverts pb-ext's migrations, simulating a database that
-// has not seen them yet.
-func dropOwnCollections(t *testing.T, app core.App) {
+// pbExtSchemaExists reports whether each of pb-ext's schema objects is present.
+// They no longer live in the same database: _job_logs is a data.db collection,
+// while _analytics is a plain table in auxiliary.db.
+func pbExtSchemaExists(app core.App) map[string]bool {
+	_, jobsErr := app.FindCollectionByNameOrId(jobs.Collection)
+
+	return map[string]bool{
+		jobs.Collection:     jobsErr == nil,
+		analytics.TableName: app.AuxHasTable(analytics.TableName),
+	}
+}
+
+// dropOwnSchema reverts pb-ext's migrations, simulating a database that has not
+// seen them yet. The nesting mirrors MigrationsRunner, whose Up/Down wrap an
+// auxiliary transaction around the data one so a migration can touch both.
+func dropOwnSchema(t *testing.T, app core.App) {
 	t.Helper()
 	for _, m := range ownMigrations() {
-		if err := app.RunInTransaction(m.Down); err != nil {
+		err := app.AuxRunInTransaction(func(txApp core.App) error {
+			return txApp.RunInTransaction(m.Down)
+		})
+		if err != nil {
 			t.Fatalf("revert %s: %v", m.File, err)
 		}
-		_, err := app.NonconcurrentDB().NewQuery("DELETE FROM _migrations WHERE file = {:f}").
-			Bind(dbx.Params{"f": m.File}).Execute()
-		if err != nil {
+		if _, err := app.NonconcurrentDB().NewQuery("DELETE FROM _migrations WHERE file = {:f}").
+			Bind(dbx.Params{"f": m.File}).Execute(); err != nil {
 			t.Fatalf("clear migration history for %s: %v", m.File, err)
 		}
 	}
@@ -47,11 +62,11 @@ func dropOwnCollections(t *testing.T, app core.App) {
 // own OnServe hooks, so pb-ext must apply its own migrations early.
 func TestApplyOwnMigrations_CreatesSchemaAtBootstrap(t *testing.T) {
 	app := newApp(t)
-	dropOwnCollections(t, app)
+	dropOwnSchema(t, app)
 
 	// Precondition: the schema really is absent.
-	for _, name := range []string{jobs.Collection, analytics.CollectionName} {
-		if _, err := app.FindCollectionByNameOrId(name); err == nil {
+	for name, exists := range pbExtSchemaExists(app) {
+		if exists {
 			t.Fatalf("precondition failed: %s still exists", name)
 		}
 	}
@@ -60,10 +75,35 @@ func TestApplyOwnMigrations_CreatesSchemaAtBootstrap(t *testing.T) {
 		t.Fatalf("applyOwnMigrations: %v", err)
 	}
 
-	for _, name := range []string{jobs.Collection, analytics.CollectionName} {
-		if _, err := app.FindCollectionByNameOrId(name); err != nil {
-			t.Errorf("%s missing after applyOwnMigrations: %v", name, err)
+	for name, exists := range pbExtSchemaExists(app) {
+		if !exists {
+			t.Errorf("%s missing after applyOwnMigrations", name)
 		}
+	}
+}
+
+// TestApplyOwnMigrations_RecreatesDeletedAuxTable covers the split-database
+// hazard: _migrations lives in data.db but _analytics lives in auxiliary.db, so
+// deleting auxiliary.db leaves history claiming the migration is applied. The
+// migration's ReapplyCondition is what brings the table back.
+func TestApplyOwnMigrations_RecreatesDeletedAuxTable(t *testing.T) {
+	app := newApp(t)
+
+	if err := applyOwnMigrations(app); err != nil {
+		t.Fatalf("applyOwnMigrations: %v", err)
+	}
+
+	// Drop the table only — the _migrations row stays behind, exactly as it
+	// would after someone removed auxiliary.db.
+	if _, err := app.AuxDB().NewQuery("DROP TABLE " + analytics.TableName).Execute(); err != nil {
+		t.Fatalf("drop aux table: %v", err)
+	}
+
+	if err := applyOwnMigrations(app); err != nil {
+		t.Fatalf("applyOwnMigrations after aux table loss: %v", err)
+	}
+	if !app.AuxHasTable(analytics.TableName) {
+		t.Errorf("%s was not recreated; ReapplyCondition did not fire", analytics.TableName)
 	}
 }
 
@@ -71,7 +111,7 @@ func TestApplyOwnMigrations_CreatesSchemaAtBootstrap(t *testing.T) {
 // real startup: once from OnBootstrap, once from apis.Serve's RunAllMigrations.
 func TestApplyOwnMigrations_Idempotent(t *testing.T) {
 	app := newApp(t)
-	dropOwnCollections(t, app)
+	dropOwnSchema(t, app)
 
 	for i := 0; i < 3; i++ {
 		if err := applyOwnMigrations(app); err != nil {
@@ -97,7 +137,7 @@ func TestApplyOwnMigrations_Idempotent(t *testing.T) {
 // PocketBase's own pass a no-op rather than a duplicate-create failure.
 func TestApplyOwnMigrations_SatisfiesRunAllMigrations(t *testing.T) {
 	app := newApp(t)
-	dropOwnCollections(t, app)
+	dropOwnSchema(t, app)
 
 	if err := applyOwnMigrations(app); err != nil {
 		t.Fatalf("applyOwnMigrations: %v", err)

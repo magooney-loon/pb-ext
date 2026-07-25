@@ -15,12 +15,29 @@ import (
 // would otherwise be silently treated as already applied. The timestamp prefix
 // keeps pb-ext's migrations sorted ahead of anything an app generates later,
 // and the pbext_ segment keeps the name from colliding with one.
-const MigrationFile = "1780000001_pbext_analytics.go"
+//
+// The timestamp was bumped past the original 1780000001 when _analytics moved
+// from a data.db collection to an auxiliary.db table, so installs carrying the
+// old history entry still run this one.
+const MigrationFile = "1780000002_pbext_analytics.go"
+
+// legacyCollectionName is the data.db collection _analytics used to be, kept
+// only so migrateUp can clean it up. Nothing reads it.
+const legacyCollectionName = "_analytics"
 
 var migration = &core.Migration{
 	File: MigrationFile,
 	Up:   migrateUp,
 	Down: migrateDown,
+
+	// The _migrations table lives in data.db (PocketBase's runner creates it
+	// with app.DB()), but this migration's table lives in auxiliary.db. Deleting
+	// auxiliary.db — which is a reasonable thing to do, it holds only logs and
+	// counters — would otherwise leave the history saying "applied" with no
+	// table to show for it. PocketBase's own _logs migration does the same.
+	ReapplyCondition: func(txApp core.App, runner *core.MigrationsRunner, fileName string) (bool, error) {
+		return !txApp.AuxHasTable(TableName), nil
+	},
 }
 
 // Registering from init means importing this package is enough for the schema
@@ -44,25 +61,37 @@ func Migration() *core.Migration {
 }
 
 func migrateUp(txApp core.App) error {
-	if err := txApp.SaveNoValidate(newCounterCollection()); err != nil {
-		return fmt.Errorf("create %s collection: %w", CollectionName, err)
+	if _, err := txApp.AuxDB().NewQuery(createTableSQL).Execute(); err != nil {
+		return fmt.Errorf("create %s table in auxiliary.db: %w", TableName, err)
+	}
+	return dropLegacyCollection(txApp)
+}
+
+func migrateDown(txApp core.App) error {
+	if _, err := txApp.AuxDB().NewQuery(dropTableSQL).Execute(); err != nil {
+		return fmt.Errorf("drop %s table from auxiliary.db: %w", TableName, err)
 	}
 	return nil
 }
 
-func migrateDown(txApp core.App) error {
-	col, err := txApp.FindCollectionByNameOrId(CollectionName)
+// dropLegacyCollection removes the data.db _analytics collection left behind by
+// pb-ext versions that stored counters there. Historical counters are not
+// carried over — they are aggregate page views with a 90-day retention, not
+// something worth a cross-database copy — so this only reclaims the space and
+// keeps a dead system collection out of the Admin UI.
+func dropLegacyCollection(txApp core.App) error {
+	col, err := txApp.FindCollectionByNameOrId(legacyCollectionName)
 	if err != nil {
-		return nil // already absent
+		return nil // fresh install, or already cleaned up
 	}
 
 	// System collections are protected from deletion by a built-in hook.
 	col.System = false
 	if err := txApp.SaveNoValidate(col); err != nil {
-		return fmt.Errorf("unmark %s as system: %w", CollectionName, err)
+		return fmt.Errorf("unmark legacy %s collection as system: %w", legacyCollectionName, err)
 	}
 	if err := txApp.Delete(col); err != nil {
-		return fmt.Errorf("delete %s collection: %w", CollectionName, err)
+		return fmt.Errorf("delete legacy %s collection: %w", legacyCollectionName, err)
 	}
 	return nil
 }

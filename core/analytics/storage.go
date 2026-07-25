@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -78,9 +79,12 @@ func (a *Analytics) invalidateCache() {
 
 // queryAggregates runs the four grouped scans that back the dashboard. Each is
 // bounded to the retention window so cost tracks LookbackDays, not total history.
+//
+// All four read auxiliary.db through AuxDB, which routes to the concurrent pool
+// — they never contend with the flush worker's writer, and never touch data.db.
 func (a *Analytics) queryAggregates(now time.Time) (*dbAggregates, error) {
-	if _, err := a.app.FindCollectionByNameOrId(CollectionName); err != nil {
-		return nil, err
+	if !a.app.AuxHasTable(TableName) {
+		return nil, fmt.Errorf("%s table is missing from auxiliary.db", TableName)
 	}
 
 	today := now.Format("2006-01-02")
@@ -91,7 +95,7 @@ func (a *Analytics) queryAggregates(now time.Time) (*dbAggregates, error) {
 	agg := &dbAggregates{Devices: map[string]int{}}
 
 	// 1. Totals — one pass yields lifetime-in-window, today and yesterday.
-	err := a.app.DB().
+	err := a.app.AuxDB().
 		Select(
 			"COALESCE(SUM(views),0)",
 			"COALESCE(SUM(unique_sessions),0)",
@@ -99,7 +103,7 @@ func (a *Analytics) queryAggregates(now time.Time) (*dbAggregates, error) {
 			"COALESCE(SUM(CASE WHEN date = {:today} THEN views ELSE 0 END),0)",
 			"COALESCE(SUM(CASE WHEN date = {:yesterday} THEN views ELSE 0 END),0)",
 		).
-		From(CollectionName).
+		From(TableName).
 		Where(window).
 		Bind(dbx.Params{"today": today, "yesterday": yesterday}).
 		Row(&agg.TotalViews, &agg.NewSessions, &agg.ReturningSessions, &agg.TodayViews, &agg.YesterdayViews)
@@ -113,9 +117,9 @@ func (a *Analytics) queryAggregates(now time.Time) (*dbAggregates, error) {
 		Views int    `db:"views"`
 	}
 	var deviceRows []groupRow
-	if err := a.app.DB().
+	if err := a.app.AuxDB().
 		Select("device_type AS name", "SUM(views) AS views").
-		From(CollectionName).
+		From(TableName).
 		Where(window).
 		GroupBy("device_type").
 		All(&deviceRows); err != nil {
@@ -127,9 +131,9 @@ func (a *Analytics) queryAggregates(now time.Time) (*dbAggregates, error) {
 
 	// 3. Browser breakdown (top 5).
 	var browserRows []groupRow
-	if err := a.app.DB().
+	if err := a.app.AuxDB().
 		Select("browser AS name", "SUM(views) AS views").
-		From(CollectionName).
+		From(TableName).
 		Where(window).
 		GroupBy("browser").
 		OrderBy("views DESC").
@@ -143,9 +147,9 @@ func (a *Analytics) queryAggregates(now time.Time) (*dbAggregates, error) {
 
 	// 4. Top pages.
 	var pageRows []groupRow
-	if err := a.app.DB().
+	if err := a.app.AuxDB().
 		Select("path AS name", "SUM(views) AS views").
-		From(CollectionName).
+		From(TableName).
 		Where(window).
 		GroupBy("path").
 		OrderBy("views DESC").

@@ -4,8 +4,12 @@ import "time"
 
 // Analytics configuration constants.
 const (
-	LookbackDays   = 90           // Days of history included in dashboard aggregates
-	CollectionName = "_analytics" // Daily aggregated counters
+	LookbackDays = 90 // Days of history included in dashboard aggregates
+
+	// TableName is the daily counter table. It lives in auxiliary.db, not
+	// data.db, and is a plain SQLite table rather than a PocketBase collection —
+	// see schema.go for why.
+	TableName = "_analytics"
 
 	// SessionRingSize is how many recent visits are kept in the in-memory ring
 	// that backs the dashboard's "Recent Activity" list.

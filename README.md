@@ -176,20 +176,21 @@ Having issues with Your API Docs?
 127.0.0.1:8090/api/docs/debug/ast
 ```
 
-## Reserved Collections
+## Reserved Schema
 
-pb-ext creates the following PocketBase system collections automatically on startup. **Do not create collections with these names in your own code.**
+pb-ext creates the following automatically on startup. **Do not create collections or tables with these names in your own code.**
 
-| Collection | Purpose |
-|---|---|
-| `_analytics` | Daily aggregated page view counters (one row per path/date/device/browser). Retention: 90 days. |
-| `_analytics_sessions` | Ring buffer of the 50 most recent visits for the Recent Activity display. No PII stored. |
-| `_job_logs` | Cron job execution logs (start time, end time, duration, status, output). Retention: 72 hours. |
+| Name | Database | Kind | Purpose |
+|---|---|---|---|
+| `_job_logs` | `pb_data/data.db` | System collection | Cron job execution logs (start time, end time, duration, status, output). Retention: 72 hours. |
+| `_analytics` | `pb_data/auxiliary.db` | Plain table | Daily aggregated page view counters (one row per path/date/device/browser). Retention: 90 days. |
 
 **Schema notes:**
-- All three collections are system collections (hidden from the PocketBase Collections UI).
-- `_analytics` and `_analytics_sessions` store no personal data — no IP, no user agent, no visitor ID. GDPR-compliant by design.
-- On upgrade from an old pb-ext version, incompatible schemas are automatically migrated at startup with no manual steps required.
+- `_analytics` lives in the auxiliary database — the same one PocketBase uses for `_logs` — so writing counters never contends with your application's writes. It is a plain SQLite table, not a collection, and is therefore not exposed through the records API or the Collections UI.
+- `_job_logs` is a system collection, hidden from the PocketBase Collections UI.
+- Neither stores personal data — no IP, no user agent, no visitor ID. GDPR-compliant by design.
+- Both are included in PocketBase's backups, which archive the whole data directory.
+- Schema changes ship as new migrations and are applied at startup with no manual steps required.
 
 ## Reserved Routes
 

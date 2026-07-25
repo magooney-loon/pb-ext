@@ -65,17 +65,17 @@ func New(app core.App, opts ...Option) *Analytics {
 	}
 }
 
-// Initialize sets up the collection, starts the flush worker and returns an
+// Initialize verifies the schema, starts the flush worker and returns an
 // Analytics ready to serve requests.
 func Initialize(app core.App, opts ...Option) (*Analytics, error) {
 	app.Logger().Info("Initializing analytics system")
 
 	// The schema is created by the registered migration, which PocketBase runs
 	// before serving. Fail loudly rather than silently collecting into nothing.
-	if _, err := app.FindCollectionByNameOrId(CollectionName); err != nil {
+	if !app.AuxHasTable(TableName) {
 		return nil, fmt.Errorf(
-			"%s collection is missing — pb-ext migration %s has not been applied: %w",
-			CollectionName, MigrationFile, err,
+			"%s table is missing from auxiliary.db — pb-ext migration %s has not been applied",
+			TableName, MigrationFile,
 		)
 	}
 
@@ -151,6 +151,11 @@ func (a *Analytics) Flush() error {
 
 // writeDeltas upserts every accumulated counter inside one transaction, so a
 // flush costs a single commit regardless of how many rows changed.
+//
+// The transaction is on auxiliary.db, which has its own single writer
+// connection and its own WAL. That is the point of storing counters there: a
+// flush can never block — or be blocked by — an application write to data.db,
+// however many rows it carries.
 func (a *Analytics) writeDeltas(deltas map[counterKey]*counterDelta) error {
 	keys := make([]counterKey, 0, len(deltas))
 	for key := range deltas {
@@ -159,14 +164,14 @@ func (a *Analytics) writeDeltas(deltas map[counterKey]*counterDelta) error {
 
 	stamp := types.NowDateTime().String()
 
-	return a.app.RunInTransaction(func(txApp core.App) error {
+	return a.app.AuxRunInTransaction(func(txApp core.App) error {
 		for start := 0; start < len(keys); start += flushChunkRows {
 			end := min(start+flushChunkRows, len(keys))
 
 			chunk := keys[start:end]
 			sql, params := buildUpsert(chunk, deltas, stamp)
 
-			if _, err := txApp.NonconcurrentDB().NewQuery(sql).Bind(params).Execute(); err != nil {
+			if _, err := txApp.AuxNonconcurrentDB().NewQuery(sql).Bind(params).Execute(); err != nil {
 				return fmt.Errorf("upsert %d analytics counters: %w", len(chunk), err)
 			}
 		}
@@ -181,7 +186,7 @@ func buildUpsert(keys []counterKey, deltas map[counterKey]*counterDelta, stamp s
 	params := dbx.Params{}
 
 	b.WriteString("INSERT INTO ")
-	b.WriteString(CollectionName)
+	b.WriteString(TableName)
 	b.WriteString(" (path, date, device_type, browser, views, unique_sessions, returning_sessions, created, updated) VALUES ")
 
 	for i, key := range keys {

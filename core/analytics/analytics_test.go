@@ -27,25 +27,47 @@ func trackVisit(a *analytics.Analytics, ip, path string) {
 	a.Track(ip, r)
 }
 
-// --- collection setup & migrations ---
+// --- schema setup & migrations ---
 
-func TestMigration_CreatesCounterCollection(t *testing.T) {
+func TestMigration_CreatesCounterTable(t *testing.T) {
 	// NewTestApp runs RunAllMigrations, which applies pb-ext's registered
 	// migrations alongside PocketBase's own.
 	app := testutil.NewTestApp(t)
 
-	col, err := app.FindCollectionByNameOrId(analytics.CollectionName)
-	if err != nil {
-		t.Fatalf("collection %s not found: %v", analytics.CollectionName, err)
+	if !app.AuxHasTable(analytics.TableName) {
+		t.Fatalf("table %s not found in auxiliary.db", analytics.TableName)
 	}
 
-	for _, field := range []string{"path", "date", "device_type", "browser", "views", "unique_sessions", "returning_sessions"} {
-		if col.Fields.GetByName(field) == nil {
-			t.Errorf("missing field %q", field)
+	var columns []string
+	err := app.AuxDB().NewQuery(
+		"SELECT name FROM PRAGMA_TABLE_INFO({:t})",
+	).Bind(dbx.Params{"t": analytics.TableName}).Column(&columns)
+	if err != nil {
+		t.Fatalf("list columns: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, c := range columns {
+		got[c] = true
+	}
+	for _, column := range []string{"path", "date", "device_type", "browser", "views", "unique_sessions", "returning_sessions", "created", "updated"} {
+		if !got[column] {
+			t.Errorf("missing column %q", column)
 		}
 	}
-	if !col.System {
-		t.Error("collection should be marked as system")
+}
+
+// TestMigration_LeavesNothingInDataDB pins the move: the counters must not be a
+// data.db collection any more, or flushes would be back on the application's
+// single writer connection.
+func TestMigration_LeavesNothingInDataDB(t *testing.T) {
+	app := testutil.NewTestApp(t)
+
+	if _, err := app.FindCollectionByNameOrId(analytics.TableName); err == nil {
+		t.Error("_analytics still exists as a data.db collection")
+	}
+	if app.HasTable(analytics.TableName) {
+		t.Error("_analytics table still exists in data.db")
 	}
 }
 
@@ -55,9 +77,9 @@ func indexNames(t *testing.T, app core.App) map[string]bool {
 	t.Helper()
 
 	var names []string
-	err := app.DB().NewQuery(
+	err := app.AuxDB().NewQuery(
 		"SELECT name FROM sqlite_master WHERE type='index' AND tbl_name={:t}",
-	).Bind(dbx.Params{"t": analytics.CollectionName}).Column(&names)
+	).Bind(dbx.Params{"t": analytics.TableName}).Column(&names)
 	if err != nil {
 		t.Fatalf("list indexes: %v", err)
 	}
@@ -109,7 +131,7 @@ func TestGetData_QueriesUseCoveringIndexes(t *testing.T) {
 			Detail  string `db:"detail"`
 		}
 		var rows []planRow
-		if err := app.DB().NewQuery("EXPLAIN QUERY PLAN " + q).
+		if err := app.AuxDB().NewQuery("EXPLAIN QUERY PLAN " + q).
 			Bind(dbx.Params{"c": cutoff}).All(&rows); err != nil {
 			t.Fatalf("explain %s: %v", name, err)
 		}
@@ -182,27 +204,37 @@ func TestMigrationFile_SortsAfterPocketBaseSystemMigrations(t *testing.T) {
 	}
 }
 
-// TestMigration_DownRemovesCollection exercises the down path, which is what
+// runMigration executes one direction of a migration the way MigrationsRunner
+// does: an auxiliary transaction wrapped around a data one, so the migration can
+// touch either database.
+func runMigration(t *testing.T, app core.App, direction func(core.App) error) error {
+	t.Helper()
+	return app.AuxRunInTransaction(func(txApp core.App) error {
+		return txApp.RunInTransaction(direction)
+	})
+}
+
+// TestMigration_DownRemovesTable exercises the down path, which is what
 // `pocketbase migrate down` would run.
-func TestMigration_DownRemovesCollection(t *testing.T) {
+func TestMigration_DownRemovesTable(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
 	migration := findMigration(t, analytics.MigrationFile)
 
-	if err := app.RunInTransaction(migration.Down); err != nil {
+	if err := runMigration(t, app, migration.Down); err != nil {
 		t.Fatalf("migration down: %v", err)
 	}
-	if _, err := app.FindCollectionByNameOrId(analytics.CollectionName); err == nil {
-		t.Fatal("collection still exists after migration down")
+	if app.AuxHasTable(analytics.TableName) {
+		t.Fatal("table still exists after migration down")
 	}
 
-	// Down must be safe to run when the collection is already gone.
-	if err := app.RunInTransaction(migration.Down); err != nil {
+	// Down must be safe to run when the table is already gone.
+	if err := runMigration(t, app, migration.Down); err != nil {
 		t.Fatalf("second migration down: %v", err)
 	}
 
 	// And up must restore it, indexes included.
-	if err := app.RunInTransaction(migration.Up); err != nil {
+	if err := runMigration(t, app, migration.Up); err != nil {
 		t.Fatalf("migration up after down: %v", err)
 	}
 	got := indexNames(t, app)
@@ -231,13 +263,13 @@ func TestInitialize_FailsWithoutMigration(t *testing.T) {
 	app := testutil.NewTestApp(t)
 
 	migration := findMigration(t, analytics.MigrationFile)
-	if err := app.RunInTransaction(migration.Down); err != nil {
+	if err := runMigration(t, app, migration.Down); err != nil {
 		t.Fatalf("migration down: %v", err)
 	}
 
 	_, err := analytics.Initialize(app)
 	if err == nil {
-		t.Fatal("Initialize succeeded without the _analytics collection")
+		t.Fatal("Initialize succeeded without the _analytics table")
 	}
 	if !strings.Contains(err.Error(), analytics.MigrationFile) {
 		t.Errorf("error %q should name the missing migration %q", err, analytics.MigrationFile)
@@ -319,6 +351,63 @@ func TestFlush_NoopWhenEmpty(t *testing.T) {
 	}
 	if rows, _, _, _ := testutil.AnalyticsTotals(t, app); rows != 0 {
 		t.Fatalf("rows = %d, want 0", rows)
+	}
+}
+
+// TestFlush_DoesNotWaitOnTheDataDBWriter is the regression test for the reason
+// counters live in auxiliary.db at all.
+//
+// data.db's nonconcurrent pool is capped at one connection, so an open
+// application transaction owns the only writer. While counters were a data.db
+// collection, a flush landing in that window queued behind it — and the request
+// path kept accumulating. Writing to auxiliary.db, which has its own writer and
+// its own WAL, makes the two independent.
+func TestFlush_DoesNotWaitOnTheDataDBWriter(t *testing.T) {
+	app, a := testutil.NewAnalytics(t, neverFlush())
+
+	for i := 0; i < 50; i++ {
+		trackVisit(a, "1.2.3.4", "/pricing")
+	}
+
+	held := make(chan struct{})
+	release := make(chan struct{})
+	txDone := make(chan error, 1)
+
+	go func() {
+		txDone <- app.RunInTransaction(func(txApp core.App) error {
+			// A write is what actually takes the lock; BEGIN alone is deferred.
+			if _, err := txApp.NonconcurrentDB().
+				NewQuery("CREATE TABLE writer_lock_probe (x)").Execute(); err != nil {
+				return err
+			}
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+
+	<-held
+
+	flushed := make(chan error, 1)
+	go func() { flushed <- a.Flush() }()
+
+	select {
+	case err := <-flushed:
+		if err != nil {
+			t.Fatalf("Flush while data.db writer is held: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("Flush blocked on the data.db writer — counters must be written to auxiliary.db")
+	}
+
+	close(release)
+	if err := <-txDone; err != nil {
+		t.Fatalf("holding transaction: %v", err)
+	}
+
+	if rows, views, _, _ := testutil.AnalyticsTotals(t, app); rows != 1 || views != 50 {
+		t.Fatalf("rows = %d, views = %d; want 1 and 50", rows, views)
 	}
 }
 
@@ -654,21 +743,12 @@ func TestGetData_HourlyActivityIsNotCappedByRingSize(t *testing.T) {
 func TestGetData_ExcludesRowsOutsideLookbackWindow(t *testing.T) {
 	app, a := testutil.NewAnalytics(t, neverFlush(), analytics.WithCacheTTL(0))
 
-	col, err := app.FindCollectionByNameOrId(analytics.CollectionName)
-	if err != nil {
-		t.Fatalf("find collection: %v", err)
-	}
-
 	seed := func(date string, views int) {
-		rec := core.NewRecord(col)
-		rec.Set("path", "/old-"+date)
-		rec.Set("date", date)
-		rec.Set("device_type", "desktop")
-		rec.Set("browser", "chrome")
-		rec.Set("views", views)
-		rec.Set("unique_sessions", 1)
-		rec.Set("returning_sessions", 0)
-		if err := app.SaveNoValidate(rec); err != nil {
+		_, err := app.AuxDB().NewQuery(
+			"INSERT INTO " + analytics.TableName + ` (path, date, device_type, browser, views, unique_sessions, returning_sessions)
+			 VALUES ({:path}, {:date}, 'desktop', 'chrome', {:views}, 1, 0)`,
+		).Bind(dbx.Params{"path": "/old-" + date, "date": date, "views": views}).Execute()
+		if err != nil {
 			t.Fatalf("seed %s: %v", date, err)
 		}
 	}

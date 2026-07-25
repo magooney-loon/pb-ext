@@ -34,7 +34,7 @@ The dev server runs at `127.0.0.1:8090` by default. PocketBase admin: `/_/`, pb-
 core/core.go          — Public facade, re-exports from core/server and core/logging
 core/server/          — Server struct, health dashboard, errors, embedded templates
 core/server/api/      — OpenAPI doc system: registry, versioned routers, Go AST parsing
-core/analytics/       — Visitor analytics: collector (request path), aggregator (in-memory counters), visitors (session tracking), storage (dashboard queries), collection, types
+core/analytics/       — Visitor analytics: collector (request path), aggregator (in-memory counters), visitors (session tracking), storage (dashboard queries), schema (auxiliary.db DDL), types
 core/jobs/            — Cron job manager, structured logger, API handlers, types
 core/logging/         — Structured logging, request middleware, trace IDs
 core/monitoring/      — System metrics (CPU, memory, disk, network, runtime)
@@ -55,22 +55,26 @@ core/server/templates/ — Embedded Go templates for the dashboard UI
 
 ## Schema Migrations
 
-pb-ext's system collections are created by PocketBase migrations, not by imperative setup code.
+pb-ext's schema is created by PocketBase migrations, not by imperative setup code.
 
-| Migration | Creates |
-|---|---|
-| `1780000000_pbext_jobs.go` | `_job_logs` |
-| `1780000001_pbext_analytics.go` | `_analytics` |
+| Migration | Creates | Database |
+|---|---|---|
+| `1780000000_pbext_jobs.go` | `_job_logs` collection | `data.db` |
+| `1780000002_pbext_analytics.go` | `_analytics` table | `auxiliary.db` |
 
 Each package registers its migration into `core.AppMigrations` from an `init()`, so importing `core/jobs` or `core/analytics` is enough — `apis.Serve` runs `RunAllMigrations()` before building the router, and `tests.NewTestApp` runs them too (which is why `testutil.NewTestApp` needs no extra setup).
 
-**Two non-obvious constraints, both covered by tests — don't break them:**
+`MigrationsRunner.Up`/`Down` wrap an `AuxRunInTransaction` around a `RunInTransaction`, so a single migration can touch either database — that is how the analytics migration creates an aux table while being registered in the ordinary list. Tests driving a migration by hand must nest the same way (`runMigration` in `analytics_test.go`, `dropOwnSchema` in `server/migrations_test.go`).
+
+**Three non-obvious constraints, all covered by tests — don't break them:**
 
 1. **Migration file names must stay `<timestamp>_pbext_<name>.go`.** PocketBase keys applied migrations on `filepath.Base` alone, with no import path. A plain name like `migrations.go` would silently collide with an app's own file of the same name and be skipped. The timestamp keeps pb-ext ordered after PocketBase's system migrations (newest is `1778828400`) and before anything an app generates today. Names are passed explicitly via `core.Migration.File` rather than derived from `runtime.Caller`.
 
 2. **`Server.Start` applies pb-ext's migrations during `OnBootstrap`** (`core/server/migrations.go`), because PocketBase only runs `core.AppMigrations` at the start of `apis.Serve` — *after* `OnBootstrap`. The job manager is built during bootstrap since user code expects `GetManager()` to work from its own `OnServe` hooks, which are registered before `srv.Start()` and therefore run first. Only pb-ext's own migrations are applied early; the app's run at their normal time. Applying them early records them in `_migrations`, so the later `RunAllMigrations` pass is a no-op.
 
-`Initialize` in both packages verifies its collection exists and returns an error naming the missing migration, rather than failing obscurely later.
+3. **The analytics migration needs a `ReapplyCondition`.** `_migrations` lives in `data.db` (PocketBase's runner creates it with `app.DB()`) but `_analytics` lives in `auxiliary.db`. Deleting `auxiliary.db` — a reasonable thing to do, it holds only logs and counters — would otherwise leave history claiming the migration is applied with no table to show for it. The condition re-runs `Up` whenever `AuxHasTable` is false, exactly as PocketBase's `_logs` migration does. `TestApplyOwnMigrations_RecreatesDeletedAuxTable` covers it.
+
+`Initialize` in both packages verifies its schema exists (`FindCollectionByNameOrId` for jobs, `AuxHasTable` for analytics) and returns an error naming the missing migration, rather than failing obscurely later.
 
 **No clash with app migrations**: pb-ext shares `core.AppMigrations` with the app (the same extension point PocketBase's `jsvm` plugin uses). Ordering is by file name, `migrate history-sync` sees pb-ext's entries so it won't prune them, and automigrate only fires on Admin UI/API collection requests — never on pb-ext's programmatic `SaveNoValidate`. The one hazard is `migrate down N` reverting far enough back to hit pb-ext's migrations; the old timestamps make that unlikely in practice.
 
@@ -131,11 +135,15 @@ Jobs are registered via `server.GetJobManager().RegisterJob(id, name, desc, cron
 
 Request middleware counts page views as daily aggregates. **No personal data is persisted** — no IP, user agent, or visitor ID ever reaches the database.
 
-**The request path does zero database work.** A tracked view folds into an in-memory counter map, a recent-visit ring, and a minute bucket under one short mutex (~500ns, 1 alloc). A background goroutine writes accumulated deltas every `FlushInterval` (default 10s) in a single batched transaction, so throughput does not depend on PocketBase's single-writer connection (`NonconcurrentDB()` is capped at 1 connection). Sustained: ~1.8M views/sec with zero loss.
+**The request path does zero database work.** A tracked view folds into an in-memory counter map, a recent-visit ring, and a minute bucket under one short mutex (~500ns, 1 alloc). A background goroutine writes accumulated deltas every `FlushInterval` (default 10s) in a single batched transaction. Sustained: ~1.8M views/sec with zero loss.
 
 Never add per-request database work to `Track` — that is the exact bottleneck this design exists to remove.
 
-**Storage**: one `_analytics` row per `(path, date, device_type, browser)` with `views`, `unique_sessions` (sessions started by a new visitor) and `returning_sessions` counters. Schema lives in `collection.go`; the migration in `migrations.go` applies it. Deleted after 90 days by the `__pbExtAnalyticsClean__` system job.
+**Counters live in `auxiliary.db`, not `data.db`** — the same split PocketBase uses for `_logs`, and for the same reason. Each database has its own writer connection (`NonconcurrentDB()` and `AuxNonconcurrentDB()` are both capped at 1) and its own WAL, so a flush can neither block nor be blocked by an application write, however many rows it carries. Use `AuxRunInTransaction` + `AuxNonconcurrentDB()` to write and `AuxDB()` to read; `TestFlush_DoesNotWaitOnTheDataDBWriter` holds the data.db writer open and fails if a flush waits on it. The daily retention DELETE (`__pbExtAnalyticsClean__` in `core/jobs/manager.go`) runs on the aux writer for the same reason. Backups still cover it — PocketBase archives the whole data dir and checkpoints the aux WAL first.
+
+**`_analytics` is a plain SQLite table, not a PocketBase collection.** That follows from living in `auxiliary.db`, and costs nothing: every read and write in the package is raw SQL, and nothing needs the records API, realtime or collection rules. The DDL is in `schema.go`; `migrations.go` applies it. One row per `(path, date, device_type, browser)` with `views`, `unique_sessions` (sessions started by a new visitor) and `returning_sessions` counters, deleted after 90 days.
+
+The text columns are `NOT NULL DEFAULT ''`. SQLite treats NULLs as distinct inside a unique index, so one NULL `device_type` would let the same key insert twice and silently split its counters instead of upserting — `idx_analytics_upsert` is what the `ON CONFLICT` target in `buildUpsert` resolves against, so it is required for correctness, not just speed.
 
 **What is filtered out** (`collector.go`): non-GET methods, non-2xx/3xx responses, bot user agents, static assets, and the `/api/`, `/_/`, `/_app/immutable/`, `/.well-known/` prefixes.
 
@@ -162,7 +170,7 @@ Configure with the `With*` options passed to `analytics.Initialize`.
 
 **Analytics template** (`core/server/templates/components/visitor_analytics.tmpl`): the only consumer of `analytics.Data` — there is no JSON endpoint for it, so display limits belong in the template, not in `GetData`. `RecentVisits` carries the full 50-entry ring but the card renders 8; `TopPages` carries 10 and renders 5. Template funcs live in `templateFuncs` (`health.go`); `pathLabel` renders the `/*` overflow bucket as "other pages". `core/server/templates_test.go` parses every template and renders this one against populated and empty data, which is the only place a missing template func gets caught (at runtime it is merely logged).
 
-**Testing**: `testutil.NewTestApp(t)` already has both pb-ext collections (migrations run automatically). `testutil.NewAnalytics(t, opts...)` returns an app plus a running collector (closed on cleanup); `testutil.AnalyticsTotals(t, app)` reads persisted counters. Pass `WithFlushInterval(time.Hour)` to observe buffering and flush by hand. Internals (`aggregator`, `visitorTracker`) are tested white-box in package `analytics`; anything needing `testutil` must live in package `analytics_test` to avoid an import cycle.
+**Testing**: `testutil.NewTestApp(t)` already has both pb-ext schemas (migrations run automatically). `testutil.NewAnalytics(t, opts...)` returns an app plus a running collector (closed on cleanup); `testutil.AnalyticsTotals(t, app)` reads persisted counters — from `AuxDB()`, like everything else that touches the table. Pass `WithFlushInterval(time.Hour)` to observe buffering and flush by hand. Internals (`aggregator`, `visitorTracker`) are tested white-box in package `analytics`; anything needing `testutil` must live in package `analytics_test` to avoid an import cycle.
 
 ## Example App Patterns
 
@@ -176,7 +184,7 @@ Configure with the `With*` options passed to `analytics.Initialize`.
 
 - The `core/` package is the library; `cmd/server/` is the example app showing how to use it
 - Server options use the functional options pattern (`WithConfig`, `WithPocketbase`, `InDeveloperMode`)
-- PocketBase system collections prefixed with `_` (e.g., `_analytics`, `_job_logs`), created via registered migrations
+- pb-ext schema objects are prefixed with `_` (`_job_logs` collection in `data.db`, `_analytics` table in `auxiliary.db`), created via registered migrations
 - Schema changes go in a **new** migration file; never mutate an already-released one
 - Dashboard templates use Go `text/template` with `embed.FS`
 - Module path: `github.com/magooney-loon/pb-ext`

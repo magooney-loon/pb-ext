@@ -1,5 +1,5 @@
 // Package testutil provides shared test helpers for pb-ext packages.
-// It wraps PocketBase's test infrastructure with pb-ext collection setup.
+// It wraps PocketBase's test infrastructure with pb-ext schema setup.
 package testutil
 
 import (
@@ -15,7 +15,8 @@ import (
 )
 
 // NewTestApp creates a TestApp with PocketBase's system migrations and pb-ext's
-// registered migrations applied, so _analytics and _job_logs both exist.
+// registered migrations applied, so the _analytics table (auxiliary.db) and the
+// _job_logs collection (data.db) both exist.
 func NewTestApp(t testing.TB) *tests.TestApp {
 	t.Helper()
 	app, err := tests.NewTestApp(t.TempDir())
@@ -26,7 +27,7 @@ func NewTestApp(t testing.TB) *tests.TestApp {
 	return app
 }
 
-// NewAnalytics creates a TestApp with the _analytics collection plus a running
+// NewAnalytics creates a TestApp with the _analytics table plus a running
 // Analytics collector. The collector is closed (and its pending counters
 // flushed) during test cleanup.
 //
@@ -51,18 +52,18 @@ func NewAnalytics(t testing.TB, opts ...analytics.Option) (*tests.TestApp, *anal
 }
 
 // AnalyticsTotals returns the number of persisted _analytics rows along with the
-// summed view and session counters.
+// summed view and session counters. The table lives in auxiliary.db.
 func AnalyticsTotals(t testing.TB, app core.App) (rows, views, newSessions, returningSessions int) {
 	t.Helper()
 
-	err := app.DB().
+	err := app.AuxDB().
 		Select(
 			"COUNT(*)",
 			"COALESCE(SUM(views),0)",
 			"COALESCE(SUM(unique_sessions),0)",
 			"COALESCE(SUM(returning_sessions),0)",
 		).
-		From(analytics.CollectionName).
+		From(analytics.TableName).
 		Row(&rows, &views, &newSessions, &returningSessions)
 	if err != nil {
 		t.Fatalf("count analytics rows: %v", err)

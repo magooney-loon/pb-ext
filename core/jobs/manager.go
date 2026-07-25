@@ -353,15 +353,17 @@ func (m *Manager) RegisterInternalSystemJobs() error {
 	if err := m.RegisterJob(
 		"__pbExtAnalyticsClean__",
 		"__pbExtAnalyticsClean__",
-		"Delete _analytics records older than 90 days",
+		"Delete _analytics rows older than 90 days",
 		"0 3 * * *",
 		func(el *ExecutionLogger) {
 			el.Start("Analytics Cleanup Job")
 
 			cutoff := time.Now().AddDate(0, 0, -90).Format("2006-01-02")
-			el.Info("Deleting _analytics records with date < %s", cutoff)
+			el.Info("Deleting _analytics rows with date < %s", cutoff)
 
-			res, err := m.app.NonconcurrentDB().
+			// _analytics lives in auxiliary.db, so this bulk delete takes the
+			// auxiliary writer lock — it never stalls application writes.
+			res, err := m.app.AuxNonconcurrentDB().
 				NewQuery("DELETE FROM _analytics WHERE date < {:cutoff}").
 				Bind(dbx.Params{"cutoff": cutoff}).
 				Execute()

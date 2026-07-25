@@ -31,12 +31,12 @@ func seedCounters(tb testing.TB, app core.App, rows int) {
 	tb.Helper()
 
 	const chunk = 200
-	err := app.RunInTransaction(func(txApp core.App) error {
+	err := app.AuxRunInTransaction(func(txApp core.App) error {
 		for start := 0; start < rows; start += chunk {
 			end := min(start+chunk, rows)
 
 			var b strings.Builder
-			b.WriteString("INSERT INTO " + analytics.CollectionName +
+			b.WriteString("INSERT INTO " + analytics.TableName +
 				" (path, date, device_type, browser, views, unique_sessions, returning_sessions, created, updated) VALUES ")
 			params := dbx.Params{}
 
@@ -50,7 +50,7 @@ func seedCounters(tb testing.TB, app core.App, rows int) {
 				params[p+"b"] = time.Now().AddDate(0, 0, -(i % analytics.LookbackDays)).Format("2006-01-02")
 			}
 
-			if _, err := txApp.NonconcurrentDB().NewQuery(b.String()).Bind(params).Execute(); err != nil {
+			if _, err := txApp.AuxNonconcurrentDB().NewQuery(b.String()).Bind(params).Execute(); err != nil {
 				return err
 			}
 		}
