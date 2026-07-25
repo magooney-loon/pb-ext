@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"text/template"
@@ -128,19 +129,37 @@ var templateFuncs = template.FuncMap{
 	// hitting the hwmon sysfs tree on every call is both slow and liable to
 	// disagree with what the collector classified.
 	"getDiskTemp": func(stats *monitoring.SystemStats) float64 {
+		if stats == nil {
+			return 0
+		}
 		return stats.Temperatures.DiskTemp
 	},
 	"getSystemTemp": func(stats *monitoring.SystemStats) float64 {
+		if stats == nil {
+			return 0
+		}
 		return stats.Temperatures.SystemTemp
 	},
 	"getAmbientTemp": func(stats *monitoring.SystemStats) float64 {
+		if stats == nil {
+			return 0
+		}
 		return stats.Temperatures.AmbientTemp
 	},
 	"getCPUTemp": func(stats *monitoring.SystemStats) float64 {
+		if stats == nil {
+			return 0
+		}
+		// Prefer the per-CPU reading, falling back to the classified sensor.
+		for _, c := range stats.CPUInfo {
+			if c.Temperature > 0 {
+				return c.Temperature
+			}
+		}
 		return stats.Temperatures.CPUTemp
 	},
 	"hasDiskTemps": func(stats *monitoring.SystemStats) bool {
-		return stats.Temperatures.DiskTemp > 0
+		return stats != nil && stats.Temperatures.DiskTemp > 0
 	},
 	"formatTime": func(t time.Time) string {
 		return t.Format("15:04:05")
@@ -189,10 +208,31 @@ var templateFuncs = template.FuncMap{
 		// This code taken from:
 		//   https://github.com/gohugoio/hugo/blob/e9bda21ce9d1ab80377044d8de1d7884142bfa14/tpl/collections/collections.go#L332
 		// Thanks GoHugo
+		if c == nil {
+			return false, nil
+		}
+
 		av := reflect.ValueOf(c)
 		kv := reflect.ValueOf(key)
 
+		// Unwrap pointers so isset works on *SystemStats and friends.
+		for av.Kind() == reflect.Ptr {
+			if av.IsNil() {
+				return false, nil
+			}
+			av = av.Elem()
+		}
+
 		switch av.Kind() {
+		case reflect.Struct:
+			// Without this a struct falls through to the default and always
+			// reports false, which silently hides whatever the template was
+			// guarding. Report whether the named field actually exists.
+			name, err := cast.ToStringE(key)
+			if err != nil {
+				return false, fmt.Errorf("isset unable to use key of type %T as a field name", key)
+			}
+			return av.FieldByName(name).IsValid(), nil
 		case reflect.Array, reflect.Chan, reflect.Slice:
 			k, err := cast.ToIntE(key)
 			if err != nil {
@@ -211,6 +251,36 @@ var templateFuncs = template.FuncMap{
 
 		return false, nil
 	},
+}
+
+// DashboardData is the payload the /_/_ dashboard templates render.
+//
+// It is a named type so tests can render the full page against deliberately
+// degraded data — hosts without sensors, containers with no addressed network
+// interfaces, a stats collection that partly failed — and prove none of it
+// panics or renders NaN.
+type DashboardData struct {
+	Status           string
+	UptimeDuration   string
+	ServerStats      *ServerStats
+	SystemStats      *monitoring.SystemStats
+	AvgRequestTimeMs float64
+	MemoryUsageStr   string
+	DiskUsageStr     string
+	LastCheckTime    time.Time
+	RequestRate      float64
+	AnalyticsData    *analytics.Data
+	PBAdminURL       string
+}
+
+// requestRate returns requests per second, guarding the division so a dashboard
+// hit in the same instant the server started cannot render +Inf or NaN.
+func requestRate(total uint64, uptime time.Duration) float64 {
+	seconds := uptime.Seconds()
+	if seconds <= 0 {
+		return 0
+	}
+	return float64(total) / seconds
 }
 
 // prepareTemplateData prepares the template data for the health dashboard
@@ -241,19 +311,7 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 	}
 
 	// Prepare template data
-	data := struct {
-		Status           string
-		UptimeDuration   string
-		ServerStats      *ServerStats
-		SystemStats      *monitoring.SystemStats
-		AvgRequestTimeMs float64
-		MemoryUsageStr   string
-		DiskUsageStr     string
-		LastCheckTime    time.Time
-		RequestRate      float64
-		AnalyticsData    *analytics.Data
-		PBAdminURL       string
-	}{
+	data := DashboardData{
 		Status:           "Healthy",
 		UptimeDuration:   time.Since(s.stats.StartTime).Round(time.Second).String(),
 		ServerStats:      s.stats,
@@ -262,7 +320,7 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 		MemoryUsageStr:   fmt.Sprintf("%.2f/%.2f GB", float64(sysStats.MemoryInfo.Used)/1024/1024/1024, float64(sysStats.MemoryInfo.Total)/1024/1024/1024),
 		DiskUsageStr:     fmt.Sprintf("%.2f/%.2f GB", float64(sysStats.DiskUsed)/1024/1024/1024, float64(sysStats.DiskTotal)/1024/1024/1024),
 		LastCheckTime:    time.Now(),
-		RequestRate:      float64(s.stats.TotalRequests.Load()) / time.Since(s.stats.StartTime).Seconds(),
+		RequestRate:      requestRate(s.stats.TotalRequests.Load(), time.Since(s.stats.StartTime)),
 		AnalyticsData:    analyticsData,
 		PBAdminURL:       "/_/",
 	}
@@ -299,6 +357,39 @@ func parseDashboardTemplates() (*template.Template, error) {
 	}
 
 	return tmpl, nil
+}
+
+// recoverDashboardPanic converts a panic in the dashboard handler into an
+// error response, so a failure to read one metric can never take down the
+// request-handling goroutine.
+func recoverDashboardPanic(s *Server, next func(*core.RequestEvent) error) func(*core.RequestEvent) error {
+	return func(c *core.RequestEvent) (err error) {
+		defer func() {
+			r := recover()
+			if r == nil {
+				return
+			}
+
+			stack := string(debug.Stack())
+			if s != nil && s.App() != nil {
+				s.App().Logger().Error("Recovered panic while rendering the dashboard",
+					"panic", fmt.Sprint(r),
+					"stack", stack,
+				)
+			} else {
+				log.Printf("Recovered panic while rendering the dashboard: %v\n%s", r, stack)
+			}
+
+			err = NewHTTPError(
+				"health_dashboard_panic",
+				"Failed to render the dashboard",
+				http.StatusInternalServerError,
+				fmt.Errorf("panic: %v", r),
+			)
+		}()
+
+		return next(c)
+	}
 }
 
 // RegisterHealthRoute registers the health check endpoint
@@ -346,7 +437,11 @@ func (s *Server) RegisterHealthRoute(e *core.ServeEvent) {
 		return c.HTML(http.StatusOK, buf.String())
 	}
 
-	// Register the main health route
-	e.Router.GET("/_/_", healthHandler)
+	// Register the main health route. The dashboard reads a lot of optional,
+	// platform-dependent system data; recovering here means a surprise from a
+	// collector or a template degrades into a 500 for this one request instead
+	// of unwinding the handler. It does not rely on the embedding app having
+	// opted into logging.SetupRecovery.
+	e.Router.GET("/_/_", recoverDashboardPanic(s, healthHandler))
 
 }

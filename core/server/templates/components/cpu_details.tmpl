@@ -22,12 +22,10 @@
                         <div class="txt-center">
                             <div class="txt-hint txt-sm">Temperature</div>
                             <div class="txt-lg">
-                                {{if isset $firstCPU "Temperature"}}
-                                    {{if gt $firstCPU.Temperature 0.0}}
+                                {{if gt $firstCPU.Temperature 0.0}}
                                     {{printf "%.1f°C" $firstCPU.Temperature}}
-                                    {{else}}
-                                        {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
-                                    {{end}}
+                                {{else if gt (getSystemTemp .SystemStats) 0.0}}
+                                    {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
                                 {{else}}
                                     N/C
                                 {{end}}
@@ -36,12 +34,15 @@
                         <div class="txt-center">
                             <div class="txt-hint txt-sm">System Temp</div>
                             <div class="txt-lg">
-                                {{ with $systemTemp := getSystemTemp .SystemStats }}
-                                   {{ if gt $systemTemp 0.0 }}
-                                      {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
-                                   {{else}}
-                                       N/C
-                                   {{end}}
+                                {{/* Assign rather than {{with}}: with rebinds the
+                                     dot to the float, so .SystemStats inside it
+                                     fails, and it skips the block entirely when
+                                     the reading is 0. */}}
+                                {{$systemTemp := getSystemTemp .SystemStats}}
+                                {{if gt $systemTemp 0.0}}
+                                    {{printf "%.1f°C" $systemTemp}}
+                                {{else}}
+                                    N/C
                                 {{end}}
                             </div>
                         </div>
