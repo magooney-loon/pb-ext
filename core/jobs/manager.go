@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
+	"github.com/magooney-loon/pb-ext/core/audit"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/cron"
@@ -388,6 +390,65 @@ func (m *Manager) RegisterInternalSystemJobs() error {
 		return fmt.Errorf("failed to register analytics cleanup job: %w", err)
 	}
 
+	if err := m.RegisterJob(
+		"__pbExtAlertsClean__",
+		"__pbExtAlertsClean__",
+		"Delete _alerts delivery records past their retention",
+		"0 4 * * *",
+		func(el *ExecutionLogger) {
+			el.Start("Alert History Cleanup Job")
+
+			// Purge runs on the auxiliary writer, like the analytics cleanup
+			// above, so it never takes the data.db write lock.
+			deleted, err := alerts.Get().Purge()
+			if err != nil {
+				el.Error("Failed to delete old alert records: %v", err)
+				el.Fail(err)
+				return
+			}
+
+			el.Statistics(map[string]interface{}{
+				"deleted":        deleted,
+				"retention_days": alerts.Get().Config().RetentionDays,
+			})
+			el.Success("Cleanup completed: deleted %d _alerts rows", deleted)
+			el.Complete(fmt.Sprintf("Alert history cleanup finished - deleted %d rows", deleted))
+			m.app.Logger().Info("Alert history cleanup completed", "deleted", deleted)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to register alert cleanup job: %w", err)
+	}
+
+	if err := m.RegisterJob(
+		"__pbExtAuditClean__",
+		"__pbExtAuditClean__",
+		"Delete _admin_access records past their retention",
+		"0 5 * * *",
+		func(el *ExecutionLogger) {
+			el.Start("Admin Access Log Cleanup Job")
+
+			// The access log is personal data — client addresses, user agents and
+			// the accounts login attempts targeted — so its retention window is a
+			// promise, not a housekeeping detail. Runs on the auxiliary writer.
+			deleted, err := audit.Get().Purge()
+			if err != nil {
+				el.Error("Failed to delete old admin access records: %v", err)
+				el.Fail(err)
+				return
+			}
+
+			el.Statistics(map[string]interface{}{
+				"deleted":        deleted,
+				"retention_days": audit.Get().Config().RetentionDays,
+			})
+			el.Success("Cleanup completed: deleted %d _admin_access rows", deleted)
+			el.Complete(fmt.Sprintf("Admin access cleanup finished - deleted %d rows", deleted))
+			m.app.Logger().Info("Admin access log cleanup completed", "deleted", deleted)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to register admin access cleanup job: %w", err)
+	}
+
 	m.app.Logger().Info("✅ Internal system jobs registered")
 	return nil
 }
@@ -439,6 +500,22 @@ func (m *Manager) wrap(jobID, jobName, description, expression string, fn func(*
 		if errorMsg != "" {
 			m.app.Logger().Error("Job execution failed",
 				"job_id", jobID, "job_name", jobName, "duration", duration, "error", errorMsg)
+
+			// Keyed on the job, so a job failing every minute produces one alert
+			// per cooldown rather than sixty. Get is never nil and Send does no
+			// I/O, so this costs a wedged transport nothing.
+			alerts.Get().Send(alerts.Message{
+				Level:     alerts.LevelError,
+				Key:       "job_failed:" + jobID,
+				Title:     "Cron job failed: " + jobName,
+				Text:      errorMsg,
+				Monospace: true,
+				Fields: map[string]string{
+					"job":      jobID,
+					"schedule": expression,
+					"duration": duration.Round(time.Millisecond).String(),
+				},
+			})
 		} else {
 			m.app.Logger().Info("Job execution completed",
 				"job_id", jobID, "job_name", jobName, "duration", duration, "output_length", len(capturedOutput))

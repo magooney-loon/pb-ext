@@ -3,7 +3,9 @@ package server
 import (
 	"fmt"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
 	"github.com/magooney-loon/pb-ext/core/analytics"
+	"github.com/magooney-loon/pb-ext/core/audit"
 	"github.com/magooney-loon/pb-ext/core/jobs"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -17,6 +19,8 @@ func ownMigrations() []*core.Migration {
 	return []*core.Migration{
 		jobs.Migration(),
 		analytics.Migration(),
+		alerts.Migration(),
+		audit.Migration(),
 	}
 }
 

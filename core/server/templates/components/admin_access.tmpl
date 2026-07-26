@@ -1,0 +1,163 @@
+{{define "admin_access"}}
+{{if .AuditData}}
+<div class="section m-t-base">
+    <header class="section-header">
+        <h4 class="section-title">
+            <i class="ri-shield-keyhole-line"></i>
+            Admin Access
+        </h4>
+    </header>
+
+    {{if not .AuditData.Enabled}}
+    <div class="card view-card">
+        <div class="card-body">
+            <h6 class="txt-hint m-b-10"><i class="ri-eye-off-line"></i> Not recording</h6>
+            <div class="txt-sm txt-hint">Administrative access is not being audited.</div>
+        </div>
+    </div>
+    {{else}}
+
+    <div class="grid grid-sm-2 grid-xl-4 gap-base">
+        <!-- Failed logins -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10" title="Rejected superuser sign-ins in the last 7 days"><i class="ri-lock-unlock-line"></i> Failed logins</h6>
+                {{if .AuditData.AuthFailures}}
+                <h4 class="m-b-10 txt-danger">{{.AuditData.AuthFailures}}</h4>
+                {{else}}
+                <h4 class="m-b-10">0</h4>
+                {{end}}
+                <div class="flex">
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Last</div>
+                        <div class="txt-sm">{{if .AuditData.LastFailure.IsZero}}never{{else}}{{formatTime .AuditData.LastFailure}}{{end}}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Successful sign-ins -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10"><i class="ri-shield-check-line"></i> Sign-ins</h6>
+                <h4 class="m-b-10">{{.AuditData.AuthSuccesses}}</h4>
+                <div class="flex">
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Last</div>
+                        <div class="txt-sm">{{if .AuditData.LastSuccess.IsZero}}never{{else}}{{formatTime .AuditData.LastSuccess}}{{end}}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Denied -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10" title="Requests to an admin surface that were refused, including anonymous hits on the dashboard"><i class="ri-forbid-line"></i> Denied</h6>
+                <h4 class="m-b-10">{{.AuditData.DeniedAttempts}}</h4>
+                <div class="flex">
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Events</div>
+                        <div>{{.AuditData.TotalEvents}}</div>
+                    </div>
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Sources</div>
+                        <div>{{.AuditData.DistinctIPs}}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Capture health -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10"><i class="ri-database-2-line"></i> Recorded</h6>
+                <h4 class="m-b-10">{{.AuditData.Written}}</h4>
+                <div class="flex">
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Buffered</div>
+                        <div>{{.AuditData.Pending}}</div>
+                    </div>
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm" title="Events lost to a full buffer">Dropped</div>
+                        <div>{{if .AuditData.Dropped}}<span class="txt-danger">{{.AuditData.Dropped}}</span>{{else}}0{{end}}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-sm-1 gap-base m-t-base">
+        <!-- Sources -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10" title="Busiest sources over the last 7 days, most failures first"><i class="ri-map-pin-line"></i> Top sources</h6>
+                {{if .AuditData.TopIPs}}
+                <table class="table table-compact m-t-10">
+                    <tbody>
+                        {{range $index, $src := .AuditData.TopIPs}}
+                            {{if lt $index 5}}
+                            <tr>
+                                <td class="txt-sm">{{escapeHTML $src.IP}}</td>
+                                <td width="90" class="txt-right txt-sm">
+                                    {{if $src.Failures}}<span class="txt-danger" title="failed logins">{{$src.Failures}} failed</span>{{else}}<span class="txt-hint">—</span>{{end}}
+                                </td>
+                                <td width="70" class="txt-right txt-sm" title="total events">{{$src.Events}}</td>
+                                <td width="80" class="txt-right txt-sm">{{formatTime $src.LastSeen}}</td>
+                            </tr>
+                            {{end}}
+                        {{end}}
+                    </tbody>
+                </table>
+                {{else}}
+                <div class="txt-hint txt-sm">No admin access recorded yet.</div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Recent access -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10"><i class="ri-history-line"></i> Recent access</h6>
+                {{if .AuditData.Recent}}
+                <table class="table table-compact m-t-10">
+                    <tbody>
+                        {{range $index, $rec := .AuditData.Recent}}
+                            {{if lt $index 10}}
+                            <tr>
+                                <td width="80" class="txt-sm">{{formatTime $rec.Created}}</td>
+                                <td width="30" class="txt-center">
+                                    {{if eq $rec.Kind "auth_failure"}}
+                                    <i class="ri-lock-unlock-line txt-danger txt-sm" title="failed sign-in"></i>
+                                    {{else if eq $rec.Kind "auth_success"}}
+                                    <i class="ri-shield-check-line txt-success txt-sm" title="sign-in"></i>
+                                    {{else if eq $rec.Outcome "denied"}}
+                                    <i class="ri-forbid-line txt-warning txt-sm" title="denied"></i>
+                                    {{else}}
+                                    <i class="ri-eye-line txt-hint txt-sm" title="{{escapeHTML $rec.Kind}}"></i>
+                                    {{end}}
+                                </td>
+                                <td class="txt-sm" title="{{escapeHTML $rec.UserAgent}}">
+                                    {{if $rec.Identity}}{{escapeHTML $rec.Identity}}{{else}}<span class="txt-hint">anonymous</span>{{end}}
+                                </td>
+                                <td class="txt-sm" title="{{escapeHTML $rec.Path}}{{if $rec.Query}}?{{escapeHTML $rec.Query}}{{end}}">{{escapeHTML $rec.Method}} {{escapeHTML $rec.Path}}</td>
+                                <td width="110" class="txt-right txt-sm">{{escapeHTML $rec.IP}}</td>
+                                <td width="50" class="txt-right txt-sm">
+                                    {{if ge $rec.Status 400}}<span class="txt-danger">{{$rec.Status}}</span>{{else}}<span class="txt-hint">{{$rec.Status}}</span>{{end}}
+                                    {{if gt $rec.Count 1}}<span class="txt-hint" title="repeats collapsed into one row">×{{$rec.Count}}</span>{{end}}
+                                </td>
+                            </tr>
+                            {{end}}
+                        {{end}}
+                    </tbody>
+                </table>
+                {{else}}
+                <div class="txt-hint txt-sm">No admin access recorded yet.</div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{end}}
+{{end}}

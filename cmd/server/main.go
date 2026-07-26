@@ -63,6 +63,23 @@ func initApp(devMode bool) {
 
 	// Note: WithConfig and WithPocketbase cannot be used together
 
+	// Operational alerts. The Telegram credentials are read from
+	// PBEXT_TELEGRAM_BOT_TOKEN and PBEXT_TELEGRAM_CHAT_ID unless passed
+	// explicitly with app.WithTelegram(token, chatID); with neither, alerting
+	// stays disabled and every Send is a no-op.
+	//
+	// Crashes, failed cron jobs and recovered panics are reported out of the
+	// box. Threshold alerts are opt-in.
+	opts = append(opts, app.WithAlerts(
+		// 5xx responses above 10% of a window covering at least 20 requests.
+		app.WithErrorRateAlert(10, 20),
+		// Sustained CPU / memory / disk usage above 90%.
+		app.WithResourceAlerts(90, 90, 90),
+		// Five times the rolling baseline, but only above 50 req/s — the floor
+		// is what stops traffic doubling from 1 to 2 req/s waking anyone.
+		app.WithTrafficSurge(5, 50),
+	))
+
 	srv := app.New(opts...)
 
 	app.SetupLogging(srv)
@@ -70,6 +87,7 @@ func initApp(devMode bool) {
 	registerCollections(srv.App())
 	registerRoutes(srv.App())
 	registerJobs(srv.App())
+	registerAlerts(srv.App())
 
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.SetupRecovery(srv.App(), e)
@@ -92,6 +110,7 @@ func initApp(devMode bool) {
 // Example routes in cmd/server/routes.go
 // Example handlers in cmd/server/handlers.go
 // Example cron jobs in cmd/server/jobs.go
+// Example alert rules in cmd/server/alerts.go
 //
 // You can restructure Your project as You wish,
 // just keep this main.go in cmd/server/main.go

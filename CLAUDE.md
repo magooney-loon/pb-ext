@@ -24,6 +24,8 @@ All operations go through `pb-cli`.
 | `go test ./core/server/api/...` | Run tests for a specific package |
 | `go test ./core/server/api/... -run TestHandlerScenario` | Run a single named test |
 | `go test ./core/analytics/ -bench . -cpu 1,8,20` | Analytics throughput benchmarks across core counts |
+| `go test -race ./core/alerts/` | Alerts tests; the package is concurrent, so run it under `-race` |
+| `go test -race ./core/audit/` | Admin access auditing tests; also concurrent |
 | `go test ./core/analytics/ -run TestStress -v` | Analytics sustained-load tests (skipped by `-short`) |
 
 The dev server runs at `127.0.0.1:8090` by default. PocketBase admin: `/_/`, pb-ext dashboard: `/_/_`.
@@ -31,9 +33,11 @@ The dev server runs at `127.0.0.1:8090` by default. PocketBase admin: `/_/`, pb-
 ## Architecture
 
 ```
-core/core.go          — Public facade, re-exports from core/server and core/logging
+core/core.go          — Public facade, re-exports from core/server, core/logging and core/alerts
 core/server/          — Server struct, health dashboard, errors, embedded templates
 core/server/api/      — OpenAPI doc system: registry, versioned routers, Go AST parsing
+core/alerts/          — Operational notifications: notifier (queue + worker), telegram (transport), rules (evaluator), crash (run marker), storage (auxiliary.db delivery log), format, handlers
+core/audit/           — Admin access auditing: collector (route classification + auth hooks), detect (intrusion alerts), storage (auxiliary.db access log), schema, handlers
 core/analytics/       — Visitor analytics: collector (request path), aggregator (in-memory counters), visitors (session tracking), storage (dashboard queries), schema (auxiliary.db DDL), types
 core/jobs/            — Cron job manager, structured logger, API handlers, types
 core/logging/         — Structured logging, request middleware, trace IDs
@@ -46,12 +50,14 @@ core/server/templates/ — Embedded Go templates for the dashboard UI
 
 **Server lifecycle** (`core/server/server.go`):
 1. `New(opts...)` creates a Server wrapping PocketBase
-2. `OnBootstrap`: applies pb-ext migrations → initializes JobLogger → JobManager → registers system jobs → JobHandlers
-3. `OnServe`: registers health route, analytics, job routes, static file serving
-4. `OnTerminate`: closes the analytics collector, flushing buffered counters
+2. `OnBootstrap`: applies pb-ext migrations → initializes alerts → initializes the auditor and binds its auth hooks → JobLogger → JobManager → registers system jobs → JobHandlers
+3. `OnServe`: registers health route, analytics, job routes, alert routes, audit middleware and routes, claims the run marker, static file serving
+4. `OnTerminate`: closes the analytics collector and the auditor (flushing both), marks the run clean and drains the alert queue
 5. User code hooks in via `srv.App().OnServe().BindFunc()`
 
-**Key singletons**: `GetJobManager()` returns a package-level `*JobManager` initialized during bootstrap.
+Alerts come up **before** the job manager so a job that fails during registration or on its first run can already be reported.
+
+**Key singletons**: `GetJobManager()` returns a package-level `*JobManager` initialized during bootstrap. `alerts.Get()` returns the package-level `*Notifier` — never nil, so callers need no guard.
 
 ## Schema Migrations
 
@@ -61,6 +67,8 @@ pb-ext's schema is created by PocketBase migrations, not by imperative setup cod
 |---|---|---|
 | `1780000000_pbext_jobs.go` | `_job_logs` collection | `data.db` |
 | `1780000002_pbext_analytics.go` | `_analytics` table | `auxiliary.db` |
+| `1780000003_pbext_alerts.go` | `_alerts` table | `auxiliary.db` |
+| `1780000004_pbext_audit.go` | `_admin_access` table | `auxiliary.db` |
 
 Each package registers its migration into `core.AppMigrations` from an `init()`, so importing `core/jobs` or `core/analytics` is enough — `apis.Serve` runs `RunAllMigrations()` before building the router, and `tests.NewTestApp` runs them too (which is why `testutil.NewTestApp` needs no extra setup).
 
@@ -72,7 +80,7 @@ Each package registers its migration into `core.AppMigrations` from an `init()`,
 
 2. **`Server.Start` applies pb-ext's migrations during `OnBootstrap`** (`core/server/migrations.go`), because PocketBase only runs `core.AppMigrations` at the start of `apis.Serve` — *after* `OnBootstrap`. The job manager is built during bootstrap since user code expects `GetManager()` to work from its own `OnServe` hooks, which are registered before `srv.Start()` and therefore run first. Only pb-ext's own migrations are applied early; the app's run at their normal time. Applying them early records them in `_migrations`, so the later `RunAllMigrations` pass is a no-op.
 
-3. **The analytics migration needs a `ReapplyCondition`.** `_migrations` lives in `data.db` (PocketBase's runner creates it with `app.DB()`) but `_analytics` lives in `auxiliary.db`. Deleting `auxiliary.db` — a reasonable thing to do, it holds only logs and counters — would otherwise leave history claiming the migration is applied with no table to show for it. The condition re-runs `Up` whenever `AuxHasTable` is false, exactly as PocketBase's `_logs` migration does. `TestApplyOwnMigrations_RecreatesDeletedAuxTable` covers it.
+3. **The auxiliary.db migrations need a `ReapplyCondition`** — this applies to `_analytics`, `_alerts` and `_admin_access`. `_migrations` lives in `data.db` (PocketBase's runner creates it with `app.DB()`) but those tables live in `auxiliary.db`. Deleting `auxiliary.db` — a reasonable thing to do, it holds only logs and counters — would otherwise leave history claiming the migration is applied with no table to show for it. The condition re-runs `Up` whenever `AuxHasTable` is false, exactly as PocketBase's `_logs` migration does. `TestApplyOwnMigrations_RecreatesDeletedAuxTable` covers it.
 
 `Initialize` in both packages verifies its schema exists (`FindCollectionByNameOrId` for jobs, `AuxHasTable` for analytics) and returns an error naming the missing migration, rather than failing obscurely later.
 
@@ -99,6 +107,10 @@ On Linux `Free` is `MemFree` — completely untouched pages — which sits near 
 **Network** (`network.go`): identify loopback by the interface *flag*, never by looking for `"lo"` in the name — that substring also matches `wlo1` and `eno1` (systemd predictable names for onboard wireless/ethernet), which silently drops a machine's primary interface and its byte counters. Byte totals are cumulative since boot, not throughput.
 
 **Temperature** (`temperature.go`): classify ambient *before* system, because `IsSystemTemp` also accepts `"ambient"` and would otherwise make `AmbientTemp` permanently zero. Each category keeps the highest reading rather than whichever sensor came last — sensor order is not guaranteed and groups like coretemp report a package sensor plus one per core. `SystemStats.Temperatures` holds the classified readings so template helpers never re-read sensors mid-render.
+
+**Requests** (`requests.go`): `RequestStats` keeps monotonic counters, a scalar rate and a fixed 100-entry ring — and **no per-path breakdown**. It used to hold a `map[path]*PathStats`: keyed by attacker-chosen input, one entry per 404 from the static file handler, paths bounded only by the ~8KB header limit, never evicted, and — decisively — never read by anything. A scanner walking long junk URLs bought permanent server memory for free. If per-path stats are ever wanted, they need the treatment `core/analytics` gives the same hazard (`MaxDistinctPaths` plus the `/*` overflow bucket, a path-length cap) *and* a consumer to justify them. `TestRequestStats_TrackRequestIsBounded` pins this.
+
+`Totals()` counts 4xx and 5xx separately, because alerting on the sum fires on any bot sweeping for `/wp-admin`. Prefer it over `GetRequestRate()` for anything that computes a rate — see the note in the Alerts section.
 
 **Runtime** (`runtime.go`): `HeapObjects` is a *count* of live objects, not a size. Dividing it by 1048576 and labelling it MB renders a meaningless near-zero figure; use `AllocatedBytes` for heap size and the `formatCount` template func for counts. `LastGCDuration` uses the documented `PauseNs[(NumGC+255)%256]` ring-buffer index.
 
@@ -130,6 +142,90 @@ The API doc system uses Go AST parsing at startup to extract endpoint metadata. 
 ## Cron Jobs
 
 Jobs are registered via `server.GetJobManager().RegisterJob(id, name, desc, cronExpr, func(*JobExecutionLogger))`. The `JobExecutionLogger` provides structured logging methods: `Start`, `Info`, `Progress`, `Success`, `Error`, `Statistics`, `Complete`, `Fail`. Execution logs are stored in the `_job_logs` PocketBase collection and auto-purged after 72 hours.
+
+## Alerts
+
+Operational notifications — crashes, failed cron jobs, recovered panics, traffic and error spikes, plus anything the app wants to report — delivered to a chat transport. Telegram is the only one built in; `Transport` exists so another is a file rather than a redesign. Design rationale and the full failure-mode table live in `TELEGRAM.md`.
+
+**`core/alerts` imports nothing from pb-ext** — only the stdlib and PocketBase. That is forced: `core/server`, `core/jobs` and `core/logging` all emit alerts, and `logging → server → analytics/jobs` already exists, so any dependency the other way is a cycle. System metrics reach the rules through a `MetricsFunc` the server supplies (`Server.metricsSnapshot`), not through an import of `core/monitoring`.
+
+**`Send` does no I/O and never blocks.** A cooldown check (one map lookup under a short mutex) then a non-blocking channel send; a single background worker owns every HTTP call and every database write. Alerts are emitted from request handlers and from panic recovery, so an unreachable Telegram must cost a request nothing. A full queue **drops and counts** rather than blocking — messages are already deduplicated, so 256 queued copies of "CPU high" carry no more information than one.
+
+**Nothing here can break the server.** `Initialize` returns no error: a missing token, a revoked bot, a network partition, a missing `_alerts` table and a full queue are all ordinary states with defined behaviour. `alerts.Get()` never returns nil, so application code calls `alerts.Get().Send(...)` unguarded.
+
+**Crash detection happens on the way back up, not on the way down** (`crash.go`). An OOM kill, a `log.Fatal` or a panic on an unrecovered goroutine ends the process in microseconds; a Telegram delivery needs hundreds of milliseconds, so sending from a dying process buys a hung exit and no message. Instead each run writes `pb_data/.pbext_lastrun.json` with `state: running`, refreshed on the evaluator's heartbeat and set to `stopped` by `OnTerminate` (including on a restart — a dev-mode reload is not an incident). A marker still reading `running` at boot means the previous process never reached its shutdown hook, and the heartbeat timestamp says roughly when it stopped. **A missing, unreadable or corrupt marker produces no alert** — a read-only data directory would otherwise claim a crash at every boot, and an integration that cries wolf gets muted within a day. Fail closed on false alarms.
+
+**Rules are edge-triggered, not level-triggered** (`rules.go`). A rule that becomes true fires once and stays quiet until it becomes false, which can send a recovery notice. "CPU above 90%" evaluated every 30s without a state machine is 120 identical messages an hour. `Sustain` requires N consecutive breaches; a panicking rule is disabled after 3 panics rather than taking out the evaluator.
+
+**Rates are differentiated from monotonic counters** inside the evaluator, never read from a pre-computed field. `monitoring.RequestStats.requestRate` is only recalculated when a request arrives, so after traffic stops it reports the last busy figure forever — precisely when a rate matters. `RequestStats.Totals()` supplies the monotonic counters; 4xx and 5xx are tracked separately because alerting on their sum fires on any bot sweeping for `/wp-admin`.
+
+**Telegram specifics** (`telegram.go`, `format.go`):
+
+- **HTML parse mode, never MarkdownV2.** MarkdownV2 requires escaping every one of ``_*[]()~`>#+-=|{}.!`` — which is exactly what alert bodies are made of (paths, stack traces, Go error strings, "1.2s"). One missed escape is a 400, so the message that silently fails is the interesting one. HTML needs three characters escaped.
+- **The token is a URL path segment**, so every `net/http` error quotes it. Every error leaving the transport goes through `scrub()`; `TestTelegram_NeverLeaksTheTokenInErrors` and `TestNotifier_NeverLeaksTheTokenIntoStats` are what keep it out of logs, `Stats` and the delivery log.
+- **The 4096 limit is in UTF-16 code units.** Counting runes or bytes misjudges it in opposite directions, and every message starts with an emoji (2 units). The header is rendered first and the body gets the remaining budget, so a 40KB stack trace can never push the title out.
+- **429 is the one 4xx that means "later, not never"** — its `retry_after` is honoured. 401/403/400/404 are permanent: they are logged once, flag `Misconfigured`, and stop the retry loop rather than hot-looping against someone else's API.
+
+**Bounds** — same discipline as analytics:
+
+| Bound | Default | Effect when exceeded |
+|---|---|---|
+| `QueueSize` | 256 | Message dropped and counted; reported in the next digest |
+| `Cooldown` (per `Key`) | 15m | Suppressed and counted; an empty `Key` is never suppressed |
+| `MaxAlertsPerHour` | 20 | Overflow held back, summarised in an hourly digest |
+| `maxCooldownKeys` | 1000 | Expired entries pruned, then the map is cleared |
+| `MaxRetries` | 3 | Backoff 2s/8s/30s, then recorded as failed |
+| `DrainTimeout` | 5s | Shutdown stops waiting; a wedged transport never holds the process open |
+| stored body | 2000 runes | Truncated in the delivery log; the full trace is in the app log |
+
+**Privacy**: alert bodies carry path, method, status, job id, error text and host. They do **not** carry client IP, user agent, request body or record contents — the same promise `core/analytics` makes. Don't widen the panic alert in `logging/error_handler.go`.
+
+**Configuration**: `server.WithAlerts(alerts.With*...)`, falling back to `PBEXT_TELEGRAM_BOT_TOKEN` / `PBEXT_TELEGRAM_CHAT_ID`; `PBEXT_ALERTS_ENABLED=false` is a kill switch that outranks everything. **Disabled in developer mode by default** — pb-cli restarts on every file save, and each save would otherwise fire a shutdown and a startup notice.
+
+**Storage**: `_alerts` in `auxiliary.db`, plain SQL, same reasoning as `_analytics` — an alert about a slow database must not queue behind the writes it is reporting on. Retention 30 days via `__pbExtAlertsClean__`. Delivery is low-volume, so one INSERT per delivery needs no batching.
+
+**Dashboard**: a card in the Alerts & Access section (`components/alerts_status.tmpl`) plus `GET /api/alerts/status`, `GET /api/alerts/recent` and `POST /api/alerts/test`, all superuser-only. The test endpoint bypasses the queue deliberately — the point of a test button is to learn whether delivery works *right now* — and is rate-limited to one per minute so it cannot pump the bot into a flood limit. Note the dashboard renders with `text/template`, which escapes nothing: anything originating outside this repository must go through the `escapeHTML` template func.
+
+**Testing**: `testutil.NewAlerts(t, opts...)` returns an app, a running notifier and an `AlertCapture` transport. `alerts.WithAPIBaseURL` points the real Telegram transport at an `httptest` server, so no test touches the network. Delivery is asynchronous — assert with `capture.Wait(t)` or poll `Stats()`, never immediately after `Send`. Tests needing `testutil` must live in package `alerts_test` (testutil → jobs → alerts would otherwise cycle).
+
+## Admin Access Auditing
+
+`core/audit` records access to the administrative surfaces and raises alerts on what looks like an intrusion. **On by default.**
+
+**This is the one place pb-ext stores personal data, and that is deliberate.** Analytics answers "how is the site used" and so keeps no identities at all; this answers "who tried to get into the admin panel", which is unanswerable without the client address, the user agent and the account an attempt targeted. The exception is scoped: `audit.WithPersonalData(ip, userAgent, identity bool)` switches each field off individually, `audit.WithEnabled(false)` turns the whole thing off, and everything is deleted after `RetentionDays` (90 by default) by `__pbExtAuditClean__`. Do not widen what is captured without a reason as specific as these.
+
+**What PocketBase already does, so we don't.** PB's `activityLogger` writes every request into `_logs` (aux db): url, method, status, execTime, referer, userAgent, auth collection, and `userIP`/`remoteIP` when `Settings.Logs.LogIP` is on — it defaults to **true**. Duplicating that would be waste. Four gaps justify this package:
+
+1. **A failed login never records which account was targeted.** The attempted identity is in the request body; PB logs a 400 and nothing more. This is the highest-value field in an intrusion investigation and it exists nowhere else. `OnRecordAuthWithPasswordRequest` is the only place it is observable.
+2. `Settings.Logs.LogAuthId` defaults to **false**, so the built-in log says "a superuser" and not which one.
+3. `Settings.Logs.MaxDays` defaults to **5**. Intrusions are usually noticed later than that.
+4. Admin access in `_logs` is a JSON blob among every other request — no rollup, nothing to alert on.
+
+**The submitted password is never read.** `RecordAuthWithPasswordRequestEvent` carries a `Password` field and nothing in the package touches it. `TestPackage_NeverReadsTheSubmittedPassword` parses the package's AST and fails on any selector named `Password` — a behavioural test cannot prove an absence, a source scan can. Don't defeat it.
+
+**What is captured** (`collector.go`): `/_/_` (pb-ext dashboard), `/_/` (PB admin UI, minus its static assets — the SPA pulls dozens per page view), any `/api/` call carrying superuser auth, anything targeting `_superusers`, plus every superuser auth success and failure. Query strings are stored with `token`/`password`/`secret`/`access_token`/`api_key` values replaced — an audit log is a place people paste into tickets.
+
+**Anonymous dashboard hits are `denied`, not `allowed`.** An unauthenticated GET of `/_/_` renders the login screen and returns 200 (`health.go`), so by status alone every probe would read as success. `outcomeOf` special-cases it; `TestOutcomeOf_AnonymousDashboardHitsAreDenials` pins it.
+
+**Zero database work on the request path**, and it matters more here than elsewhere: this code runs while the server is being scanned and must not become the thing that falls over. Events fold into a bounded map under one short mutex; a worker writes batches every `FlushInterval` (5s). **All detection runs on that worker** — both questions it asks ("how many failures from this address recently", "has this address ever signed in before") are database reads, and asking them from the auth handler would put a query on the login path an attacker is hammering, so the check meant to detect a flood would amplify it.
+
+**Repeats collapse.** Identical events inside one flush window become one row with `count` and `last_seen`. Ten thousand hits on `/_/` from one address in ten seconds is one row that says so, not ten thousand rows burying everything else.
+
+**At the ceiling, only *new* distinct keys are refused.** A flood from one source against one path is a single key, so it keeps being counted exactly — that flood is the reason the ceiling was reached, so losing its count would lose the thing worth knowing. Dropped events are counted and raise their own alert: a security log with a hole in it must say so.
+
+| Alert | Trigger | Level |
+|---|---|---|
+| Failed superuser login | Any rejected attempt | Warn, keyed per source |
+| Repeated failed logins | `BruteForceThreshold` (5) within `BruteForceWindow` (10m), counting rows already on record | Critical |
+| Sign-in from a new address | A successful auth from an IP with no prior success in the retained history | Warn |
+| Non-superuser on an admin surface | An authenticated non-superuser reaching `/_/`, `/_/_` or a superuser API route | Warn |
+| Auditing not recording | The `_admin_access` table is missing | Critical |
+
+A missing table is loud rather than silent: **an empty security log reads as "nothing happened"**, so `Initialize` logs an error, sets `Recording() == false`, alerts, and the dashboard card says "Not recording" instead of showing an empty table.
+
+`hasPriorSuccess` returns **true** on a query error — failing quiet, because a read failure must not manufacture a "new address" alert for somewhere the administrator signs in daily.
+
+**Endpoints**: `GET /api/audit/status`, `/api/audit/recent`, `/api/audit/sources`, all superuser-only and capped at 500 rows, so a stolen superuser token cannot bulk-export the log in one call. Dashboard card lives in the Alerts & Access section (`#alerts`).
 
 ## Analytics
 
@@ -178,6 +274,7 @@ Configure with the `With*` options passed to `analytics.Initialize`.
 - `routes.go` — how to initialize versioned API routers and register routes
 - `handlers.go` — how to use `API_SOURCE`, `API_DESC`, `API_TAGS` directives and define request/response types
 - `jobs.go` — how to register cron jobs with `GetJobManager().RegisterJob`
+- `alerts.go` — how to register a custom alert rule and send an ad-hoc alert
 - `collections.go` — how to define PocketBase collections programmatically
 
 ## Conventions
@@ -187,6 +284,7 @@ Configure with the `With*` options passed to `analytics.Initialize`.
 - pb-ext schema objects are prefixed with `_` (`_job_logs` collection in `data.db`, `_analytics` table in `auxiliary.db`), created via registered migrations
 - Schema changes go in a **new** migration file; never mutate an already-released one
 - Dashboard templates use Go `text/template` with `embed.FS`
+- **Dashboard tabs are driven by one list**, `DASHBOARD_TABS` in `templates/scripts/main.tmpl`. Adding a tab means one entry there plus a matching sidebar `<a class="…-tab" href="#name">` and a `<div id="name-section">` in `index.tmpl`; the wiring (guard, switch, initial hash, click handlers, hashchange) derives from the list. `TestDashboard_EveryRegisteredTabHasMarkup` fails if the three drift apart — which matters because `setupTabNavigation` bails out entirely when any section is missing, taking the whole sidebar down rather than just the new tab
 - Module path: `github.com/magooney-loon/pb-ext`
 - AST parser files are split by responsibility: `ast.go` (entry points), `ast_func.go` (handler/function analysis), `ast_struct.go` (struct/schema), `ast_metadata.go` (value/type resolution), `ast_file.go` (file utilities)
 - Registry is split: `registry.go` (core), `registry_routes.go` (route registration), `registry_spec.go` (OpenAPI spec generation)

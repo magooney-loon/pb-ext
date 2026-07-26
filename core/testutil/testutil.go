@@ -3,8 +3,12 @@
 package testutil
 
 import (
+	"context"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
 	"github.com/magooney-loon/pb-ext/core/analytics"
 
 	// pb-ext schemas are created by migrations registered from these packages'
@@ -15,8 +19,8 @@ import (
 )
 
 // NewTestApp creates a TestApp with PocketBase's system migrations and pb-ext's
-// registered migrations applied, so the _analytics table (auxiliary.db) and the
-// _job_logs collection (data.db) both exist.
+// registered migrations applied, so the _analytics and _alerts tables
+// (auxiliary.db) and the _job_logs collection (data.db) all exist.
 func NewTestApp(t testing.TB) *tests.TestApp {
 	t.Helper()
 	app, err := tests.NewTestApp(t.TempDir())
@@ -49,6 +53,82 @@ func NewAnalytics(t testing.TB, opts ...analytics.Option) (*tests.TestApp, *anal
 	})
 
 	return app, a
+}
+
+// AlertCapture is an alerts.Transport that records what it was asked to
+// deliver, so tests can assert on alerts without a network or a bot token.
+type AlertCapture struct {
+	mu       sync.Mutex
+	messages []alerts.Message
+	delivery chan alerts.Message
+}
+
+// NewAlertCapture creates a capturing transport.
+func NewAlertCapture() *AlertCapture {
+	return &AlertCapture{delivery: make(chan alerts.Message, 64)}
+}
+
+func (c *AlertCapture) Name() string                     { return "capture" }
+func (c *AlertCapture) Target() string                   { return "test capture" }
+func (c *AlertCapture) Verify(ctx context.Context) error { return nil }
+
+// Send records the message and never fails.
+func (c *AlertCapture) Send(ctx context.Context, m alerts.Message, instance string) error {
+	c.mu.Lock()
+	c.messages = append(c.messages, m)
+	c.mu.Unlock()
+
+	select {
+	case c.delivery <- m:
+	default:
+	}
+	return nil
+}
+
+// Messages returns everything delivered so far.
+func (c *AlertCapture) Messages() []alerts.Message {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]alerts.Message(nil), c.messages...)
+}
+
+// Wait blocks for the next delivery, failing the test if none arrives.
+// Delivery is asynchronous — a background worker owns every send — so tests
+// must wait rather than assert immediately after Send returns.
+func (c *AlertCapture) Wait(t testing.TB) alerts.Message {
+	t.Helper()
+	select {
+	case m := <-c.delivery:
+		return m
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for an alert")
+		return alerts.Message{}
+	}
+}
+
+// NewAlerts creates a TestApp plus a running Notifier wired to a capturing
+// transport. The notifier is closed during cleanup.
+//
+// Lifecycle notices are off by default so a test only sees the alerts it
+// provokes; pass alerts.WithLifecycleAlerts(true) to exercise them.
+func NewAlerts(t testing.TB, opts ...alerts.Option) (*tests.TestApp, *alerts.Notifier, *AlertCapture) {
+	t.Helper()
+
+	app := NewTestApp(t)
+	capture := NewAlertCapture()
+
+	defaults := []alerts.Option{
+		alerts.WithTransport(capture),
+		alerts.WithEnabled(true),
+		alerts.WithMinSendInterval(0),
+		alerts.WithLifecycleAlerts(false),
+		alerts.WithEvaluateInterval(time.Hour),
+	}
+
+	n := alerts.Initialize(app, append(defaults, opts...)...)
+	t.Cleanup(func() { _ = n.Close() })
+
+	return app, n, capture
 }
 
 // AnalyticsTotals returns the number of persisted _analytics rows along with the

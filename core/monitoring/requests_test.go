@@ -2,7 +2,6 @@ package monitoring
 
 import (
 	"fmt"
-	"math"
 	"sync"
 	"testing"
 	"time"
@@ -150,9 +149,6 @@ func TestCircularBuffer_Concurrent(t *testing.T) {
 func TestNewRequestStats(t *testing.T) {
 	stats := NewRequestStats()
 
-	if stats.pathStats == nil {
-		t.Error("Expected pathStats to be initialized")
-	}
 	if stats.recentRequests == nil {
 		t.Error("Expected recentRequests to be initialized")
 	}
@@ -177,22 +173,40 @@ func TestRequestStats_TrackRequest(t *testing.T) {
 
 	stats.TrackRequest(metrics)
 
-	// Check path stats
-	pathStat, exists := stats.pathStats["/api/users"]
-	if !exists {
-		t.Error("Expected path stats to be created")
+	totals := stats.Totals()
+	if totals.Requests != 1 {
+		t.Errorf("Expected 1 total request, got %d", totals.Requests)
 	}
-	if pathStat.TotalRequests != 1 {
-		t.Errorf("Expected 1 total request, got %d", pathStat.TotalRequests)
+	if totals.ClientErrors != 0 || totals.ServerErrors != 0 {
+		t.Errorf("Expected no errors, got %+v", totals)
 	}
-	if pathStat.TotalErrors != 0 {
-		t.Errorf("Expected 0 errors, got %d", pathStat.TotalErrors)
+
+	recent := stats.GetRecentRequests()
+	if len(recent) != 1 || recent[0].Path != "/api/users" {
+		t.Errorf("Expected the request in the recent ring, got %+v", recent)
 	}
-	if pathStat.StatusCodeCount[200] != 1 {
-		t.Errorf("Expected 1 count for status 200, got %d", pathStat.StatusCodeCount[200])
+}
+
+// Tracking must not accumulate anything keyed by the request path. The map that
+// used to live here was keyed by attacker-chosen input with no eviction and no
+// reader, which made every 404 from the static handler a permanent allocation.
+func TestRequestStats_TrackRequestIsBounded(t *testing.T) {
+	stats := NewRequestStats()
+
+	for i := 0; i < 50000; i++ {
+		stats.TrackRequest(RequestMetrics{
+			Path:       fmt.Sprintf("/junk/%d", i),
+			Method:     "GET",
+			StatusCode: 404,
+		})
 	}
-	if pathStat.AverageTime != 100*time.Millisecond {
-		t.Errorf("Expected average time 100ms, got %v", pathStat.AverageTime)
+
+	// The recent ring is the only per-request storage, and it is fixed size.
+	if got := len(stats.GetRecentRequests()); got != 100 {
+		t.Errorf("Expected the recent ring to stay at 100 entries, got %d", got)
+	}
+	if got := stats.Totals().Requests; got != 50000 {
+		t.Errorf("Expected 50000 counted requests, got %d", got)
 	}
 }
 
@@ -209,42 +223,33 @@ func TestRequestStats_TrackRequestWithError(t *testing.T) {
 
 	stats.TrackRequest(metrics)
 
-	pathStat := stats.pathStats["/api/users"]
-	if pathStat.TotalErrors != 1 {
-		t.Errorf("Expected 1 error, got %d", pathStat.TotalErrors)
+	totals := stats.Totals()
+	if totals.ServerErrors != 1 {
+		t.Errorf("Expected 1 server error, got %d", totals.ServerErrors)
 	}
-	if pathStat.StatusCodeCount[500] != 1 {
-		t.Errorf("Expected 1 count for status 500, got %d", pathStat.StatusCodeCount[500])
+	if totals.ClientErrors != 0 {
+		t.Errorf("Expected 0 client errors, got %d", totals.ClientErrors)
 	}
 }
 
-func TestRequestStats_AverageTimeCalculation(t *testing.T) {
+// 4xx and 5xx are counted apart: alerting on their sum would fire on any bot
+// sweeping for /wp-admin.
+func TestRequestStats_SeparatesClientAndServerErrors(t *testing.T) {
 	stats := NewRequestStats()
-	path := "/api/test"
 
-	// First request - should set average to the duration
-	metrics1 := RequestMetrics{
-		Path:     path,
-		Duration: 100 * time.Millisecond,
-	}
-	stats.TrackRequest(metrics1)
-
-	pathStat := stats.pathStats[path]
-	if pathStat.AverageTime != 100*time.Millisecond {
-		t.Errorf("Expected average time 100ms after first request, got %v", pathStat.AverageTime)
+	for _, code := range []int{200, 301, 404, 404, 418, 500, 503} {
+		stats.TrackRequest(RequestMetrics{Path: "/x", StatusCode: code})
 	}
 
-	// Second request - should use exponential moving average
-	metrics2 := RequestMetrics{
-		Path:     path,
-		Duration: 200 * time.Millisecond,
+	totals := stats.Totals()
+	if totals.Requests != 7 {
+		t.Errorf("Expected 7 requests, got %d", totals.Requests)
 	}
-	stats.TrackRequest(metrics2)
-
-	// With alpha = 0.1, new average should be: 100*(1-0.1) + 200*0.1 = 90 + 20 = 110ms
-	expectedAvg := 110 * time.Millisecond
-	if math.Abs(float64(pathStat.AverageTime-expectedAvg)) > float64(time.Millisecond) {
-		t.Errorf("Expected average time around %v, got %v", expectedAvg, pathStat.AverageTime)
+	if totals.ClientErrors != 3 {
+		t.Errorf("Expected 3 client errors, got %d", totals.ClientErrors)
+	}
+	if totals.ServerErrors != 2 {
+		t.Errorf("Expected 2 server errors, got %d", totals.ServerErrors)
 	}
 }
 
@@ -325,8 +330,8 @@ func TestRequestStats_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	// Verify final state
-	if len(stats.pathStats) != numGoroutines {
-		t.Errorf("Expected %d paths, got %d", numGoroutines, len(stats.pathStats))
+	if got := stats.Totals().Requests; got != uint64(numGoroutines*requestsPerGoroutine) {
+		t.Errorf("Expected %d counted requests, got %d", numGoroutines*requestsPerGoroutine, got)
 	}
 }
 
@@ -386,26 +391,6 @@ func TestFormatDuration(t *testing.T) {
 				t.Errorf("Expected formatted duration %s, got %s", tc.expected, result)
 			}
 		})
-	}
-}
-
-func TestPathStats(t *testing.T) {
-	pathStat := &PathStats{
-		StatusCodeCount: make(map[int]int64),
-	}
-
-	// Test initial state
-	if pathStat.TotalRequests != 0 {
-		t.Error("Expected initial TotalRequests to be 0")
-	}
-	if pathStat.TotalErrors != 0 {
-		t.Error("Expected initial TotalErrors to be 0")
-	}
-	if pathStat.AverageTime != 0 {
-		t.Error("Expected initial AverageTime to be 0")
-	}
-	if pathStat.LastAccessTime.IsZero() == false {
-		t.Error("Expected initial LastAccessTime to be zero")
 	}
 }
 

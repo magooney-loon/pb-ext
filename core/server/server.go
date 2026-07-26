@@ -1,14 +1,19 @@
 package server
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"time"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
 	"github.com/magooney-loon/pb-ext/core/analytics"
+	"github.com/magooney-loon/pb-ext/core/audit"
 	"github.com/magooney-loon/pb-ext/core/jobs"
+	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
@@ -16,12 +21,17 @@ import (
 
 // Server wraps PocketBase with additional stats
 type Server struct {
-	app         *pocketbase.PocketBase
-	stats       *ServerStats
-	analytics   *analytics.Analytics
-	jobManager  *jobs.Manager
-	jobHandlers *jobs.Handlers
-	options     *options
+	app          *pocketbase.PocketBase
+	stats        *ServerStats
+	requestStats *monitoring.RequestStats
+	analytics    *analytics.Analytics
+	alerts       *alerts.Notifier
+	alertHandler *alerts.Handlers
+	auditor      *audit.Auditor
+	auditHandler *audit.Handlers
+	jobManager   *jobs.Manager
+	jobHandlers  *jobs.Handlers
+	options      *options
 }
 
 // ServerStats tracks server metrics
@@ -73,6 +83,10 @@ func New(create_options ...Option) *Server {
 		stats: &ServerStats{
 			StartTime: time.Now(),
 		},
+		// Owned by the Server rather than by SetupLogging, so per-status request
+		// counts are available to the dashboard and to alerting whether or not
+		// the app opted into pb-ext's logging.
+		requestStats: monitoring.NewRequestStats(),
 	}
 }
 
@@ -98,6 +112,20 @@ func (s *Server) Start() error {
 		if err := applyOwnMigrations(app); err != nil {
 			return NewInternalError("bootstrap_migrations", "Failed to apply pb-ext migrations", err)
 		}
+
+		// Alerts come up before the job manager so a failure registering or
+		// running a job can already be reported. Initialize never fails: an
+		// unconfigured or broken notifier is a working no-op, because a server
+		// that refuses to boot over its notification channel has turned a
+		// convenience into an outage.
+		s.alerts = alerts.Initialize(app, append(s.options.alerts, alerts.WithMetrics(s.metricsSnapshot))...)
+		s.alertHandler = alerts.NewHandlers(s.alerts)
+
+		// Admin access auditing. The auth hooks bind to the app rather than the
+		// router, so they must be registered here, before serving starts.
+		s.auditor = audit.Initialize(app, s.options.audit...)
+		s.auditHandler = audit.NewHandlers(s.auditor)
+		s.auditor.RegisterHooks(app)
 
 		// Initialize job management system
 		jobManager, err := jobs.Initialize(app)
@@ -131,6 +159,24 @@ func (s *Server) Start() error {
 				app.Logger().Error("Failed to flush analytics on shutdown", "error", err)
 			}
 		}
+
+		// Persist any admin access still buffered. This runs before the alert
+		// shutdown below, so a final flush that trips a detector can still send.
+		if s.auditor != nil {
+			if err := s.auditor.Close(); err != nil {
+				app.Logger().Error("Failed to flush the admin access log on shutdown", "error", err)
+			}
+		}
+
+		// Marking the run clean is what stops the next boot reporting a crash,
+		// so it happens on a restart too — a dev-mode reload is not an incident.
+		// NotifyStopped only queues; Close is what drains, within its own
+		// deadline, so a wedged transport cannot hold the process open.
+		if s.alerts != nil {
+			s.alerts.NotifyStopped(e.IsRestart)
+			_ = s.alerts.Close()
+		}
+
 		return e.Next()
 	})
 
@@ -163,6 +209,23 @@ func (s *Server) Start() error {
 			s.stats.LastRequestTime.Store(time.Now().Unix())
 
 			duration := time.Since(start).Nanoseconds()
+
+			// Per-status tracking lives here rather than in SetupLogging so it
+			// runs for every app, and reads the response status directly —
+			// TotalErrors below only counts handlers that *returned* an error,
+			// so a handler that writes its own 500 never reaches it.
+			if !shouldExcludeFromStats(c.Request.URL.Path) {
+				s.requestStats.TrackRequest(monitoring.RequestMetrics{
+					Path:          c.Request.URL.Path,
+					Method:        c.Request.Method,
+					StatusCode:    responseStatus(c),
+					Duration:      time.Duration(duration),
+					Timestamp:     start,
+					UserAgent:     c.Request.UserAgent(),
+					ContentLength: c.Request.ContentLength,
+					RemoteAddr:    c.Request.RemoteAddr,
+				})
+			}
 
 			// Only update average request time for non-excluded requests
 			if !shouldExcludeFromStats(c.Request.URL.Path) {
@@ -208,6 +271,23 @@ func (s *Server) Start() error {
 		if s.jobHandlers != nil {
 			s.jobHandlers.RegisterRoutes(e)
 			app.Logger().Info("⚡ Job API routes registered")
+		}
+
+		// Register alert routes and claim the run marker. NotifyStarted is what
+		// reports an unclean previous exit, so it must run on every boot —
+		// including when alerting itself is disabled, which still maintains the
+		// marker so enabling it later needs no clean shutdown first.
+		if s.alerts != nil {
+			s.alertHandler.RegisterRoutes(e)
+			s.alerts.NotifyStarted()
+		}
+
+		// Admin access auditing. Registered after the analytics middleware so
+		// the two never see each other's work: analytics excludes /_/ outright,
+		// this records only /_/ and superuser activity.
+		if s.auditor != nil {
+			s.auditor.RegisterRoutes(e)
+			s.auditHandler.RegisterRoutes(e)
 		}
 
 		// Initialize API documentation system
@@ -283,4 +363,59 @@ func (s *Server) App() *pocketbase.PocketBase {
 // Stats returns the current server statistics
 func (s *Server) Stats() *ServerStats {
 	return s.stats
+}
+
+// RequestStats returns the per-path, per-status request tracker.
+func (s *Server) RequestStats() *monitoring.RequestStats {
+	return s.requestStats
+}
+
+// Alerts returns the notifier. It is nil until OnBootstrap has run; use
+// alerts.Get from application code, which is never nil.
+func (s *Server) Alerts() *alerts.Notifier {
+	return s.alerts
+}
+
+// Auditor returns the admin access auditor. It is nil until OnBootstrap has run.
+func (s *Server) Auditor() *audit.Auditor {
+	return s.auditor
+}
+
+// responseStatus reports the status a request finished with. A zero status
+// means the handler wrote a body without an explicit code, which net/http
+// reports to the client as 200.
+func responseStatus(c *core.RequestEvent) int {
+	if status := c.Status(); status != 0 {
+		return status
+	}
+	return 200
+}
+
+// metricsSnapshot feeds the alert rules. It is called on the evaluator tick
+// (every 30s by default); CollectSystemStats memoizes for 2s, so the cost is
+// one real collection per tick.
+func (s *Server) metricsSnapshot() alerts.Metrics {
+	totals := s.requestStats.Totals()
+
+	m := alerts.Metrics{
+		Requests:     totals.Requests,
+		ClientErrors: totals.ClientErrors,
+		ServerErrors: totals.ServerErrors,
+		Goroutines:   runtime.NumGoroutine(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// A partial collection still returns usable stats alongside its error, the
+	// same way the dashboard treats it — a host without sensors is not a
+	// reason to stop watching memory.
+	sys, _ := monitoring.CollectSystemStats(ctx, s.stats.StartTime, s.app.DataDir())
+	if sys != nil {
+		m.CPUPercent = averageCPUUsage(sys.CPUInfo)
+		m.MemoryPercent = sys.MemoryInfo.UsedPercent
+		m.DiskPercent = sys.DiskUsagePercent
+	}
+
+	return m
 }

@@ -1,0 +1,188 @@
+{{define "alerts_status"}}
+{{if .AlertsData}}
+<div class="section m-t-base">
+    <header class="section-header">
+        <h4 class="section-title">
+            <i class="ri-notification-3-line"></i>
+            Alerts
+        </h4>
+        <div class="flex-fill"></div>
+        <button type="button" class="btn btn-sm btn-hint" onclick="sendTestAlert(event)" id="alerts-test-btn" title="Send a test message to the configured chat">
+            <i class="ri-send-plane-line"></i>
+            <span>Send test</span>
+        </button>
+    </header>
+
+    <div class="grid grid-sm-2 grid-xl-4 gap-base">
+        <!-- Delivery status -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10"><i class="ri-plug-line"></i> Status</h6>
+                {{if .AlertsData.Misconfigured}}
+                <h4 class="m-b-10 txt-danger">Misconfigured</h4>
+                {{else if .AlertsData.Enabled}}
+                <h4 class="m-b-10 txt-success">Active</h4>
+                {{else}}
+                <h4 class="m-b-10 txt-hint">Disabled</h4>
+                {{end}}
+
+                {{if .AlertsData.Reason}}
+                <div class="txt-hint txt-sm m-b-10">{{escapeHTML .AlertsData.Reason}}</div>
+                {{end}}
+
+                <div class="flex">
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Transport</div>
+                        <div class="txt-sm">{{if .AlertsData.Transport}}{{.AlertsData.Transport}}{{else}}none{{end}}</div>
+                    </div>
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Target</div>
+                        <div class="txt-sm" title="{{escapeHTML .AlertsData.Target}}">{{if .AlertsData.Target}}{{escapeHTML .AlertsData.Target}}{{else}}—{{end}}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delivered -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10"><i class="ri-check-double-line"></i> Delivered</h6>
+                <h4 class="m-b-10">{{.AlertsData.Sent}}</h4>
+                <div class="flex">
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm" title="Deliveries that exhausted their retries">Failed</div>
+                        <div>{{.AlertsData.Failed}}</div>
+                    </div>
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Last sent</div>
+                        <div class="txt-sm">{{if .AlertsData.LastSent.IsZero}}never{{else}}{{formatTime .AlertsData.LastSent}}{{end}}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Held back -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10" title="Alerts the cooldown, the hourly cap or a full queue held back"><i class="ri-filter-line"></i> Held back</h6>
+                <h4 class="m-b-10">{{.AlertsData.Suppressed}}</h4>
+                <div class="flex">
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm" title="Dropped because the queue was full">Dropped</div>
+                        <div>{{.AlertsData.Dropped}}</div>
+                    </div>
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Queued</div>
+                        <div>{{.AlertsData.Queued}} / {{.AlertsData.QueueSize}}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rules -->
+        <div class="card view-card">
+            <div class="card-body">
+                <h6 class="txt-hint m-b-10"><i class="ri-radar-line"></i> Rules</h6>
+                <h4 class="m-b-10">{{.AlertsData.Rules}}</h4>
+                <div class="flex">
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm" title="Rules whose condition currently holds">Firing</div>
+                        <div>{{if .AlertsData.Firing}}<span class="txt-warning">{{.AlertsData.Firing}}</span>{{else}}0{{end}}</div>
+                    </div>
+                    <div class="column flex-fill">
+                        <div class="txt-hint txt-sm">Instance</div>
+                        <div class="txt-sm">{{if .AlertsData.Instance}}{{escapeHTML .AlertsData.Instance}}{{else}}—{{end}}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{if .AlertsData.LastError}}
+    <div class="card view-card m-t-base">
+        <div class="card-body">
+            <h6 class="txt-hint m-b-10"><i class="ri-error-warning-line"></i> Last delivery error</h6>
+            <div class="txt-sm txt-danger">{{escapeHTML .AlertsData.LastError}}</div>
+            {{if not .AlertsData.LastErrorTime.IsZero}}
+            <div class="txt-hint txt-sm m-t-5">{{formatTime .AlertsData.LastErrorTime}}</div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
+    <div class="card view-card m-t-base">
+        <div class="card-body">
+            <h6 class="txt-hint m-b-10"><i class="ri-history-line"></i> Recent alerts</h6>
+            {{if .AlertsData.Recent}}
+            <table class="table table-compact m-t-10">
+                <tbody>
+                    {{range $index, $rec := .AlertsData.Recent}}
+                        {{if lt $index 8}}
+                        <tr>
+                            <td width="80" class="txt-sm">{{formatTime $rec.Created}}</td>
+                            <td width="30" class="txt-center">
+                                {{if eq $rec.Level "critical"}}
+                                <i class="ri-alarm-warning-line txt-danger txt-sm" title="critical"></i>
+                                {{else if eq $rec.Level "error"}}
+                                <i class="ri-error-warning-line txt-danger txt-sm" title="error"></i>
+                                {{else if eq $rec.Level "warn"}}
+                                <i class="ri-alert-line txt-warning txt-sm" title="warn"></i>
+                                {{else}}
+                                <i class="ri-information-line txt-hint txt-sm" title="info"></i>
+                                {{end}}
+                            </td>
+                            <td class="txt-sm" title="{{escapeHTML $rec.Text}}">{{escapeHTML $rec.Title}}</td>
+                            <td width="70" class="txt-right txt-sm">
+                                {{if eq $rec.Status "sent"}}
+                                <span class="txt-hint">sent</span>
+                                {{else}}
+                                <span class="txt-danger" title="{{escapeHTML $rec.Error}}">{{escapeHTML $rec.Status}}</span>
+                                {{end}}
+                            </td>
+                        </tr>
+                        {{end}}
+                    {{end}}
+                </tbody>
+            </table>
+            {{else}}
+            <div class="txt-hint txt-sm">No alerts delivered yet.</div>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<script>
+    async function sendTestAlert(event) {
+        event.preventDefault();
+
+        const btn = document.getElementById('alerts-test-btn');
+        const result = findPBSuperuserToken();
+        if (!result.token) {
+            alert('No superuser auth token found in localStorage');
+            return;
+        }
+
+        if (btn) btn.disabled = true;
+        try {
+            const response = await fetch('/api/alerts/test', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + result.token,
+                    'Content-Type': 'application/json'
+                }
+            });
+            const data = await response.json();
+            if (response.ok && data.success) {
+                alert('Test alert delivered to ' + (data.target || 'the configured chat'));
+            } else {
+                alert('Test alert failed: ' + (data.error || response.status));
+            }
+        } catch (error) {
+            alert('Test alert failed: ' + error.message);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+</script>
+{{end}}
+{{end}}

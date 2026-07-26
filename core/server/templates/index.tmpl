@@ -41,32 +41,52 @@
             }, 100);
         }
 
+        // One icon per mode, auto included.
+        //
+        // Auto used to borrow the sun or the moon depending on what the system
+        // happened to resolve to, which made it indistinguishable from an
+        // explicit choice: cycling dark → auto on a dark-mode machine left the
+        // moon showing and the button looked broken. The half-filled contrast
+        // glyph is the conventional "follow the system" mark.
+        var THEME_ICONS = {
+            light: 'ri-sun-line',
+            dark: 'ri-moon-line',
+            auto: 'ri-contrast-2-line'
+        };
+
         function updateThemeIcon(effective, scheme) {
             var btn = document.getElementById('theme-toggle');
             if (!btn) return;
             var icon = btn.querySelector('i');
             if (!icon) return;
-            if (scheme === 'auto') {
-                icon.className = effective === 'dark' ? 'ri-moon-line' : 'ri-sun-line';
-            } else {
-                icon.className = scheme === 'dark' ? 'ri-moon-line' : 'ri-sun-line';
-            }
-            // Show a small indicator for auto mode
-            btn.title = scheme === 'auto' ? 'Auto (' + effective + ')' : scheme.charAt(0).toUpperCase() + scheme.slice(1);
+
+            icon.className = THEME_ICONS[scheme] || THEME_ICONS.auto;
+
+            // Name the current mode and what clicking does next, so a
+            // three-way cycle is discoverable from a one-button control.
+            var label = scheme === 'auto'
+                ? 'Theme: auto (' + effective + ')'
+                : 'Theme: ' + scheme;
+            var next = PB_THEMES[(PB_THEMES.indexOf(scheme) + 1) % PB_THEMES.length];
+
+            btn.title = label + ' — click for ' + next;
+            btn.setAttribute('aria-label', label);
         }
 
         function cycleColorScheme() {
             var current = getCurrentScheme();
-            var idx = PB_THEMES.indexOf(current);
-            var next = PB_THEMES[(idx + 1) % PB_THEMES.length];
-            if (next === 'auto') {
-                localStorage.removeItem(PB_THEME_KEY);
-            } else {
-                localStorage.setItem(PB_THEME_KEY, next);
-            }
+            var next = PB_THEMES[(PB_THEMES.indexOf(current) + 1) % PB_THEMES.length];
+
+            // Auto is stored as the empty string rather than removed: the key is
+            // shared with PocketBase's own admin UI, which reads "" as "no
+            // preference", so either UI changing it brings the other along.
+            // Persistence is attempted first but never allowed to block the
+            // visual switch — localStorage throws in some private-browsing modes.
+            try {
+                localStorage.setItem(PB_THEME_KEY, next === 'auto' ? '' : next);
+            } catch (e) {}
+
             applyScheme(next);
-            // Also sync PocketBase admin if it's open (same origin)
-            try { localStorage.setItem(PB_THEME_KEY, next === 'auto' ? '' : next); } catch(e) {}
         }
 
         // Listen for system preference changes (for auto mode)
@@ -110,11 +130,22 @@
                 <nav class="main-menu">
                     <a href="#health" class="menu-item health-tab" aria-label="Health" title="Health"><i class="ri-heart-pulse-line"></i></a>
                     <a href="#analytics" class="menu-item analytics-tab" aria-label="Analytics" title="Analytics"><i class="ri-bar-chart-line"></i></a>
+                    <a href="#alerts" class="menu-item alerts-tab" aria-label="Alerts and admin access" title="Alerts &amp; Access"><i class="ri-shield-flash-line"></i></a>
                     <a href="#api" class="menu-item api-tab" aria-label="API" title="API"><i class="ri-code-s-slash-line"></i></a>
                     <a href="#cron" class="menu-item cron-tab" aria-label="Cron Jobs" title="Cron Jobs"><i class="ri-time-line"></i></a>
                     <a href="#rules" class="menu-item rules-tab" aria-label="Rules" title="Rules"><i class="ri-lock-line"></i></a>
                 </nav>
-                <div onclick="cycleColorScheme()" class="menu-item thumb thumb-circle link-hint" aria-label="Theme" title="Toggle theme" id="theme-toggle"><i class="ri-sun-line"></i></div>
+                <div onclick="cycleColorScheme()" class="menu-item thumb thumb-circle link-hint" aria-label="Theme" title="Toggle theme" id="theme-toggle"><i class="ri-contrast-2-line"></i></div>
+                <script>
+                    // Correct the icon the moment the button exists rather than
+                    // waiting for DOMContentLoaded. The markup has to ship
+                    // *some* icon, and the server cannot know the visitor's
+                    // stored preference, so without this the wrong glyph paints
+                    // first and visibly flips — the same flash the inline
+                    // data-color-scheme script in <head> exists to prevent for
+                    // the page itself.
+                    updateThemeIcon(getEffectiveScheme(getCurrentScheme()), getCurrentScheme());
+                </script>
                 <div onclick="openDebugAPI(event)" target="_blank" class="menu-item thumb thumb-circle link-hint" aria-label="Debug" title="Debug AST"><i class="ri-bug-line"></i></div>
             </aside>
             <div class="app-body" id="content" style="opacity: 0;">
@@ -147,6 +178,23 @@
                             <div class="panels-grid">
                                 {{template "network_details" .}}
                             </div>
+                        </div>
+                    </main>
+                </div>
+
+                <!-- Alerts & Admin Access Section -->
+                <div id="alerts-section" class="section-content" style="display: none;">
+                    <main class="page-content">
+                        <div class="dashboard-wrapper">
+                            {{template "header" .}}
+
+                            <!-- Admin access audit: who reached the admin
+                                 surfaces, and who was turned away -->
+                            {{template "admin_access" .}}
+
+                            <!-- Alerting status: whether the notifications
+                                 about all of the above are getting out -->
+                            {{template "alerts_status" .}}
                         </div>
                     </main>
                 </div>

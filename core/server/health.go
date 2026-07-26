@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"html"
 	"io/fs"
 	"log"
 	"net/http"
@@ -15,7 +16,9 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
 	"github.com/magooney-loon/pb-ext/core/analytics"
+	"github.com/magooney-loon/pb-ext/core/audit"
 	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/spf13/cast"
 
@@ -102,16 +105,7 @@ var templateFuncs = template.FuncMap{
 		}
 		return float64(errors) * 100 / float64(total)
 	},
-	"avgCPUUsage": func(cpus []monitoring.CPUInfo) float64 {
-		if len(cpus) == 0 {
-			return 0
-		}
-		var total float64
-		for _, cpu := range cpus {
-			total += cpu.Usage
-		}
-		return total / float64(len(cpus))
-	},
+	"avgCPUUsage": averageCPUUsage,
 	"formatBytes": func(bytes uint64) string {
 		const unit = 1024
 		if bytes < unit {
@@ -164,6 +158,12 @@ var templateFuncs = template.FuncMap{
 	"formatTime": func(t time.Time) string {
 		return t.Format("15:04:05")
 	},
+	// escapeHTML is mandatory for anything that did not originate in this
+	// repository. The dashboard renders with text/template, which does not
+	// escape anything, and alert titles and delivery errors carry error strings
+	// that can quote a request path or a panic value — i.e. attacker-influenced
+	// text — straight into the page.
+	"escapeHTML": html.EscapeString,
 	"inc": func(i int) int {
 		return i + 1
 	},
@@ -253,6 +253,20 @@ var templateFuncs = template.FuncMap{
 	},
 }
 
+// averageCPUUsage is the mean usage across cores, guarded so a collection that
+// returned no entries renders 0 rather than NaN. Shared by the dashboard
+// template and the alert rules so both read the same figure.
+func averageCPUUsage(cpus []monitoring.CPUInfo) float64 {
+	if len(cpus) == 0 {
+		return 0
+	}
+	var total float64
+	for _, cpu := range cpus {
+		total += cpu.Usage
+	}
+	return total / float64(len(cpus))
+}
+
 // DashboardData is the payload the /_/_ dashboard templates render.
 //
 // It is a named type so tests can render the full page against deliberately
@@ -270,6 +284,8 @@ type DashboardData struct {
 	LastCheckTime    time.Time
 	RequestRate      float64
 	AnalyticsData    *analytics.Data
+	AlertsData       *alerts.Data
+	AuditData        *audit.Data
 	PBAdminURL       string
 }
 
@@ -310,6 +326,11 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 		analyticsData = analytics.DefaultData()
 	}
 
+	// Data is nil-safe, so an uninitialised notifier renders the card as
+	// "not configured" rather than taking the dashboard down.
+	alertsData := s.alerts.Data()
+	auditData := s.auditor.Data()
+
 	// Prepare template data
 	data := DashboardData{
 		Status:           "Healthy",
@@ -322,6 +343,8 @@ func (s *Server) prepareTemplateData() (interface{}, error) {
 		LastCheckTime:    time.Now(),
 		RequestRate:      requestRate(s.stats.TotalRequests.Load(), time.Since(s.stats.StartTime)),
 		AnalyticsData:    analyticsData,
+		AlertsData:       alertsData,
+		AuditData:        auditData,
 		PBAdminURL:       "/_/",
 	}
 

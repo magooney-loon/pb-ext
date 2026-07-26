@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
 	"github.com/magooney-loon/pb-ext/core/analytics"
 	"github.com/magooney-loon/pb-ext/core/jobs"
 	"github.com/pocketbase/dbx"
@@ -26,13 +27,14 @@ func newApp(t *testing.T) *tests.TestApp {
 
 // pbExtSchemaExists reports whether each of pb-ext's schema objects is present.
 // They no longer live in the same database: _job_logs is a data.db collection,
-// while _analytics is a plain table in auxiliary.db.
+// while _analytics and _alerts are plain tables in auxiliary.db.
 func pbExtSchemaExists(app core.App) map[string]bool {
 	_, jobsErr := app.FindCollectionByNameOrId(jobs.Collection)
 
 	return map[string]bool{
 		jobs.Collection:     jobsErr == nil,
 		analytics.TableName: app.AuxHasTable(analytics.TableName),
+		alerts.TableName:    app.AuxHasTable(alerts.TableName),
 	}
 }
 
@@ -93,17 +95,21 @@ func TestApplyOwnMigrations_RecreatesDeletedAuxTable(t *testing.T) {
 		t.Fatalf("applyOwnMigrations: %v", err)
 	}
 
-	// Drop the table only — the _migrations row stays behind, exactly as it
+	// Drop the tables only — the _migrations rows stay behind, exactly as they
 	// would after someone removed auxiliary.db.
-	if _, err := app.AuxDB().NewQuery("DROP TABLE " + analytics.TableName).Execute(); err != nil {
-		t.Fatalf("drop aux table: %v", err)
+	for _, table := range []string{analytics.TableName, alerts.TableName} {
+		if _, err := app.AuxDB().NewQuery("DROP TABLE " + table).Execute(); err != nil {
+			t.Fatalf("drop aux table %s: %v", table, err)
+		}
 	}
 
 	if err := applyOwnMigrations(app); err != nil {
 		t.Fatalf("applyOwnMigrations after aux table loss: %v", err)
 	}
-	if !app.AuxHasTable(analytics.TableName) {
-		t.Errorf("%s was not recreated; ReapplyCondition did not fire", analytics.TableName)
+	for _, table := range []string{analytics.TableName, alerts.TableName} {
+		if !app.AuxHasTable(table) {
+			t.Errorf("%s was not recreated; ReapplyCondition did not fire", table)
+		}
 	}
 }
 

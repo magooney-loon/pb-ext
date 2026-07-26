@@ -2,11 +2,14 @@ package server
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
 	"github.com/magooney-loon/pb-ext/core/analytics"
+	"github.com/magooney-loon/pb-ext/core/audit"
 	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -56,7 +59,59 @@ func baseDashboardData() DashboardData {
 		LastCheckTime:    time.Now(),
 		RequestRate:      2.5,
 		AnalyticsData:    analytics.DefaultData(),
+		AlertsData:       alerts.DefaultData(),
+		AuditData:        audit.DefaultData(),
 		PBAdminURL:       "/_/",
+	}
+}
+
+// populatedAuditData exercises the admin access card: every event kind, a
+// source rollup, and a dropped-event count.
+func populatedAuditData() *audit.Data {
+	return &audit.Data{
+		Stats: audit.Stats{
+			Enabled: true, Pending: 3, Dropped: 0, Written: 128,
+			TotalEvents: 128, AuthFailures: 9, AuthSuccesses: 2,
+			DeniedAttempts: 41, DistinctIPs: 6,
+			LastFailure: time.Now().Add(-2 * time.Minute),
+			LastSuccess: time.Now().Add(-3 * time.Hour),
+		},
+		Recent: []audit.Record{
+			{Created: time.Now(), Kind: "auth_failure", Method: "POST", Path: "/api/collections/_superusers/auth-with-password",
+				Status: 400, Outcome: "denied", AuthState: "anonymous", Identity: "admin@example.com", IP: "203.0.113.7", Count: 4},
+			{Created: time.Now(), Kind: "auth_success", Method: "POST", Path: "/api/collections/_superusers/auth-with-password",
+				Status: 200, Outcome: "allowed", AuthState: "superuser", Identity: "ops@example.com", IP: "198.51.100.4", Count: 1},
+			{Created: time.Now(), Kind: "pbext_dashboard", Method: "GET", Path: "/_/_",
+				Status: 200, Outcome: "denied", AuthState: "anonymous", IP: "203.0.113.99", Count: 17},
+			{Created: time.Now(), Kind: "admin_api", Method: "PATCH", Path: "/api/collections/todos/records/x1", Query: "token=<redacted>",
+				Status: 200, Outcome: "allowed", AuthState: "superuser", Identity: "ops@example.com", IP: "198.51.100.4", Count: 1},
+		},
+		TopIPs: []audit.IPSummary{
+			{IP: "203.0.113.7", Events: 42, Failures: 9, LastSeen: time.Now()},
+			{IP: "198.51.100.4", Events: 12, Successes: 2, LastSeen: time.Now()},
+		},
+	}
+}
+
+// populatedAlertsData exercises every branch of the alerts card: a configured
+// transport, non-zero counters, a delivery error and history at each level.
+func populatedAlertsData() *alerts.Data {
+	return &alerts.Data{
+		Stats: alerts.Stats{
+			Enabled: true, Transport: "telegram", Target: "chat -100123",
+			Instance: "prod-1", QueueSize: 256, Queued: 2,
+			Sent: 41, Failed: 2, Dropped: 1, Suppressed: 7,
+			Rules: 4, Firing: 1,
+			LastSent:      time.Now().Add(-3 * time.Minute),
+			LastError:     "sendMessage failed: 502 Bad Gateway",
+			LastErrorTime: time.Now().Add(-time.Hour),
+		},
+		Recent: []alerts.Record{
+			{Created: time.Now(), Level: "critical", Title: "Server recovered from an unexpected exit", Status: "sent"},
+			{Created: time.Now(), Level: "error", Title: "Cron job failed", Status: "failed", Error: "timeout"},
+			{Created: time.Now(), Level: "warn", Title: "CPU usage 94.0%", Status: "sent"},
+			{Created: time.Now(), Level: "info", Title: "Server started", Status: "sent"},
+		},
 	}
 }
 
@@ -112,6 +167,188 @@ func TestDashboard_RendersHealthyData(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered dashboard is missing %q", want)
 		}
+	}
+}
+
+func TestDashboard_RendersPopulatedAlerts(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+	data.AlertsData = populatedAlertsData()
+
+	out := renderDashboard(t, data)
+	assertNoBadNumbers(t, out)
+
+	for _, want := range []string{"Cron job failed", "chat -100123", "Bad Gateway", "Active"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered dashboard is missing %q", want)
+		}
+	}
+}
+
+// The dashboard renders with text/template, which escapes nothing. Alert titles
+// and delivery errors quote request paths and panic values, so they are
+// attacker-influenced text landing in a page.
+func TestDashboard_EscapesAlertText(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+	data.AlertsData = populatedAlertsData()
+	data.AlertsData.Recent[0].Title = `<script>alert(1)</script>`
+	data.AlertsData.Recent[0].Text = `" onmouseover="alert(2)`
+	data.AlertsData.LastError = `<img src=x onerror=alert(3)>`
+
+	out := renderDashboard(t, data)
+
+	for _, bad := range []string{"<script>alert(1)", `" onmouseover="`, "<img src=x"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("unescaped alert text reached the page: %q", bad)
+		}
+	}
+	if !strings.Contains(out, "&lt;script&gt;") {
+		t.Error("expected the alert title to render escaped")
+	}
+}
+
+// A nil AlertsData means the notifier never came up. That must degrade to a
+// missing card, not a template error.
+func TestDashboard_RendersWithNilAlerts(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+	data.AlertsData = nil
+
+	out := renderDashboard(t, data)
+	assertNoBadNumbers(t, out)
+}
+
+// The sidebar is wired from a single list in scripts/main.tmpl, and each entry
+// needs a matching nav item and section in index.tmpl. Nothing at build time
+// connects the three, so a tab added to one and not the others produces a
+// sidebar button that does nothing, or content with no way to reach it — and
+// the tab wiring bails out entirely if any section is missing, which would take
+// the whole sidebar down rather than just the new tab.
+func TestDashboard_EveryRegisteredTabHasMarkup(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+
+	out := renderDashboard(t, data)
+
+	entry := regexp.MustCompile(`\{ name: '([\w-]+)',\s*tab: '\.([\w-]+)',\s*section: '([\w-]+)'`)
+	matches := entry.FindAllStringSubmatch(out, -1)
+	if len(matches) == 0 {
+		t.Fatal("found no tab definitions in the rendered page; has DASHBOARD_TABS been renamed?")
+	}
+
+	seen := map[string]bool{}
+	for _, m := range matches {
+		name, tabClass, sectionID := m[1], m[2], m[3]
+		seen[name] = true
+
+		if !strings.Contains(out, tabClass) {
+			t.Errorf("tab %q is registered but no element carries the class %q", name, tabClass)
+		}
+		if !strings.Contains(out, `id="`+sectionID+`"`) {
+			t.Errorf("tab %q is registered but there is no section with id %q", name, sectionID)
+		}
+		if !strings.Contains(out, `href="#`+name+`"`) {
+			t.Errorf("tab %q is registered but no sidebar item links to #%s", name, name)
+		}
+	}
+
+	// The tabs that must not silently disappear.
+	for _, required := range []string{"health", "analytics", "alerts", "api", "cron", "rules"} {
+		if !seen[required] {
+			t.Errorf("the %q tab is no longer registered", required)
+		}
+	}
+}
+
+// The theme control cycles light → dark → auto through one button, so each mode
+// needs its own glyph. Auto used to reuse the sun or the moon depending on what
+// the system resolved to, which made it indistinguishable from an explicit
+// choice — cycling into it looked like the button had failed.
+//
+// The icons come from the Remix set PocketBase's admin UI ships, which is
+// loaded at runtime by the CSS piggyback, so a name that set does not define
+// renders as an empty box with nothing to catch it. These are the three that
+// exist in that bundle.
+func TestDashboard_ThemeToggleHasADistinctIconPerMode(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+
+	out := renderDashboard(t, data)
+
+	for mode, icon := range map[string]string{
+		"light": "ri-sun-line",
+		"dark":  "ri-moon-line",
+		"auto":  "ri-contrast-2-line",
+	} {
+		if !strings.Contains(out, icon) {
+			t.Errorf("theme mode %q has no icon: %q is not referenced", mode, icon)
+		}
+	}
+
+	// Auto must not share a glyph with either explicit mode.
+	if strings.Contains(out, "auto: 'ri-sun-line'") || strings.Contains(out, "auto: 'ri-moon-line'") {
+		t.Error("the auto theme reuses the light or dark icon; it needs its own")
+	}
+}
+
+func TestDashboard_RendersAdminAccess(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+	data.AuditData = populatedAuditData()
+
+	out := renderDashboard(t, data)
+	assertNoBadNumbers(t, out)
+
+	for _, want := range []string{"Admin Access", "admin@example.com", "203.0.113.7", "9 failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered dashboard is missing %q", want)
+		}
+	}
+}
+
+// Every identifying field on the audit card comes from the network: the user
+// agent, the referer, the path, and the account name a login attempt supplied.
+func TestDashboard_EscapesAuditText(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+	data.AuditData = populatedAuditData()
+	data.AuditData.Recent[0].Identity = `<script>alert(1)</script>`
+	data.AuditData.Recent[0].UserAgent = `" onmouseover="alert(2)`
+	data.AuditData.Recent[0].Path = `/_/<img src=x onerror=alert(3)>`
+	data.AuditData.TopIPs[0].IP = `<b>1.2.3.4</b>`
+
+	out := renderDashboard(t, data)
+
+	for _, bad := range []string{"<script>alert(1)", `" onmouseover="`, "<img src=x", "<b>1.2.3.4</b>"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("unescaped audit text reached the page: %q", bad)
+		}
+	}
+}
+
+// A nil AuditData means the auditor never came up.
+func TestDashboard_RendersWithNilAudit(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+	data.AuditData = nil
+
+	out := renderDashboard(t, data)
+	assertNoBadNumbers(t, out)
+}
+
+// A disabled auditor must say it is not recording, rather than showing an empty
+// log that reads as "nothing happened".
+func TestDashboard_SaysWhenAuditingIsOff(t *testing.T) {
+	data := baseDashboardData()
+	data.SystemStats = healthySystemStats()
+	data.AuditData = audit.DefaultData()
+
+	out := renderDashboard(t, data)
+	assertNoBadNumbers(t, out)
+
+	if !strings.Contains(out, "Not recording") {
+		t.Error("the dashboard does not say that admin access auditing is off")
 	}
 }
 
