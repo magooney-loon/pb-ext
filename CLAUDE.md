@@ -112,6 +112,8 @@ On Linux `Free` is `MemFree` — completely untouched pages — which sits near 
 
 `Totals()` counts 4xx and 5xx separately, because alerting on the sum fires on any bot sweeping for `/wp-admin`. Prefer it over `GetRequestRate()` for anything that computes a rate — see the note in the Alerts section.
 
+**Process** (`process.go`): `OpenFiles` alone is not an alertable figure. The soft `RLIMIT_NOFILE` is 1024 on some hosts and 1048576 on others, so the same count means "about to fail" or "idle" depending on the machine — `OpenFilesPercent` is the ratio against `OpenFilesLimit`, and that is what the saturation rule watches. `OpenFilesLimit` is 0 where the ceiling is unknown (Windows, or a failed `Getrlimit`), which every consumer must treat as "skip the check", never as "0%". The lookup is build-tagged: `rlimit_unix.go` / `rlimit_other.go`.
+
 **Runtime** (`runtime.go`): `HeapObjects` is a *count* of live objects, not a size. Dividing it by 1048576 and labelling it MB renders a meaningless near-zero figure; use `AllocatedBytes` for heap size and the `formatCount` template func for counts. `LastGCDuration` uses the documented `PauseNs[(NumGC+255)%256]` ring-buffer index.
 
 ## OpenAPI Documentation System
@@ -154,6 +156,21 @@ Operational notifications — crashes, failed cron jobs, recovered panics, traff
 **Nothing here can break the server.** `Initialize` returns no error: a missing token, a revoked bot, a network partition, a missing `_alerts` table and a full queue are all ordinary states with defined behaviour. `alerts.Get()` never returns nil, so application code calls `alerts.Get().Send(...)` unguarded.
 
 **Crash detection happens on the way back up, not on the way down** (`crash.go`). An OOM kill, a `log.Fatal` or a panic on an unrecovered goroutine ends the process in microseconds; a Telegram delivery needs hundreds of milliseconds, so sending from a dying process buys a hung exit and no message. Instead each run writes `pb_data/.pbext_lastrun.json` with `state: running`, refreshed on the evaluator's heartbeat and set to `stopped` by `OnTerminate` (including on a restart — a dev-mode reload is not an incident). A marker still reading `running` at boot means the previous process never reached its shutdown hook, and the heartbeat timestamp says roughly when it stopped. **A missing, unreadable or corrupt marker produces no alert** — a read-only data directory would otherwise claim a crash at every boot, and an integration that cries wolf gets muted within a day. Fail closed on false alarms.
+
+**Resource saturation is watched out of the box; traffic thresholds are not.** The split is deliberate and the reasoning is not interchangeable. A request rate has no universal danger zone — 50/s is idle for one deployment and an incident for another — so a shipped default would be either silent or deafening. Saturation is not like that: a disk at 95% is about to stop SQLite writing on every machine there has ever been, and memory, swap and descriptor exhaustion are similarly absolute. Shipping those off by default means the common case is a server that looks monitored and says nothing while it fills up.
+
+| Rule | Default | Notes |
+|---|---|---|
+| `disk_high` | **90%** | Earliest warning of the lot — a full disk stops writes and does not recover on its own. Uses `DiskUsagePercent` (`Used/(Used+Free)`), never `Used/Total` |
+| `memory_high` | **90%** | `MemoryInfo.UsedPercent` excludes page cache, so 90% here is real pressure, not a warm cache |
+| `swap_high` | **80%** | Skipped entirely when `SwapTotal == 0` — a host with no swap reports 0%, which is not a measurement |
+| `cpu_high` | **90%** | Needs `SustainTicks` behind it; a batch job pinning the cores for one tick is working as intended |
+| `open_files_high` | **80%** | Ratio against the soft `RLIMIT_NOFILE`. Skipped when the limit is 0 (unknown) — the raw count is meaningless, since the ceiling is 1024 on some hosts and 1048576 on others |
+| `error_rate` | off | Opt-in via `WithErrorRateAlert` |
+| `traffic_surge` | off | Opt-in via `WithTrafficSurgeAlert` |
+| `goroutines_high` | off | Opt-in: a healthy busy server legitimately runs thousands, and a leak is unbounded growth rather than any particular number |
+
+Tune one dimension with `WithDiskAlert(95)` etc., or drop the lot with `WithoutResourceAlerts()`. Passing 0 to any of them disables that rule.
 
 **Rules are edge-triggered, not level-triggered** (`rules.go`). A rule that becomes true fires once and stays quiet until it becomes false, which can send a recovery notice. "CPU above 90%" evaluated every 30s without a state machine is 120 identical messages an hour. `Sustain` requires N consecutive breaches; a panicking rule is disabled after 3 panics rather than taking out the evaluator.
 
@@ -274,7 +291,7 @@ Configure with the `With*` options passed to `analytics.Initialize`.
 - `routes.go` — how to initialize versioned API routers and register routes
 - `handlers.go` — how to use `API_SOURCE`, `API_DESC`, `API_TAGS` directives and define request/response types
 - `jobs.go` — how to register cron jobs with `GetJobManager().RegisterJob`
-- `alerts.go` — how to register a custom alert rule and send an ad-hoc alert
+- `alerts.go` — the full alerting and auditing option reference (every option, with its default, commented where inactive), plus custom rules and ad-hoc sends
 - `collections.go` — how to define PocketBase collections programmatically
 
 ## Conventions

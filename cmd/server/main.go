@@ -63,22 +63,16 @@ func initApp(devMode bool) {
 
 	// Note: WithConfig and WithPocketbase cannot be used together
 
-	// Operational alerts. The Telegram credentials are read from
-	// PBEXT_TELEGRAM_BOT_TOKEN and PBEXT_TELEGRAM_CHAT_ID unless passed
-	// explicitly with app.WithTelegram(token, chatID); with neither, alerting
-	// stays disabled and every Send is a no-op.
+	// Alerting and admin access auditing. Both work with no configuration at
+	// all — alerting needs only PBEXT_TELEGRAM_BOT_TOKEN and
+	// PBEXT_TELEGRAM_CHAT_ID in the environment, and auditing is on by default.
 	//
-	// Crashes, failed cron jobs and recovered panics are reported out of the
-	// box. Threshold alerts are opt-in.
-	opts = append(opts, app.WithAlerts(
-		// 5xx responses above 10% of a window covering at least 20 requests.
-		app.WithErrorRateAlert(10, 20),
-		// Sustained CPU / memory / disk usage above 90%.
-		app.WithResourceAlerts(90, 90, 90),
-		// Five times the rolling baseline, but only above 50 req/s — the floor
-		// is what stops traffic doubling from 1 to 2 req/s waking anyone.
-		app.WithTrafficSurge(5, 50),
-	))
+	// Every available option, with its default, is documented in
+	// cmd/server/alerts.go.
+	opts = append(opts,
+		app.WithAlerts(alertOptions()...),
+		app.WithAudit(auditOptions()...),
+	)
 
 	srv := app.New(opts...)
 

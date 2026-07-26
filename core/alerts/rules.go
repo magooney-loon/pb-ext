@@ -376,6 +376,24 @@ func (n *Notifier) registerBuiltinRules() {
 	n.addResourceRule("memory_high", "Memory", t.MemoryPercent, func() float64 { return n.eval.current.MemoryPercent })
 	n.addResourceRule("disk_high", "Disk", t.DiskPercent, func() float64 { return n.eval.current.DiskPercent })
 
+	// Swap on a host with none configured reports 0%, which must not read as a
+	// healthy measurement — there is nothing being measured.
+	n.addResourceRule("swap_high", "Swap", t.SwapPercent, func() float64 {
+		if n.eval.current.SwapTotal == 0 {
+			return 0
+		}
+		return n.eval.current.SwapPercent
+	})
+
+	// Descriptors are a ratio against the soft RLIMIT_NOFILE. A zero limit means
+	// the ceiling is unknown (Windows, or a failed lookup), not that it is tiny.
+	n.addResourceRule("open_files_high", "Open file descriptors", t.OpenFilesPercent, func() float64 {
+		if n.eval.current.OpenFilesLimit == 0 {
+			return 0
+		}
+		return n.eval.current.OpenFilesPercent
+	})
+
 	if t.Goroutines > 0 {
 		_ = n.AddRule(Rule{
 			Key:      "goroutines_high",

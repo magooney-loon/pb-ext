@@ -150,14 +150,35 @@ type Metrics struct {
 	CPUPercent    float64
 	MemoryPercent float64
 	DiskPercent   float64
+
+	// SwapPercent is meaningless without swap configured, so SwapTotal is
+	// carried alongside it: a host with no swap reports 0% and must not be
+	// read as "healthy" or alerted on either way.
+	SwapPercent float64
+	SwapTotal   uint64
+
+	// OpenFilesPercent is descriptors in use as a share of the soft
+	// RLIMIT_NOFILE. OpenFilesLimit is 0 where the ceiling is unknown, which
+	// disables the check rather than reporting a ratio against nothing.
+	OpenFilesPercent float64
+	OpenFiles        int
+	OpenFilesLimit   uint64
 }
 
 // MetricsFunc supplies a fresh snapshot on every evaluator tick.
 type MetricsFunc func() Metrics
 
 // Thresholds configures the built-in threshold rules. A zero value disables the
-// corresponding rule — every one of these is opt-in, because a threshold that
-// suits one deployment is either silent or deafening on another.
+// corresponding rule.
+//
+// The resource ceilings are on by default; the traffic ones are not. The split
+// is deliberate. A request rate has no universal danger zone — 50/s is idle for
+// one deployment and an incident for another — so a shipped default would be
+// either silent or deafening. Resource saturation is not like that: a disk at
+// 95% is about to take the database down on every machine there has ever been,
+// and memory, swap and descriptor exhaustion are similarly absolute. Shipping
+// those switched off means the common case is a server that looks monitored and
+// says nothing while it fills up.
 type Thresholds struct {
 	// ErrorRatePercent fires when 5xx responses exceed this share of requests
 	// in one evaluation window.
@@ -176,7 +197,19 @@ type Thresholds struct {
 	CPUPercent    float64
 	MemoryPercent float64
 	DiskPercent   float64
-	Goroutines    int
+
+	// SwapPercent fires on swap usage, which is the clearest sign of real
+	// memory pressure. Skipped entirely on hosts with no swap configured.
+	SwapPercent float64
+
+	// OpenFilesPercent fires on descriptors in use against the soft
+	// RLIMIT_NOFILE. Skipped where the limit is unknown.
+	OpenFilesPercent float64
+
+	// Goroutines stays opt-in: a healthy busy server legitimately runs
+	// thousands, so there is no defensible default, and a leak shows up as
+	// unbounded growth rather than as any particular number.
+	Goroutines int
 
 	// SustainTicks is how many consecutive evaluations a resource threshold must
 	// hold before firing, which filters out momentary spikes.
@@ -246,6 +279,27 @@ type Config struct {
 }
 
 // Defaults for Config. Override with the With* options.
+// Default resource ceilings. Each is deliberately conservative: the cost of a
+// missed warning is an outage, and the cost of a false one is a muted channel,
+// so these sit where a healthy server does not reach them.
+const (
+	// DefaultDiskPercent is the earliest warning of the lot. A full disk stops
+	// SQLite writing and does not recover on its own.
+	DefaultDiskPercent = 90
+	// DefaultMemoryPercent reads MemoryInfo.UsedPercent, which excludes page
+	// cache — so 90% here is genuine pressure, not a warm cache.
+	DefaultMemoryPercent = 90
+	// DefaultSwapPercent is high because light swap use is normal on plenty of
+	// hosts; by the time it is this deep, memory has usually fired already.
+	DefaultSwapPercent = 80
+	// DefaultCPUPercent needs SustainTicks behind it — a batch job pinning the
+	// cores for one tick is working as intended.
+	DefaultCPUPercent = 90
+	// DefaultOpenFilesPercent warns early because descriptor exhaustion is
+	// abrupt and total rather than gradual.
+	DefaultOpenFilesPercent = 80
+)
+
 const (
 	DefaultQueueSize        = 256
 	DefaultCooldown         = 15 * time.Minute
@@ -279,6 +333,13 @@ func DefaultConfig() Config {
 		Persist:          true,
 		Lifecycle:        true,
 		Thresholds: Thresholds{
+			// Resource saturation is watched out of the box; the traffic
+			// thresholds above stay at zero until asked for.
+			CPUPercent:           DefaultCPUPercent,
+			MemoryPercent:        DefaultMemoryPercent,
+			DiskPercent:          DefaultDiskPercent,
+			SwapPercent:          DefaultSwapPercent,
+			OpenFilesPercent:     DefaultOpenFilesPercent,
 			ErrorRateMinRequests: 20,
 			SustainTicks:         DefaultSustainTicks,
 		},
@@ -472,13 +533,53 @@ func WithTrafficSurgeAlert(factor, floorPerSec float64) Option {
 	}
 }
 
-// WithResourceAlerts fires on sustained CPU, memory or disk usage. Pass 0 for
-// any dimension to leave it disabled.
+// WithResourceAlerts overrides the CPU, memory and disk ceilings together.
+// Pass 0 for any dimension to switch that one off.
 func WithResourceAlerts(cpuPercent, memoryPercent, diskPercent float64) Option {
 	return func(c *Config) {
 		c.Thresholds.CPUPercent = cpuPercent
 		c.Thresholds.MemoryPercent = memoryPercent
 		c.Thresholds.DiskPercent = diskPercent
+	}
+}
+
+// WithCPUAlert sets the sustained CPU ceiling; 0 disables it.
+func WithCPUAlert(percent float64) Option {
+	return func(c *Config) { c.Thresholds.CPUPercent = percent }
+}
+
+// WithMemoryAlert sets the memory ceiling; 0 disables it.
+func WithMemoryAlert(percent float64) Option {
+	return func(c *Config) { c.Thresholds.MemoryPercent = percent }
+}
+
+// WithDiskAlert sets the disk ceiling for the filesystem holding the data
+// directory; 0 disables it.
+func WithDiskAlert(percent float64) Option {
+	return func(c *Config) { c.Thresholds.DiskPercent = percent }
+}
+
+// WithSwapAlert sets the swap ceiling; 0 disables it. Hosts with no swap are
+// skipped regardless.
+func WithSwapAlert(percent float64) Option {
+	return func(c *Config) { c.Thresholds.SwapPercent = percent }
+}
+
+// WithFileDescriptorAlert sets the ceiling for descriptors in use against the
+// soft RLIMIT_NOFILE; 0 disables it.
+func WithFileDescriptorAlert(percent float64) Option {
+	return func(c *Config) { c.Thresholds.OpenFilesPercent = percent }
+}
+
+// WithoutResourceAlerts switches off every resource ceiling, for deployments
+// that watch saturation with something else.
+func WithoutResourceAlerts() Option {
+	return func(c *Config) {
+		c.Thresholds.CPUPercent = 0
+		c.Thresholds.MemoryPercent = 0
+		c.Thresholds.DiskPercent = 0
+		c.Thresholds.SwapPercent = 0
+		c.Thresholds.OpenFilesPercent = 0
 	}
 }
 

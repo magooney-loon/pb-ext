@@ -31,13 +31,19 @@ type Option = server.Option
 // GetNotifier never returns nil, so application code can call
 // app.GetNotifier().Send(...) without a configured-or-not check.
 var (
-	GetNotifier            = alerts.Get
-	WithTelegram           = alerts.WithTelegram
-	WithTelegramTopic      = alerts.WithTelegramTopic
-	WithErrorRateAlert     = alerts.WithErrorRateAlert
-	WithTrafficSurge       = alerts.WithTrafficSurgeAlert
-	WithResourceAlerts     = alerts.WithResourceAlerts
-	WithAlertsEnabledInDev = alerts.WithEnabledInDev
+	GetNotifier             = alerts.Get
+	WithTelegram            = alerts.WithTelegram
+	WithTelegramTopic       = alerts.WithTelegramTopic
+	WithErrorRateAlert      = alerts.WithErrorRateAlert
+	WithTrafficSurge        = alerts.WithTrafficSurgeAlert
+	WithResourceAlerts      = alerts.WithResourceAlerts
+	WithoutResourceAlerts   = alerts.WithoutResourceAlerts
+	WithCPUAlert            = alerts.WithCPUAlert
+	WithMemoryAlert         = alerts.WithMemoryAlert
+	WithDiskAlert           = alerts.WithDiskAlert
+	WithSwapAlert           = alerts.WithSwapAlert
+	WithFileDescriptorAlert = alerts.WithFileDescriptorAlert
+	WithAlertsEnabledInDev  = alerts.WithEnabledInDev
 )
 
 // Re-export alert types

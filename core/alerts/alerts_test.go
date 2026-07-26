@@ -706,6 +706,164 @@ func TestErrorRateRule_NeedsEnoughRequestsToJudge(t *testing.T) {
 	}
 }
 
+// Resource saturation is watched out of the box. A server that looks monitored
+// and says nothing while it fills its disk is the failure this guards against.
+func TestDefaultConfig_WatchesResourceSaturation(t *testing.T) {
+	cfg := DefaultConfig()
+
+	for name, got := range map[string]float64{
+		"CPUPercent":       cfg.Thresholds.CPUPercent,
+		"MemoryPercent":    cfg.Thresholds.MemoryPercent,
+		"DiskPercent":      cfg.Thresholds.DiskPercent,
+		"SwapPercent":      cfg.Thresholds.SwapPercent,
+		"OpenFilesPercent": cfg.Thresholds.OpenFilesPercent,
+	} {
+		if got <= 0 {
+			t.Errorf("%s = %v by default, want a ceiling", name, got)
+		}
+		if got >= 100 {
+			t.Errorf("%s = %v, want a warning below saturation, not at it", name, got)
+		}
+	}
+
+	// Traffic thresholds have no universal danger zone and stay opt-in.
+	if cfg.Thresholds.ErrorRatePercent != 0 {
+		t.Errorf("ErrorRatePercent = %v by default, want it opt-in", cfg.Thresholds.ErrorRatePercent)
+	}
+	if cfg.Thresholds.SurgeFactor != 0 {
+		t.Errorf("SurgeFactor = %v by default, want it opt-in", cfg.Thresholds.SurgeFactor)
+	}
+	// A busy server legitimately runs thousands of goroutines.
+	if cfg.Thresholds.Goroutines != 0 {
+		t.Errorf("Goroutines = %v by default, want it opt-in", cfg.Thresholds.Goroutines)
+	}
+}
+
+func TestRegisterBuiltinRules_RegistersTheResourceRulesByDefault(t *testing.T) {
+	n, _ := newTestNotifier(t, WithMetrics(func() Metrics { return Metrics{} }))
+
+	if got := n.rules.len(); got < 5 {
+		t.Fatalf("registered %d rules, want at least the five resource ceilings", got)
+	}
+}
+
+func TestWithoutResourceAlerts_SilencesThemAll(t *testing.T) {
+	n, _ := newTestNotifier(t,
+		WithMetrics(func() Metrics { return Metrics{} }),
+		WithoutResourceAlerts(),
+	)
+
+	if got := n.rules.len(); got != 0 {
+		t.Fatalf("registered %d rules, want none", got)
+	}
+}
+
+func TestResourceRules_FireOnSaturation(t *testing.T) {
+	metrics := Metrics{}
+	n, transport := newTestNotifier(t,
+		WithMetrics(func() Metrics { return metrics }),
+		WithSustainTicks(1),
+		// Isolate the disk rule so the assertion cannot pass on another alert.
+		WithoutResourceAlerts(),
+		WithDiskAlert(90),
+	)
+
+	metrics = Metrics{DiskPercent: 50}
+	n.evaluate(time.Now())
+	select {
+	case m := <-transport.delivery:
+		t.Fatalf("fired at 50%% disk: %q", m.Title)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	metrics = Metrics{DiskPercent: 96}
+	n.evaluate(time.Now())
+
+	if got := waitForDelivery(t, transport); !strings.Contains(got.Title, "Disk usage") {
+		t.Fatalf("title = %q, want a disk saturation alert", got.Title)
+	}
+}
+
+// A host with no swap reports 0%, which is not a measurement. Alerting on it
+// either way would be wrong; the rule has to know the difference.
+func TestSwapRule_SkipsHostsWithNoSwap(t *testing.T) {
+	metrics := Metrics{}
+	n, transport := newTestNotifier(t,
+		WithMetrics(func() Metrics { return metrics }),
+		WithSustainTicks(1),
+		WithoutResourceAlerts(),
+		WithSwapAlert(80),
+	)
+
+	// Swap absent: a bogus 99% must be ignored because SwapTotal is zero.
+	metrics = Metrics{SwapPercent: 99, SwapTotal: 0}
+	n.evaluate(time.Now())
+	select {
+	case m := <-transport.delivery:
+		t.Fatalf("fired on a host with no swap: %q", m.Title)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Swap present and deep.
+	metrics = Metrics{SwapPercent: 91, SwapTotal: 8 << 30}
+	n.evaluate(time.Now())
+
+	if got := waitForDelivery(t, transport); !strings.Contains(got.Title, "Swap") {
+		t.Fatalf("title = %q, want a swap alert", got.Title)
+	}
+}
+
+// The raw descriptor count means nothing without the ceiling: 512 open files is
+// either half a step from an outage or unremarkable depending on the host.
+func TestOpenFilesRule_SkipsAnUnknownLimit(t *testing.T) {
+	metrics := Metrics{}
+	n, transport := newTestNotifier(t,
+		WithMetrics(func() Metrics { return metrics }),
+		WithSustainTicks(1),
+		WithoutResourceAlerts(),
+		WithFileDescriptorAlert(80),
+	)
+
+	// Limit unknown (Windows, or a failed lookup): no ratio to judge.
+	metrics = Metrics{OpenFilesPercent: 99, OpenFiles: 990, OpenFilesLimit: 0}
+	n.evaluate(time.Now())
+	select {
+	case m := <-transport.delivery:
+		t.Fatalf("fired with an unknown descriptor limit: %q", m.Title)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	metrics = Metrics{OpenFilesPercent: 92, OpenFiles: 942, OpenFilesLimit: 1024}
+	n.evaluate(time.Now())
+
+	if got := waitForDelivery(t, transport); !strings.Contains(got.Title, "Open file descriptors") {
+		t.Fatalf("title = %q, want a descriptor alert", got.Title)
+	}
+}
+
+// Sustain is what keeps a batch job pinning the cores for one tick from paging
+// anyone.
+func TestResourceRules_RequireTheThresholdToHold(t *testing.T) {
+	metrics := Metrics{CPUPercent: 99}
+	n, transport := newTestNotifier(t,
+		WithMetrics(func() Metrics { return metrics }),
+		WithoutResourceAlerts(),
+		WithCPUAlert(90),
+		WithSustainTicks(3),
+	)
+
+	n.evaluate(time.Now())
+	n.evaluate(time.Now())
+	select {
+	case m := <-transport.delivery:
+		t.Fatalf("fired after 2 of 3 required checks: %q", m.Title)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	n.evaluate(time.Now())
+	waitForDelivery(t, transport)
+}
+
 func TestTrafficSurgeRule_RespectsTheFloor(t *testing.T) {
 	metrics := Metrics{}
 	n, transport := newTestNotifier(t,

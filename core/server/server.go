@@ -414,7 +414,18 @@ func (s *Server) metricsSnapshot() alerts.Metrics {
 	if sys != nil {
 		m.CPUPercent = averageCPUUsage(sys.CPUInfo)
 		m.MemoryPercent = sys.MemoryInfo.UsedPercent
+		// DiskUsagePercent is Used/(Used+Free) as the filesystem reports it,
+		// which accounts for reserved blocks. Never recompute it as Used/Total.
 		m.DiskPercent = sys.DiskUsagePercent
+
+		// SwapTotal travels with the percentage so the rule can tell a host with
+		// no swap from one with empty swap.
+		m.SwapPercent = sys.MemoryInfo.SwapPercent
+		m.SwapTotal = sys.MemoryInfo.SwapTotal
+
+		m.OpenFiles = int(sys.ProcessStats.OpenFiles)
+		m.OpenFilesLimit = sys.ProcessStats.OpenFilesLimit
+		m.OpenFilesPercent = sys.ProcessStats.OpenFilesPercent
 	}
 
 	return m
