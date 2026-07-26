@@ -16,7 +16,7 @@ Enhanced PocketBase server with monitoring, alerting, auditing, logging & API do
 - **Cron Tracking**: Logs and monitors scheduled cron jobs
 - **System Monitoring**: Real-time CPU, memory, disk, network, and runtime metrics
 - **Operational Alerts**: Telegram notifications for crashes, failed jobs, panics and resource saturation
-- **Admin Access Auditing**: Records who reached the admin surfaces, with brute-force and new-address detection
+- **Access Auditing**: Who reached the admin surfaces, with brute-force & new-address detection
 - **Structured Logging**: Complete logging with error tracking and request tracing
 - **Visitor Analytics**: Track GDPR & PII compliant visitors, page views, device types, and browsers
 - **PocketBase Integration**: Uses PocketBase's auth system and styling
