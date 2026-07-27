@@ -43,8 +43,13 @@ func NewLogger(app core.App) *Logger {
 func InitializeLogger(app core.App) (*Logger, error) {
 	l := NewLogger(app)
 
-	if err := SetupCollection(app); err != nil {
-		return nil, fmt.Errorf("failed to setup job logs collection: %w", err)
+	// The schema is created by the registered migration, which PocketBase runs
+	// before serving.
+	if _, err := app.FindCollectionByNameOrId(Collection); err != nil {
+		return nil, fmt.Errorf(
+			"%s collection is missing — pb-ext migration %s has not been applied: %w",
+			Collection, MigrationFile, err,
+		)
 	}
 
 	// Mark any jobs that were left in "started" status (i.e. server crashed
@@ -577,10 +582,14 @@ func NewExecutionLogger(jobID, executionID string, l *Logger) *ExecutionLogger {
 	}
 }
 
-func (el *ExecutionLogger) Info(format string, args ...interface{})  { el.log("INFO", format, args...) }
-func (el *ExecutionLogger) Error(format string, args ...interface{}) { el.log("ERROR", format, args...) }
-func (el *ExecutionLogger) Debug(format string, args ...interface{}) { el.log("DEBUG", format, args...) }
-func (el *ExecutionLogger) Warn(format string, args ...interface{})  { el.log("WARN", format, args...) }
+func (el *ExecutionLogger) Info(format string, args ...interface{}) { el.log("INFO", format, args...) }
+func (el *ExecutionLogger) Error(format string, args ...interface{}) {
+	el.log("ERROR", format, args...)
+}
+func (el *ExecutionLogger) Debug(format string, args ...interface{}) {
+	el.log("DEBUG", format, args...)
+}
+func (el *ExecutionLogger) Warn(format string, args ...interface{}) { el.log("WARN", format, args...) }
 
 func (el *ExecutionLogger) Success(format string, args ...interface{}) {
 	el.log("INFO", "✅ "+format, args...)

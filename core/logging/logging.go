@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/magooney-loon/pb-ext/core/monitoring"
@@ -117,7 +116,10 @@ func ErrorWithContext(ctx context.Context, app core.App, message string, err err
 // SetupLogging configures logging using PocketBase's logger
 func SetupLogging(srv *server.Server) {
 	app := srv.App()
-	requestStats := monitoring.NewRequestStats()
+	// The Server owns the tracker and populates it from its own middleware, so
+	// the per-status counts exist whether or not an app calls SetupLogging.
+	// Reading it here keeps the request-rate field in the log line.
+	requestStats := srv.RequestStats()
 
 	// Create a logger with common application fields
 	appLogger := app.Logger().With(
@@ -158,11 +160,13 @@ func SetupLogging(srv *server.Server) {
 
 			duration := time.Since(start)
 
-			statusCode := http.StatusOK
-			if status := c.Response.Header().Get("Status"); status != "" {
-				if code, err := strconv.Atoi(status); err == nil {
-					statusCode = code
-				}
+			// The response status, not a "Status" header — nothing sets that
+			// header, so the old lookup made every logged request a 200. A zero
+			// status means the handler wrote a body without an explicit code,
+			// which net/http reports to the client as 200.
+			statusCode := c.Status()
+			if statusCode == 0 {
+				statusCode = http.StatusOK
 			}
 
 			logCtx := LogContext{
@@ -176,22 +180,9 @@ func SetupLogging(srv *server.Server) {
 				IP:         c.Request.RemoteAddr,
 			}
 
-			// Stats tracking is handled by server.go to avoid duplication
-
-			// Skip metrics tracking for service worker and favicon requests
-			if !shouldExcludeFromLogging(logCtx.Path) {
-				metrics := monitoring.RequestMetrics{
-					Path:          logCtx.Path,
-					Method:        logCtx.Method,
-					StatusCode:    logCtx.StatusCode,
-					Duration:      logCtx.Duration,
-					Timestamp:     logCtx.StartTime,
-					UserAgent:     logCtx.UserAgent,
-					ContentLength: c.Request.ContentLength,
-					RemoteAddr:    logCtx.IP,
-				}
-				requestStats.TrackRequest(metrics)
-			}
+			// Stats and per-request metrics tracking are handled by server.go to
+			// avoid duplication — tracking here as well would double every
+			// count the alert rules differentiate.
 
 			if err != nil {
 				return err

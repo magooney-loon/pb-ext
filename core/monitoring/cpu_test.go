@@ -428,3 +428,148 @@ func ExampleCPUInfo() {
 	println("Cores:", info.Cores)
 	println("Usage:", info.Usage, "%")
 }
+
+// --- usage assignment ---
+
+// TestAssignUsage_PerCPU covers the normal case where cpu.Info and cpu.Percent
+// agree on the number of entries.
+func TestAssignUsage_PerCPU(t *testing.T) {
+	cpus := make([]CPUInfo, 4)
+	assignUsage(cpus, []float64{10, 20, 30, 40})
+
+	want := []float64{10, 20, 30, 40}
+	for i, c := range cpus {
+		if c.Usage != want[i] {
+			t.Errorf("cpus[%d].Usage = %v, want %v", i, c.Usage, want[i])
+		}
+	}
+}
+
+// TestAssignUsage_AggregateAppliesToAll is the regression test for the bug that
+// made the CPU meter read low by a factor of the CPU count: a single aggregate
+// percentage was assigned positionally, leaving every entry after the first at
+// zero, and the dashboard then averaged across all of them.
+func TestAssignUsage_AggregateAppliesToAll(t *testing.T) {
+	const cpuCount = 20
+	cpus := make([]CPUInfo, cpuCount)
+
+	assignUsage(cpus, []float64{55.0})
+
+	for i, c := range cpus {
+		if c.Usage != 55.0 {
+			t.Fatalf("cpus[%d].Usage = %v, want 55 — a lone aggregate must apply to every entry", i, c.Usage)
+		}
+	}
+
+	// This is what the dashboard renders.
+	var total float64
+	for _, c := range cpus {
+		total += c.Usage
+	}
+	if avg := total / float64(len(cpus)); avg != 55.0 {
+		t.Errorf("average across entries = %v, want 55", avg)
+	}
+}
+
+func TestAssignUsage_MoreSamplesThanEntries(t *testing.T) {
+	cpus := make([]CPUInfo, 1)
+	assignUsage(cpus, []float64{20, 40, 60, 80})
+
+	if cpus[0].Usage != 50 {
+		t.Errorf("Usage = %v, want 50 (mean of the samples, not the first)", cpus[0].Usage)
+	}
+}
+
+func TestAssignUsage_EmptyInputs(t *testing.T) {
+	assignUsage(nil, []float64{50})      // must not panic
+	assignUsage(make([]CPUInfo, 2), nil) // must not panic
+	assignUsage(nil, nil)
+
+	cpus := make([]CPUInfo, 2)
+	assignUsage(cpus, nil)
+	for i, c := range cpus {
+		if c.Usage != 0 {
+			t.Errorf("cpus[%d].Usage = %v, want 0 when there are no samples", i, c.Usage)
+		}
+	}
+}
+
+// TestCollectCPUInfo_EveryEntryHasUsage is the end-to-end guard: after a real
+// collection no entry may be left at zero while another reports load, which is
+// exactly the shape of the original bug.
+func TestCollectCPUInfo_EveryEntryHasUsage(t *testing.T) {
+	// The first call establishes the baseline gopsutil measures against.
+	if _, err := CollectCPUInfo(); err != nil {
+		t.Skipf("CPU collection unavailable: %v", err)
+	}
+	busyUntil := time.Now().Add(250 * time.Millisecond)
+	for time.Now().Before(busyUntil) {
+	}
+
+	cpus, err := CollectCPUInfo()
+	if err != nil {
+		t.Skipf("CPU collection unavailable: %v", err)
+	}
+	if len(cpus) < 2 {
+		t.Skip("single CPU entry; nothing to compare")
+	}
+
+	var nonZero int
+	var total float64
+	for _, c := range cpus {
+		total += c.Usage
+		if c.Usage > 0 {
+			nonZero++
+		}
+	}
+
+	if total == 0 {
+		t.Skip("system reported no CPU activity at all")
+	}
+	if nonZero == 1 {
+		t.Errorf("only 1 of %d CPU entries has usage — the aggregate is being assigned positionally", len(cpus))
+	}
+
+	avg := total / float64(len(cpus))
+	if avg <= 0 {
+		t.Errorf("average usage = %v, want > 0", avg)
+	}
+	if avg > 100 {
+		t.Errorf("average usage = %v, want <= 100", avg)
+	}
+}
+
+// TestCollectCPUInfo_SucceedsWithoutSensors verifies temperature is treated as
+// optional: hosts without sensors (VMs, containers) must not turn an otherwise
+// good CPU reading into a collection error.
+func TestCollectCPUInfo_SucceedsWithoutSensors(t *testing.T) {
+	cpus, err := CollectCPUInfo()
+	if err != nil {
+		t.Fatalf("CollectCPUInfo returned an error: %v — sensors are optional", err)
+	}
+	if len(cpus) == 0 {
+		t.Skip("no CPUs reported")
+	}
+
+	for i, c := range cpus {
+		if c.Temperature < 0 || c.Temperature > 150 {
+			t.Errorf("cpus[%d].Temperature = %.1f, want a plausible celsius reading or zero", i, c.Temperature)
+		}
+	}
+}
+
+func TestCollectCPUInfo_UsageWithinRange(t *testing.T) {
+	cpus, err := CollectCPUInfo()
+	if err != nil {
+		t.Skipf("CPU collection unavailable: %v", err)
+	}
+
+	for i, c := range cpus {
+		if c.Usage < 0 || c.Usage > 100 {
+			t.Errorf("cpus[%d].Usage = %v, want within [0,100]", i, c.Usage)
+		}
+		if c.Frequency < 0 {
+			t.Errorf("cpus[%d].Frequency = %v, want >= 0", i, c.Frequency)
+		}
+	}
+}

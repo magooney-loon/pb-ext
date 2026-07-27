@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"runtime/debug"
 	"strings"
 	"text/template"
 	"time"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
 	"github.com/magooney-loon/pb-ext/core/monitoring"
 	"github.com/magooney-loon/pb-ext/core/server"
 
@@ -155,14 +157,37 @@ func RecoverFromPanic(app core.App, c *core.RequestEvent) {
 
 		// Skip panic logging for service worker and favicon requests
 		if !shouldExcludeFromLogging(c.Request.URL.Path) {
+			stack := string(debug.Stack())
+
 			app.Logger().Error("Panic recovered",
 				"event", "panic",
 				"trace_id", traceID,
 				"error", r,
 				"path", c.Request.URL.Path,
 				"method", c.Request.Method,
-				"stack", string(debug.Stack()),
+				"stack", stack,
 			)
+
+			// Keyed on the route, not the trace id: one endpoint panicking on
+			// every request should produce one alert per cooldown, not one per
+			// request. Send does no I/O, so this stays on the recovery path
+			// without adding latency to it.
+			//
+			// The path, method and stack go out; the client IP, user agent and
+			// request body deliberately do not. An alert channel is not a place
+			// to leak visitor data — see the privacy note in TELEGRAM.md.
+			alerts.Get().Send(alerts.Message{
+				Level:     alerts.LevelError,
+				Key:       "panic:" + c.Request.Method + " " + c.Request.URL.Path,
+				Title:     "Panic recovered in a request handler",
+				Text:      fmt.Sprintf("%v\n\n%s", r, stack),
+				Monospace: true,
+				Fields: map[string]string{
+					"path":     c.Request.URL.Path,
+					"method":   c.Request.Method,
+					"trace id": traceID,
+				},
+			})
 		}
 
 		response := ErrorResponse{

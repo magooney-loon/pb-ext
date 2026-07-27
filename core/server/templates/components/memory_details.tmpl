@@ -26,6 +26,21 @@
                                 aria-valuemax="100"></div>
                         </div>
                         <div class="txt-hint txt-sm txt-right">{{printf "%.1f%%" .SystemStats.MemoryInfo.UsedPercent}} used</div>
+
+                        <div class="flex txt-sm m-t-10">
+                            <div class="column flex-fill">
+                                <div class="txt-hint" title="Obtainable without swapping, including reclaimable cache">Available</div>
+                                <div>{{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Available 1073741824)}}</div>
+                            </div>
+                            <div class="column flex-fill">
+                                <div class="txt-hint" title="Page cache and reclaimable slab">Cached</div>
+                                <div>{{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Cached 1073741824)}}</div>
+                            </div>
+                            <div class="column flex-fill">
+                                <div class="txt-hint" title="Completely untouched pages (MemFree). Near zero on a warm system — use Available instead.">Free</div>
+                                <div>{{printf "%.2f GB" (divideFloat64 .SystemStats.MemoryInfo.Free 1073741824)}}</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -73,8 +88,13 @@
                     <div class="card-body">
                         <h6 class="txt-hint m-b-5"><i class="ri-stack-line"></i> Heap</h6>
                         <div class="flex align-center m-b-10">
-                            <h4 class="m-0">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.HeapObjects 1048576)}}</h4>
-                            <span class="txt-hint txt-sm m-l-5">Objects</span>
+                            <h4 class="m-0">{{printf "%.1f MB" (divideFloat64 .SystemStats.RuntimeStats.AllocatedBytes 1048576)}}</h4>
+                            <span class="txt-hint txt-sm m-l-5">in use</span>
+                        </div>
+
+                        <div class="flex justify-between m-b-3">
+                            <span class="txt-hint txt-sm" title="Number of live heap objects — a count, not a size">Live Objects</span>
+                            <span class="txt-sm">{{formatCount .SystemStats.RuntimeStats.HeapObjects}}</span>
                         </div>
 
                         <div class="flex justify-between m-b-3">

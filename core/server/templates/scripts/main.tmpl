@@ -10,118 +10,76 @@
         });
     }
 
+    // The sidebar tabs, in order.
+    //
+    // Everything below is driven by this list, so adding a tab means adding one
+    // entry here and a matching nav item and section in index.tmpl. The wiring
+    // used to be spelled out per tab in five separate places — the declarations,
+    // the guard, the switch, the initial hash and the hashchange handler — which
+    // is four opportunities for a new tab to be half-registered.
+    //
+    // onShow names a global loader called each time the tab is displayed; the
+    // functions themselves are idempotent.
+    const DASHBOARD_TABS = [
+        { name: 'health',    tab: '.health-tab',    section: 'health-section' },
+        { name: 'analytics', tab: '.analytics-tab', section: 'analytics-section' },
+        { name: 'alerts',    tab: '.alerts-tab',    section: 'alerts-section' },
+        { name: 'api',       tab: '.api-tab',       section: 'api-section' },
+        { name: 'cron',      tab: '.cron-tab',      section: 'cron-section', onShow: 'initializeCronJobs' },
+        { name: 'rules',     tab: '.rules-tab',     section: 'rules-section', onShow: 'initializeRules' },
+    ];
+
+    const DEFAULT_TAB = 'health';
+
     function setupTabNavigation() {
-        const healthTab = document.querySelector('.health-tab');
-        const analyticsTab = document.querySelector('.analytics-tab');
-        const apiTab = document.querySelector('.api-tab');
-        const cronTab = document.querySelector('.cron-tab');
-        const rulesTab = document.querySelector('.rules-tab');
-        const healthSection = document.getElementById('health-section');
-        const analyticsSection = document.getElementById('analytics-section');
-        const apiSection = document.getElementById('api-section');
-        const cronSection = document.getElementById('cron-section');
-        const rulesSection = document.getElementById('rules-section');
+        const tabs = DASHBOARD_TABS.map(function(def) {
+            return {
+                name: def.name,
+                onShow: def.onShow,
+                el: document.querySelector(def.tab),
+                section: document.getElementById(def.section),
+            };
+        });
 
-        if (!healthTab || !analyticsTab || !apiTab || !cronTab || !rulesTab || !healthSection || !analyticsSection || !apiSection || !cronSection || !rulesSection) return;
+        // If any tab or section is missing, leave navigation alone: a
+        // half-wired sidebar hides content with no way to reach it.
+        if (tabs.some(function(t) { return !t.el || !t.section; })) return;
 
-        function switchToTab(tabName) {
-            // Remove current-route class from all tabs
-            healthTab.classList.remove('current-route');
-            analyticsTab.classList.remove('current-route');
-            apiTab.classList.remove('current-route');
-            cronTab.classList.remove('current-route');
-            rulesTab.classList.remove('current-route');
+        function switchToTab(name) {
+            const target = tabs.find(function(t) { return t.name === name; })
+                || tabs.find(function(t) { return t.name === DEFAULT_TAB; });
 
-            // Hide all sections
-            healthSection.style.display = 'none';
-            analyticsSection.style.display = 'none';
-            apiSection.style.display = 'none';
-            cronSection.style.display = 'none';
-            rulesSection.style.display = 'none';
+            tabs.forEach(function(t) {
+                t.el.classList.remove('current-route');
+                t.section.style.display = 'none';
+            });
 
-            if (tabName === 'health') {
-                healthTab.classList.add('current-route');
-                healthSection.style.display = 'block';
-                window.location.hash = 'health';
-            } else if (tabName === 'analytics') {
-                analyticsTab.classList.add('current-route');
-                analyticsSection.style.display = 'block';
-                window.location.hash = 'analytics';
-            } else if (tabName === 'api') {
-                apiTab.classList.add('current-route');
-                apiSection.style.display = 'block';
-                window.location.hash = 'api';
-            } else if (tabName === 'cron') {
-                cronTab.classList.add('current-route');
-                cronSection.style.display = 'block';
-                window.location.hash = 'cron';
-                // Initialize cron jobs when tab is shown
-                if (typeof initializeCronJobs === 'function') {
-                    initializeCronJobs();
-                }
-            } else if (tabName === 'rules') {
-                rulesTab.classList.add('current-route');
-                rulesSection.style.display = 'block';
-                window.location.hash = 'rules';
-                // Initialize rules when tab is shown
-                if (typeof initializeRules === 'function') {
-                    initializeRules();
-                }
+            target.el.classList.add('current-route');
+            target.section.style.display = 'block';
+            window.location.hash = target.name;
+
+            if (target.onShow && typeof window[target.onShow] === 'function') {
+                window[target.onShow]();
             }
         }
 
-        // Set initial tab based on hash
-        if (window.location.hash === '#analytics') {
-            switchToTab('analytics');
-        } else if (window.location.hash === '#api') {
-            switchToTab('api');
-        } else if (window.location.hash === '#cron') {
-            switchToTab('cron');
-        } else if (window.location.hash === '#rules') {
-            switchToTab('rules');
-        } else {
-            switchToTab('health');
+        function tabFromHash() {
+            const name = window.location.hash.replace(/^#/, '');
+            return tabs.some(function(t) { return t.name === name; }) ? name : DEFAULT_TAB;
         }
 
-        // Handle tab clicks
-        healthTab.addEventListener('click', function(e) {
-            e.preventDefault();
-            switchToTab('health');
+        switchToTab(tabFromHash());
+
+        tabs.forEach(function(t) {
+            t.el.addEventListener('click', function(e) {
+                e.preventDefault();
+                switchToTab(t.name);
+            });
         });
 
-        analyticsTab.addEventListener('click', function(e) {
-            e.preventDefault();
-            switchToTab('analytics');
-        });
-
-        apiTab.addEventListener('click', function(e) {
-            e.preventDefault();
-            switchToTab('api');
-        });
-
-        cronTab.addEventListener('click', function(e) {
-            e.preventDefault();
-            switchToTab('cron');
-        });
-
-        rulesTab.addEventListener('click', function(e) {
-            e.preventDefault();
-            switchToTab('rules');
-        });
-
-        // Handle hash changes (for browser navigation)
+        // Browser back/forward.
         window.addEventListener('hashchange', function() {
-            if (window.location.hash === '#analytics') {
-                switchToTab('analytics');
-            } else if (window.location.hash === '#api') {
-                switchToTab('api');
-            } else if (window.location.hash === '#cron') {
-                switchToTab('cron');
-            } else if (window.location.hash === '#rules') {
-                switchToTab('rules');
-            } else {
-                switchToTab('health');
-            }
+            switchToTab(tabFromHash());
         });
     }
 

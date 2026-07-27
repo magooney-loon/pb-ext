@@ -40,5 +40,3 @@ coverage/
 # Misc
 .cache/
 .temp/
-llm/
-gemini/

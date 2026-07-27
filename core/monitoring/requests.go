@@ -60,60 +60,64 @@ type RequestMetrics struct {
 	RemoteAddr    string
 }
 
-// RequestStats holds aggregated request statistics
+// RequestStats holds aggregated request statistics.
+//
+// Everything here is bounded: monotonic counters, a scalar rate, and a fixed
+// ring of recent requests. There is deliberately no per-path breakdown — see
+// the note on TrackRequest.
 type RequestStats struct {
 	mu             sync.RWMutex
-	pathStats      map[string]*PathStats
 	recentRequests *CircularBuffer
 	requestRate    float64
 	lastRateCalc   time.Time
 	requestCount   int64
+	totals         Totals
 }
 
-// PathStats holds statistics for a specific path
-type PathStats struct {
-	TotalRequests   int64
-	TotalErrors     int64
-	AverageTime     time.Duration
-	LastAccessTime  time.Time
-	StatusCodeCount map[int]int64
+// Totals are monotonic counters since process start.
+//
+// They exist for consumers that need to derive their own rate over their own
+// window — alerting, in particular. requestRate cannot serve that purpose: it
+// is only recalculated when a request arrives, so after traffic stops it keeps
+// reporting the last busy figure indefinitely, which is exactly the moment a
+// rate is worth reading.
+type Totals struct {
+	Requests     uint64 `json:"requests"`
+	ClientErrors uint64 `json:"client_errors"`
+	ServerErrors uint64 `json:"server_errors"`
 }
 
 // NewRequestStats creates a new RequestStats instance
 func NewRequestStats() *RequestStats {
 	return &RequestStats{
-		pathStats:      make(map[string]*PathStats),
 		recentRequests: NewCircularBuffer(100), // Keep last 100 requests
 		lastRateCalc:   time.Now(),
 	}
 }
 
-// TrackRequest records a new request
+// TrackRequest records a new request.
+//
+// It keeps no per-path breakdown, and must not grow one. The obvious version —
+// a map[path]*stats — is keyed by attacker-chosen input: every 404 from the
+// static handler is a distinct key, paths are only bounded by the ~8KB header
+// limit, and nothing ever evicts. A scanner walking long junk URLs would spend
+// server memory that is never returned. This is the same high-cardinality
+// hazard core/analytics defends against with MaxDistinctPaths and its "/*"
+// overflow bucket, and a per-path breakdown here would need the same treatment
+// plus an accessor to justify existing at all.
 func (rs *RequestStats) TrackRequest(metrics RequestMetrics) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	pathStat, exists := rs.pathStats[metrics.Path]
-	if !exists {
-		pathStat = &PathStats{
-			StatusCodeCount: make(map[int]int64),
-		}
-		rs.pathStats[metrics.Path] = pathStat
-	}
-
-	pathStat.TotalRequests++
-	if metrics.StatusCode >= 400 {
-		pathStat.TotalErrors++
-	}
-	pathStat.StatusCodeCount[metrics.StatusCode]++
-	pathStat.LastAccessTime = metrics.Timestamp
-
-	// Update average using exponential moving average
-	if pathStat.TotalRequests == 1 {
-		pathStat.AverageTime = metrics.Duration
-	} else {
-		alpha := 0.1 // Smoothing factor
-		pathStat.AverageTime = time.Duration(float64(pathStat.AverageTime)*(1-alpha) + float64(metrics.Duration)*alpha)
+	// Client and server errors are counted apart because they mean different
+	// things: 4xx is mostly other people's bugs and scanner traffic, 5xx is
+	// yours. Alerting on the sum would fire on a bot sweeping for /wp-admin.
+	rs.totals.Requests++
+	switch {
+	case metrics.StatusCode >= 500:
+		rs.totals.ServerErrors++
+	case metrics.StatusCode >= 400:
+		rs.totals.ClientErrors++
 	}
 
 	rs.recentRequests.Add(metrics)
@@ -125,6 +129,13 @@ func (rs *RequestStats) TrackRequest(metrics RequestMetrics) {
 		rs.requestCount = 0
 		rs.lastRateCalc = time.Now()
 	}
+}
+
+// Totals returns the monotonic request counters since process start.
+func (rs *RequestStats) Totals() Totals {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+	return rs.totals
 }
 
 // GetRequestRate returns the current request rate per second

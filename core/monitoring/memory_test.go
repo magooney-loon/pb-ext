@@ -3,6 +3,11 @@ package monitoring
 import (
 	"context"
 	"errors"
+	"math"
+	"os"
+	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -196,15 +201,16 @@ func TestMemoryInfoConsistency(t *testing.T) {
 		return
 	}
 
-	// Test basic consistency rules for memory info
+	// Used + Free deliberately does NOT equal Total — the remainder is Cached
+	// (page cache plus reclaimable slab), which is neither in use by a process
+	// nor untouched. Accounting for it is what makes the numbers add up.
 	if memInfo.Total > 0 {
-		// Used + Free should approximately equal Total (allowing for some overhead)
-		calculated := memInfo.Used + memInfo.Free
-		tolerance := memInfo.Total / 10 // Allow 10% tolerance
+		calculated := memInfo.Used + memInfo.Free + memInfo.Cached
+		tolerance := memInfo.Total / 10 // Buffers are not tracked separately
 
 		if calculated < memInfo.Total-tolerance || calculated > memInfo.Total+tolerance {
-			t.Logf("Memory accounting may be inconsistent: Total=%d, Used=%d, Free=%d, Calculated=%d",
-				memInfo.Total, memInfo.Used, memInfo.Free, calculated)
+			t.Logf("Memory accounting may be inconsistent: Total=%d, Used=%d, Free=%d, Cached=%d, Calculated=%d",
+				memInfo.Total, memInfo.Used, memInfo.Free, memInfo.Cached, calculated)
 		}
 	}
 
@@ -475,5 +481,152 @@ func TestMemoryCalculations(t *testing.T) {
 				t.Errorf("Expected percentage ~%.1f%%, got %.1f%%", tc.expectedPct, actualPct)
 			}
 		})
+	}
+}
+
+// --- Available vs Free ---
+
+// readMemInfoKB parses the requested keys out of /proc/meminfo, in bytes.
+func readMemInfoKB(t *testing.T, keys ...string) map[string]uint64 {
+	t.Helper()
+
+	raw, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		t.Skipf("cannot read /proc/meminfo: %v", err)
+	}
+
+	wanted := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		wanted[k] = true
+	}
+
+	out := map[string]uint64{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		name, rest, found := strings.Cut(line, ":")
+		if !found || !wanted[name] {
+			continue
+		}
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			continue
+		}
+		kb, err := strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			continue
+		}
+		out[name] = kb * 1024
+	}
+	return out
+}
+
+// TestMemoryInfo_AvailableMatchesMemAvailable is the regression test for
+// reporting MemFree where MemAvailable was meant. On a warm Linux box MemFree
+// is near zero while most of RAM is reclaimable page cache, so showing Free as
+// "free memory" understates it by an order of magnitude.
+func TestMemoryInfo_AvailableMatchesMemAvailable(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc/meminfo is Linux-only")
+	}
+
+	memInfo, err := CollectMemoryInfo()
+	if err != nil {
+		t.Fatalf("CollectMemoryInfo: %v", err)
+	}
+
+	proc := readMemInfoKB(t, "MemTotal", "MemFree", "MemAvailable")
+	available, ok := proc["MemAvailable"]
+	if !ok {
+		t.Skip("kernel does not expose MemAvailable")
+	}
+
+	// Values drift between the two reads, so compare with a tolerance.
+	tolerance := float64(memInfo.Total) * 0.05
+	if diff := math.Abs(float64(memInfo.Available) - float64(available)); diff > tolerance {
+		t.Errorf("Available = %d, want ~%d (MemAvailable); diff %.0f exceeds tolerance %.0f",
+			memInfo.Available, available, diff, tolerance)
+	}
+
+	if memInfo.Free != 0 && memInfo.Available < memInfo.Free {
+		t.Errorf("Available (%d) must never be less than Free (%d)", memInfo.Available, memInfo.Free)
+	}
+}
+
+func TestMemoryInfo_TotalMatchesMemTotal(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc/meminfo is Linux-only")
+	}
+
+	memInfo, err := CollectMemoryInfo()
+	if err != nil {
+		t.Fatalf("CollectMemoryInfo: %v", err)
+	}
+
+	proc := readMemInfoKB(t, "MemTotal")
+	if memInfo.Total != proc["MemTotal"] {
+		t.Errorf("Total = %d, want %d (MemTotal)", memInfo.Total, proc["MemTotal"])
+	}
+}
+
+// TestMemoryInfo_AccountingAddsUp pins the identity the dashboard relies on:
+// Total is split across Used, Free and Cached, not just Used and Free.
+func TestMemoryInfo_AccountingAddsUp(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("accounting differs per platform")
+	}
+
+	memInfo, err := CollectMemoryInfo()
+	if err != nil {
+		t.Fatalf("CollectMemoryInfo: %v", err)
+	}
+	if memInfo.Total == 0 {
+		t.Skip("no memory reported")
+	}
+
+	sum := memInfo.Used + memInfo.Free + memInfo.Cached
+	// Buffers are not tracked separately and are typically well under 1%.
+	tolerance := float64(memInfo.Total) * 0.05
+	if diff := math.Abs(float64(sum) - float64(memInfo.Total)); diff > tolerance {
+		t.Errorf("Used+Free+Cached = %d, want ~%d (Total); diff %.0f exceeds tolerance %.0f",
+			sum, memInfo.Total, diff, tolerance)
+	}
+
+	// The bug this guards: Used+Free alone leaves the cache unaccounted for.
+	if memInfo.Cached > 0 && memInfo.Used+memInfo.Free == memInfo.Total {
+		t.Error("Used+Free equals Total while Cached is non-zero — accounting is wrong")
+	}
+}
+
+func TestMemoryInfo_UsedPercentTracksUsed(t *testing.T) {
+	memInfo, err := CollectMemoryInfo()
+	if err != nil {
+		t.Fatalf("CollectMemoryInfo: %v", err)
+	}
+	if memInfo.Total == 0 {
+		t.Skip("no memory reported")
+	}
+
+	want := float64(memInfo.Used) / float64(memInfo.Total) * 100
+	if diff := math.Abs(memInfo.UsedPercent - want); diff > 1.0 {
+		t.Errorf("UsedPercent = %.2f, want ~%.2f (Used/Total)", memInfo.UsedPercent, want)
+	}
+
+	// A percentage derived from Available instead would be a different number
+	// entirely; make sure we did not swap them.
+	if memInfo.UsedPercent < 0 || memInfo.UsedPercent > 100 {
+		t.Errorf("UsedPercent = %.2f, want within [0,100]", memInfo.UsedPercent)
+	}
+}
+
+// TestMemoryInfo_AvailableFallback covers platforms where gopsutil leaves
+// Available at zero: the collector must estimate rather than report that no
+// memory is obtainable.
+func TestMemoryInfo_AvailableFallback(t *testing.T) {
+	memInfo, err := CollectMemoryInfo()
+	if err != nil {
+		t.Fatalf("CollectMemoryInfo: %v", err)
+	}
+
+	if memInfo.Total > 0 && memInfo.Available == 0 {
+		t.Error("Available is zero on a machine with memory; the fallback did not apply")
 	}
 }

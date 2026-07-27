@@ -4,6 +4,8 @@ import (
 	"errors"
 	"log"
 
+	"github.com/magooney-loon/pb-ext/core/alerts"
+	"github.com/magooney-loon/pb-ext/core/audit"
 	"github.com/pocketbase/pocketbase"
 )
 
@@ -12,6 +14,8 @@ type options struct {
 	config         *pocketbase.Config
 	pocketbase     *pocketbase.PocketBase
 	developer_mode bool
+	alerts         []alerts.Option
+	audit          []audit.Option
 }
 
 // ErrConfigurationConflict is returned if both a config and an initialized PocketBase are provided.
@@ -54,6 +58,37 @@ func InDeveloperMode() Option {
 	return func(opts *options) {
 		opts.developer_mode = true
 		log.Println("🔧 Developer mode")
+	}
+}
+
+// WithAlerts configures the notification subsystem. Without it, alerts fall
+// back to the PBEXT_TELEGRAM_* environment variables, and stay disabled if
+// those are unset.
+//
+//	srv := server.New(server.WithAlerts(
+//	    alerts.WithTelegram(token, chatID),
+//	    alerts.WithErrorRateAlert(10, 20),
+//	))
+func WithAlerts(opts ...alerts.Option) Option {
+	return func(o *options) {
+		o.alerts = append(o.alerts, opts...)
+	}
+}
+
+// WithAudit configures admin access auditing, which is on by default.
+//
+// It records requests to the admin surfaces and every superuser authentication
+// attempt, including the account a failed attempt targeted — so unlike the rest
+// of pb-ext it stores personal data. Use audit.WithPersonalData to narrow what
+// is kept, or audit.WithEnabled(false) to turn it off entirely.
+//
+//	srv := server.New(server.WithAudit(
+//	    audit.WithRetentionDays(30),
+//	    audit.WithBruteForceAlert(3, 5*time.Minute),
+//	))
+func WithAudit(opts ...audit.Option) Option {
+	return func(o *options) {
+		o.audit = append(o.audit, opts...)
 	}
 }
 

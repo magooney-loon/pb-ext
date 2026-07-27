@@ -34,17 +34,15 @@
                     </div>
                     <div class="column flex-fill">
                         <div class="txt-hint">Temp</div>
-                        {{ if (isset .SystemStats.CPUInfo 0) }}
                         <div>
-                            {{if gt (index .SystemStats.CPUInfo 0).Temperature 0.0}}
-                                {{printf "%.1f°C" (index .SystemStats.CPUInfo 0).Temperature}}
-                            {{else}}
+                            {{if gt (getCPUTemp .SystemStats) 0.0}}
+                                {{printf "%.1f°C" (getCPUTemp .SystemStats)}}
+                            {{else if gt (getSystemTemp .SystemStats) 0.0}}
                                 {{printf "%.1f°C" (getSystemTemp .SystemStats)}}
+                            {{else}}
+                                N/C
                             {{end}}
                         </div>
-                        {{ else }}
-                        <div> N/C </div>
-                        {{ end }}
                     </div>
                 </div>
             </div>
@@ -82,12 +80,12 @@
 
                 <div class="flex txt-sm m-t-5">
                     <div class="column flex-fill">
-                        <div class="txt-hint">Free</div>
-                        <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Free 1073741824)}}</div>
+                        <div class="txt-hint" title="Memory obtainable without swapping, including reclaimable cache">Available</div>
+                        <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Available 1073741824)}}</div>
                     </div>
                     <div class="column flex-fill">
-                        <div class="txt-hint"></div>
-                        <div></div>
+                        <div class="txt-hint" title="Page cache and reclaimable slab — counted as neither used nor free">Cached</div>
+                        <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.MemoryInfo.Cached 1073741824)}}</div>
                     </div>
                 </div>
             </div>
@@ -99,15 +97,15 @@
                 <div class="flex gap-5">
                     <i class="ri-hard-drive-2-line txt-lg txt-hint"></i>
                     <div class="flex-fill">
-                        <h6 class="txt-hint m-b-5">Disk</h6>
-                        <h3 class="m-b-5">{{printf "%.1f%%" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}</h3>
+                        <h6 class="txt-hint m-b-5" title="Filesystem containing {{.SystemStats.DiskPath}}">Disk</h6>
+                        <h3 class="m-b-5">{{printf "%.1f%%" .SystemStats.DiskUsagePercent}}</h3>
                     </div>
                 </div>
 
                 <div class="progress m-t-10 m-b-5">
                     <div class="progress-bar success" role="progressbar"
-                        style="width: {{printf "%.1f%%" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}"
-                        aria-valuenow="{{printf "%.1f" (multiply (divide .SystemStats.DiskUsed .SystemStats.DiskTotal) 100)}}"
+                        style="width: {{printf "%.1f%%" .SystemStats.DiskUsagePercent}}"
+                        aria-valuenow="{{printf "%.1f" .SystemStats.DiskUsagePercent}}"
                         aria-valuemin="0"
                         aria-valuemax="100"></div>
                 </div>
@@ -125,7 +123,7 @@
 
                 <div class="flex txt-sm m-t-5">
                     <div class="column flex-fill">
-                        <div class="txt-hint">Free</div>
+                        <div class="txt-hint" title="Available to unprivileged users; excludes reserved blocks, so Used + Free is less than Total">Free</div>
                         <div>{{printf "%.1f GB" (divideFloat64 .SystemStats.DiskFree 1073741824)}}</div>
                     </div>
                     {{if hasDiskTemps .SystemStats}}

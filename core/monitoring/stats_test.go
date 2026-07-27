@@ -67,7 +67,7 @@ func TestCollectSystemStatsContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	startTime := time.Now()
-	_, err := CollectSystemStats(ctx, startTime)
+	_, err := CollectSystemStats(ctx, startTime, "")
 
 	if err == nil {
 		t.Error("Expected error for cancelled context, got nil")
@@ -86,7 +86,7 @@ func TestCollectSystemStatsContextTimeout(t *testing.T) {
 	time.Sleep(1 * time.Millisecond)
 
 	startTime := time.Now()
-	_, err := CollectSystemStats(ctx, startTime)
+	_, err := CollectSystemStats(ctx, startTime, "")
 
 	if err == nil {
 		t.Error("Expected error for timed out context, got nil")
@@ -148,7 +148,7 @@ func TestCollectSystemStatsBasic(t *testing.T) {
 	startTime := time.Now()
 
 	// Try to collect stats - this may fail on some systems, so we handle it gracefully
-	stats, err := CollectSystemStats(ctx, startTime)
+	stats, err := CollectSystemStats(ctx, startTime, "")
 
 	if err != nil {
 		// Log the error but don't fail the test - system calls may not work in all environments
@@ -175,7 +175,7 @@ func TestCollectSystemStatsWithoutContextBasic(t *testing.T) {
 	startTime := time.Now()
 
 	// Try basic collection without context
-	stats, err := CollectSystemStatsWithoutContext(startTime)
+	stats, err := CollectSystemStatsWithoutContext(startTime, "")
 
 	if err != nil {
 		t.Logf("CollectSystemStatsWithoutContext failed (may be expected): %v", err)
@@ -259,7 +259,7 @@ func TestStatsCollectorSafety(t *testing.T) {
 	}()
 
 	startTime := time.Now()
-	_, err := CollectSystemStats(context.TODO(), startTime)
+	_, err := CollectSystemStats(context.TODO(), startTime, "")
 
 	// May error but should not panic
 	if err != nil {
@@ -300,7 +300,7 @@ func ExampleCollectSystemStats() {
 	ctx := context.Background()
 	startTime := time.Now()
 
-	stats, err := CollectSystemStats(ctx, startTime)
+	stats, err := CollectSystemStats(ctx, startTime, "")
 	if err != nil {
 		// Handle error
 		return

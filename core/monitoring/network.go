@@ -65,8 +65,13 @@ func CollectNetworkInfoWithContext(ctx context.Context) (NetworkStats, error) {
 	}
 
 	for _, iface := range interfaces {
-		// Skip loopback and interfaces without addresses
-		if strings.Contains(strings.ToLower(iface.Name), "lo") || len(iface.Addrs) == 0 {
+		// Skip loopback and interfaces without addresses.
+		//
+		// Loopback is identified by the interface flag, not by looking for "lo"
+		// in the name: that substring also matches real interfaces such as
+		// "wlo1" (systemd's predictable name for onboard wireless), which would
+		// drop a machine's primary interface and its byte counters.
+		if isLoopback(iface) || len(iface.Addrs) == 0 {
 			continue
 		}
 
@@ -102,4 +107,18 @@ func CollectNetworkInfoWithContext(ctx context.Context) (NetworkStats, error) {
 // CollectNetworkInfo uses background context
 func CollectNetworkInfo() (NetworkStats, error) {
 	return CollectNetworkInfoWithContext(context.Background())
+}
+
+// isLoopback reports whether iface is a loopback device, preferring the
+// kernel-reported flag and falling back to an exact name match for platforms
+// that do not surface flags.
+func isLoopback(iface net.InterfaceStat) bool {
+	for _, flag := range iface.Flags {
+		if strings.EqualFold(flag, "loopback") {
+			return true
+		}
+	}
+
+	name := strings.ToLower(iface.Name)
+	return name == "lo" || name == "lo0"
 }

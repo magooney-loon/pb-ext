@@ -63,6 +63,17 @@ func initApp(devMode bool) {
 
 	// Note: WithConfig and WithPocketbase cannot be used together
 
+	// Alerting and admin access auditing. Both work with no configuration at
+	// all — alerting needs only PBEXT_TELEGRAM_BOT_TOKEN and
+	// PBEXT_TELEGRAM_CHAT_ID in the environment, and auditing is on by default.
+	//
+	// Every available option, with its default, is documented in
+	// cmd/server/alerts.go.
+	opts = append(opts,
+		app.WithAlerts(alertOptions()...),
+		app.WithAudit(auditOptions()...),
+	)
+
 	srv := app.New(opts...)
 
 	app.SetupLogging(srv)
@@ -70,6 +81,7 @@ func initApp(devMode bool) {
 	registerCollections(srv.App())
 	registerRoutes(srv.App())
 	registerJobs(srv.App())
+	registerAlerts(srv.App())
 
 	srv.App().OnServe().BindFunc(func(e *core.ServeEvent) error {
 		app.SetupRecovery(srv.App(), e)
@@ -92,6 +104,7 @@ func initApp(devMode bool) {
 // Example routes in cmd/server/routes.go
 // Example handlers in cmd/server/handlers.go
 // Example cron jobs in cmd/server/jobs.go
+// Example alert rules in cmd/server/alerts.go
 //
 // You can restructure Your project as You wish,
 // just keep this main.go in cmd/server/main.go
