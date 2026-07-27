@@ -27,6 +27,7 @@ All operations go through `pb-cli`.
 | `go test -race ./core/alerts/` | Alerts tests; the package is concurrent, so run it under `-race` |
 | `go test -race ./core/audit/` | Admin access auditing tests; also concurrent |
 | `go test ./core/analytics/ -run TestStress -v` | Analytics sustained-load tests (skipped by `-short`) |
+| `go run ./cmd/bench -h` | Full-server stress test: boots a real pb-ext server, ramps HTTP traffic, reports throughput/latency/errors plus CPU/mem and `data.db`/`auxiliary.db` growth per stage |
 
 The dev server runs at `127.0.0.1:8090` by default. PocketBase admin: `/_/`, pb-ext dashboard: `/_/_`.
 
